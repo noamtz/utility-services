@@ -1,0 +1,60 @@
+# AGENTS.md — <project name>
+
+<!--
+Keep this file lean. Codex reads it before every task. Retain only repository-specific
+facts and rules that materially change behavior; move detailed procedures into skills or
+references. Replace every placeholder before relying on the file.
+-->
+
+## What this is
+
+<One paragraph: product, users, and stack.>
+
+## Architecture map
+
+```text
+src/
+  <area>/              # what lives here and why
+  <important-file>     # the integration point worth knowing
+tests/
+  <area>/              # test organization and ownership
+```
+
+## Ground rules
+
+- **Types:** <specific type/source-of-truth convention>
+- **Structure:** <where new code goes and the boundary rule>
+- **Errors:** <failure and user-visible error convention>
+- **Data:** <ownership, migration, and transaction convention>
+- **Testing:** <what done means and the required command>
+- **Git:** <branch, commit, and pull-request convention>
+
+## Working principles
+
+- <What answer/review/diagnose requests authorize.>
+- <What build/change/fix requests authorize.>
+- <When to ask versus make a reversible assumption.>
+- <What must be validated before reporting completion.>
+- <External, destructive, security, or cost boundaries.>
+
+## Subagent routing
+
+- <agent-name>: <bounded job and whether it may edit>
+- Delegate only when <project-specific condition>.
+
+## Commands
+
+```text
+install:    <command>
+run:        <command>
+test:       <command>
+typecheck:  <command>
+lint:       <command>
+```
+
+## On-demand context
+
+- Reusable workflows: `.agents/skills/<name>/SKILL.md`; invoke explicitly as `$<name>`.
+- Shared engineering references: `.agents/references/<topic>.md`.
+- Project Codex settings and custom agents: `.codex/config.toml` and `.codex/agents/`.
+- Add nested `AGENTS.md` or `AGENTS.override.md` files only for subtree-specific guidance.

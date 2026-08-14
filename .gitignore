@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+.codex/logs/
+__pycache__/
+*.pyc

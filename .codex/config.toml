@@ -1,0 +1,14 @@
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 8
+default_subagent_model = "gpt-5.6-terra"
+default_subagent_reasoning_effort = "medium"
+
+[mcp_servers.codebase-search]
+command = "uv"
+args = ["run", "--script", "tooling/mcp/codebase_search.py"]
+cwd = "."
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+enabled_tools = ["where_is", "find_references", "outline"]
+default_tools_approval_mode = "approve"
