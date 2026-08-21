@@ -16,7 +16,7 @@ so that each later MVP ticket can add one bounded feature without redefining the
 
 ## Problem Statement
 
-The current directory contains only the Codex/AI layer and is not a Git checkout. The public GitHub repository is empty and has no default branch. There is no application manifest, source tree, lockfile, test framework, build command, or SST configuration. Later tickets cannot safely implement owner identity, project authentication, file management, or usage metering until the physical layout and shared runtime contracts are established and verified.
+The repository is now an established Git checkout with `main` at the AI-layer baseline and this plan on `docs/rus-01-foundation-plan`. It still contains no application manifest, source tree, lockfile, test framework, build command, or SST configuration. Later tickets cannot safely implement owner identity, project authentication, file management, or usage metering until the physical layout and shared runtime contracts are established and verified.
 
 ## Solution Statement
 
@@ -28,7 +28,7 @@ Create an npm-workspaces modular monolith on Node.js 24 with exact direct depend
 - `infra` for one SST application composition;
 - colocated unit tests and root integration/E2E directories for future cross-slice tests.
 
-Choose Zod 4 as the concrete schema library because it validates untrusted runtime data while inferring TypeScript types and runs in both Node and modern browsers. Use AWS Lambda Powertools for structured logging, tracing, and metrics, wrapped by project-owned redaction and request-context seams. Configure `sst.aws.ApiGatewayV2`, `sst.aws.StaticSite`, `il-central-1`, explicit stage validation, and production `removal: "retain"` plus `protect: true`. All implementation and validation stays local/read-only; no AWS deployment, credentials, remote branch, commit, or push is authorized by this plan.
+Choose Zod 4 as the concrete schema library because it validates untrusted runtime data while inferring TypeScript types and runs in both Node and modern browsers. Use AWS Lambda Powertools for structured logging, tracing, and metrics, wrapped by project-owned redaction and request-context seams. Configure `sst.aws.ApiGatewayV2`, `sst.aws.StaticSite`, `il-central-1`, an exactly pinned AWS provider, explicit stage validation, `cors: false`, and production `removal: "retain"` plus `protect: true`. Route every config-evaluating SST command through a tested wrapper that requires an explicit valid stage. A successful non-production `sst diff` is a completion gate; if it requires unapproved AWS bootstrap or writes, stop and leave RUS-01 blocked rather than weakening the gate. No AWS deployment, credential creation, or resource/state mutation is authorized by this plan.
 
 ## Out of Scope / Non-Goals
 
@@ -39,7 +39,7 @@ Choose Zod 4 as the concrete schema library because it validates untrusted runti
 - Not included: completed dashboard workflows, canonical `curl` activation flow, production alarms, or end-to-end activation proof (RUS-09 through RUS-11).
 - Not included: custom domains, SDKs, browser/mobile project credentials, multipart uploads, CloudFront file delivery, billing, or any other deferred architecture item.
 - Not changing: the GitHub wiki remains canonical; do not copy the PRD or architecture into local product docs.
-- Not authorized: `sst deploy`, `sst dev`, AWS state bootstrap/resource creation, Cognito invitations, credential creation, remote commits/branches, or pushes.
+- Not authorized: `sst deploy`, `sst dev`, AWS state bootstrap/resource creation, Cognito invitations, credential creation, or remote changes outside the separately approved feature branch/PR workflow.
 
 ## Feature Metadata
 
@@ -86,9 +86,10 @@ Choose Zod 4 as the concrete schema library because it validates untrusted runti
 
 Repository facts to verify again before implementation:
 
-- No `.git` directory or application scaffold exists locally.
-- `noamtz/utility-services` is currently an empty GitHub repository with no default branch.
-- The current GitHub credential has read-only repository permission; no push should be attempted.
+- This is a Git checkout with `origin` set to `https://github.com/noamtz/utility-services.git`; `main` currently points to AI-layer baseline commit `2bd72c8`.
+- The RUS-01 plan branch is `docs/rus-01-foundation-plan`; implementation must start from the owner-approved branch/base required by the execution workflow, never by reinitializing Git in place.
+- No application scaffold or manifest exists yet.
+- GitHub operations for this repository must authenticate as `noamtz`. Never switch to or use `noamtznm`.
 
 ### Existing Files to Update
 
@@ -102,7 +103,8 @@ Repository facts to verify again before implementation:
 - `tsconfig.json`, `tsconfig.base.json` - Strict TypeScript project references and shared compiler policy.
 - `eslint.config.mjs`, `.prettierrc.json`, `.prettierignore` - Flat lint/format policy for TypeScript, React, tests, and generated outputs.
 - `vitest.config.ts` - Backend/contracts/infra Node projects and dashboard jsdom project with V8 coverage thresholds.
-- `sst.config.ts` - Thin SST entry point delegating policy and component construction to `infra`.
+- `sst.config.ts` - Thin SST entry point delegating policy and component construction to `infra`, with the AWS provider version pinned exactly.
+- `tooling/run-sst.mjs`, `tooling/run-sst.test.ts` - Allowlisted SST command wrapper that requires and validates an explicit stage before spawning the CLI.
 - `infra/tsconfig.json` - Infrastructure TypeScript project included by the root project-reference graph.
 - `infra/config/stage.ts`, `infra/config/stage.test.ts` - Allowed stage grammar and production/developer/PR classification.
 - `infra/config/app.ts`, `infra/config/app.test.ts` - Pure region, removal, protection, and app-name policy consumed by `sst.config.ts`.
@@ -124,7 +126,9 @@ Repository facts to verify again before implementation:
 ### Relevant Documentation YOU SHOULD READ THESE BEFORE IMPLEMENTING!
 
 - [SST configuration: app, providers, removal, protect](https://sst.dev/docs/reference/config)
-  - Why: Defines `il-central-1`, `home`, production retention, and the distinction between `protect` and `removal`.
+  - Why: Defines `il-central-1`, `home`, exact provider versions, `sst install`, production retention, and the distinction between `protect` and `removal`.
+- [SST provider installation](https://sst.dev/docs/providers/)
+  - Why: Requires `sst install` after provider changes and confirms that the configured provider version remains pinned.
 - [SST CLI: `diff`](https://sst.dev/docs/reference/cli/#diff)
   - Why: `sst diff --json` is the non-deploying infrastructure preview command; stop if a first run requests external state bootstrap not separately authorized.
 - [SST `StaticSite`](https://sst.dev/docs/component/aws/static-site/)
@@ -152,6 +156,7 @@ Use exact direct versions in manifests and preserve the generated lockfile. Re-c
 
 - Node `24.x`; npm `11.x` (local evidence: Node 24.13.0/npm 11.6.2).
 - `sst@4.17.1` (current registry stable at plan creation; the approved architecture did not pin SST v3).
+- SST AWS provider `@pulumi/aws@7.43.0`, declared as `providers.aws.version: "7.43.0"` with region `il-central-1`; run `sst install` after creating or changing the provider configuration. Treat `.sst/platform` and generated SST types as reproducible ignored output, not committed source.
 - `typescript@6.0.3`, not TypeScript 7: current `typescript-eslint@8.67.0` declares TypeScript `<6.1.0`.
 - `typescript-eslint@8.67.0`, `eslint@10.8.1`, `prettier@3.9.6`.
 - `react@19.2.8`, `react-dom@19.2.8`, `vite@8.2.1`, `@vitejs/plugin-react@6.0.5`.
@@ -199,7 +204,7 @@ Zod schemas are the source of truth; infer TypeScript types from them. Clients n
 
 **Logging/redaction:** Never log raw API Gateway events. Use an allowlisted structured context. Redact keys case-insensitively (`authorization`, `cookie`, `x-api-key`, `apiKey`, `token`, `secret`, `password`, and future presigned URL fields) at any nesting depth; strip query/fragment data from URL-like strings. Tests must prove the original object is not mutated.
 
-**Stage policy:** Accept exactly `production`, `pr-<positive-integer>`, or `dev-<lowercase-slug>`. Production uses `removal: "retain"` and `protect: true`; ephemeral stages use `removal: "remove"` and `protect: false`. Every SST command must receive `--stage`; never allow an implicit username/production stage.
+**Stage policy:** Accept exactly `production`, `pr-<positive-integer>`, or `dev-<lowercase-slug>`. Production uses `removal: "retain"` and `protect: true`; ephemeral stages use `removal: "remove"` and `protect: false`. Every SST command that evaluates application configuration or can touch state/resources must go through `tooling/run-sst.mjs`, receive `--stage`, and reject missing or invalid values before spawning SST. Informational `sst --version` may run directly because it does not evaluate application configuration. Never allow an implicit username/production stage.
 
 **Testing:** Co-locate unit tests with implementation. Use Node environment for contracts/backend/infra and jsdom for dashboard. Keep files focused (target under 300 lines). Test behavior and public shapes, not implementation details.
 
@@ -209,20 +214,21 @@ Zod schemas are the source of truth; infer TypeScript types from them. Clients n
 {
   "scripts": {
     "dev": "npm run dev --workspace @utility-services/dashboard",
-    "dev:sst": "sst dev",
+    "dev:sst": "node tooling/run-sst.mjs dev",
     "format:check": "prettier . --check",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "build": "npm run typecheck && npm run build --workspace @utility-services/dashboard",
-    "infra:diff": "sst diff --json",
+    "infra:install": "node tooling/run-sst.mjs install",
+    "infra:diff": "node tooling/run-sst.mjs diff --json",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build"
   }
 }
 ```
 
-Keep `npm run dev` fully local. `npm run dev:sst -- --stage dev-<slug>` is intentionally separate because SST Live can create/update a personal AWS stage and is not authorized by this ticket.
+Keep `npm run dev` fully local. The wrapper owns the command allowlist, requires exactly one explicit valid stage, preserves arguments without invoking a shell, and rejects `production` for `dev`. `npm run dev:sst -- --stage dev-<slug>` is intentionally separate because SST Live can create/update a personal AWS stage and is not authorized by this ticket.
 
 ---
 
@@ -230,14 +236,15 @@ Keep `npm run dev` fully local. `npm run dev:sst -- --stage dev-<slug>` is inten
 
 ### Phase 1: Repository and Toolchain Foundation
 
-Initialize local Git metadata/remotes without external writes; establish the npm workspace, strict TypeScript graph, exact dependency lock, linting, formatting, and test runners.
+Verify the existing checkout, origin, baseline, branch, and GitHub identity; establish the npm workspace, strict TypeScript graph, exact dependency lock, linting, formatting, and test runners.
 
 **Tasks:**
 
-- Initialize local `main` metadata and add the empty GitHub repository as `origin`; do not commit, create a remote branch, or push.
+- Verify the existing checkout, `origin`, `main` baseline, owner-approved working branch, and clean worktree; do not run `git init` or replace repository metadata.
+- Verify `gh api user --jq .login` returns `noamtz` before any GitHub operation; never switch to or use another account.
 - Create root/workspace manifests and package boundaries.
 - Pin compatible Node/npm/SST/TypeScript/tool versions and generate `package-lock.json`.
-- Add strict TypeScript, ESLint flat config, Prettier, and multi-environment Vitest configuration.
+- Add strict TypeScript, ESLint flat config, Prettier, multi-environment Vitest configuration, and the tested explicit-stage SST wrapper.
 
 ### Phase 2: Shared Runtime Contracts and Observability
 
@@ -262,7 +269,8 @@ Compose one SST app with pure, tested stage policy; add the `/v1/health` Lambda 
 **Tasks:**
 
 - Implement stage grammar, `il-central-1`, production retention/protection, and stable app/component names.
-- Add `ApiGatewayV2` and `StaticSite` components using AWS-generated domains.
+- Pin the AWS provider to `7.43.0`, run the stage-checked `sst install`, and keep generated `.sst/platform` artifacts ignored and reproducible.
+- Add `ApiGatewayV2` with `cors: false` and `StaticSite` components using AWS-generated domains.
 - Add the thin health Lambda; keep its body in Lambda/API Gateway because it is JSON control data, never file bytes.
 - Add the dashboard shell without product flows or secrets.
 - Return only non-secret `apiUrl` and `dashboardUrl` SST outputs.
@@ -278,7 +286,7 @@ Make every promised command reproducible, validate the complete local foundation
 - Add/verify safe local development, test, coverage, type-check, lint, format, build, and SST preview scripts.
 - Expand README with architecture map, stage names, external-action boundary, and canonical wiki links.
 - Update AGENTS.md command section with observed results, not aspirational commands.
-- Run application and existing Codex-layer validation; record any AWS-backed preview as not run unless it completes without deployment or unauthorized bootstrap.
+- Run application and existing Codex-layer validation. A successful non-production infrastructure diff is required; if it cannot run without unauthorized bootstrap/write, leave the ticket blocked and report the unmet gate.
 
 ---
 
@@ -286,12 +294,16 @@ Make every promised command reproducible, validate the complete local foundation
 
 IMPORTANT: Execute every task in order. RUS-01 runs alone because it establishes paths/contracts every later ticket inherits.
 
-### 1. INITIALIZE local Git metadata and origin
+### 1. VERIFY the existing checkout, origin, baseline, and identity
 
-- **IMPLEMENT**: Confirm again that `.git` is absent and GitHub is empty; run `git init -b main`, then add `origin` as `https://github.com/noamtz/utility-services.git`.
-- **GOTCHA**: Preserve every existing AI-layer file. Do not fetch over the directory, commit, create/push a remote branch, or change GitHub settings; current viewer permission is read-only.
+- **IMPLEMENT**: Confirm the repository root, `origin` URL, `main` at or descended from baseline `2bd72c8`, the owner-approved working branch, and worktree status before changing files. Fetch remote metadata read-only if needed; do not reinitialize or replace `.git`.
+- **IMPLEMENT**: Before any GitHub operation, require `gh api user --jq .login` to return exactly `noamtz`. Never switch to or use `noamtznm`.
+- **GOTCHA**: Preserve every existing AI-layer file and unrelated work. Do not rewrite history, replace the checkout, change GitHub settings, or create/push a branch without the execution workflow's explicit owner authorization.
 - **VALIDATE**: `git rev-parse --show-toplevel`
 - **VALIDATE**: `git remote get-url origin`
+- **VALIDATE**: `git merge-base --is-ancestor 2bd72c8 HEAD`
+- **VALIDATE**: `gh api user --jq .login`
+- **VALIDATE**: `git status --short`
 - **SATISFIES**: AC2, AC9.
 
 ### 2. CREATE root workspace and exact dependency lock
@@ -307,9 +319,11 @@ IMPORTANT: Execute every task in order. RUS-01 runs alone because it establishes
 
 - **IMPLEMENT**: Add root/base tsconfigs with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `useUnknownInCatchVariables`, modern ESM/Node settings, DOM only for dashboard, and project references for contracts/backend/dashboard/infra.
 - **IMPLEMENT**: Add ESLint flat config, Prettier config/ignore, and Vitest projects for Node and jsdom; exclude `dist`, `.sst`, coverage, and generated SST types.
+- **IMPLEMENT**: Add `tooling/run-sst.mjs` with an allowlist for `install`, `diff`, and `dev`; require exactly one `--stage`, validate it with the same stage grammar, reject `production` for `dev`, forward arguments without a shell, and exit before spawning SST on any invalid input.
 - **PATTERN**: `.agents/references/architecture-patterns.md:298-329` and `:571-595` (focused files, explicit dependencies, colocated tests).
 - **VALIDATE**: `npm run typecheck`
 - **VALIDATE**: `npm run format:check`
+- **VALIDATE**: `npm test -- tooling/run-sst.test.ts`
 - **SATISFIES**: AC1, AC6, AC8.
 
 ### 4. CREATE Zod HTTP and health contracts
@@ -350,16 +364,21 @@ IMPORTANT: Execute every task in order. RUS-01 runs alone because it establishes
 ### 8. CREATE pure SST stage/application policy
 
 - **IMPLEMENT**: Add and test stage classification for `production`, `pr-N`, and `dev-slug`; reject missing/unknown stages with an actionable error.
-- **IMPLEMENT**: Return app name, AWS home/provider region `il-central-1`, production `removal: "retain"` and `protect: true`, and ephemeral `removal: "remove"`/unprotected values from a pure function consumed by `sst.config.ts`.
+- **IMPLEMENT**: Return app name, AWS home/provider package `@pulumi/aws`, exact provider version `7.43.0`, region `il-central-1`, production `removal: "retain"` and `protect: true`, and ephemeral `removal: "remove"`/unprotected values from a pure function consumed by `sst.config.ts`.
+- **IMPLEMENT**: After `sst.config.ts` declares the provider, run `npm run infra:install -- --stage dev-plan`. Ignore all generated `.sst/platform` packages, locks, types, and outputs; reproducibility comes from pinned `sst@4.17.1`, pinned provider `7.43.0`, and rerunning `sst install`.
 - **GOTCHA**: `protect` only blocks `sst remove`; `removal: "retain"` is the required future-data safety default when resource definitions change.
+- **GOTCHA**: `sst install` may access the npm registry but must not bootstrap AWS state or mutate AWS resources. Stop and report if the installed SST version behaves otherwise.
 - **VALIDATE**: `npm test -- infra/config`
+- **VALIDATE**: `npm test -- tooling/run-sst.test.ts`
+- **VALIDATE**: `npm run infra:install -- --stage dev-plan`
 - **SATISFIES**: AC3, AC7, AC8.
 
 ### 9. CREATE the SST API and StaticSite composition
 
-- **IMPLEMENT**: Add one `sst.aws.ApiGatewayV2`, route `GET /v1/health` to `packages/backend/src/functions/health.handler`, enable tracing, and add one `sst.aws.StaticSite` at `apps/dashboard` with `npm run build`/`dist`.
+- **IMPLEMENT**: Add one `sst.aws.ApiGatewayV2` with `cors: false`, route `GET /v1/health` to `packages/backend/src/functions/health.handler`, enable tracing, and add one `sst.aws.StaticSite` at `apps/dashboard` with `npm run build`/`dist`.
 - **IMPLEMENT**: Use Node.js 24 explicitly if the pinned SST version does not default to it; return only complete AWS-generated API/dashboard URLs as outputs.
 - **IMPLEMENT**: Do not add file buckets, tables, Cognito, custom domains, secrets, or placeholder independently deployed services.
+- **GOTCHA**: The RUS-01 dashboard shell does not call the API, so no cross-origin access is needed. A later browser/API integration ticket must replace `cors: false` with a tested minimum origin/method/header allowlist; wildcard CORS is prohibited for authenticated control routes.
 - **GOTCHA**: Do not set secret values in StaticSite environment; any `VITE_*` value is browser-visible. If the shell receives `VITE_API_URL`, it may contain only the public API URL.
 - **VALIDATE**: `npm run typecheck`
 - **VALIDATE**: `npm test -- infra`
@@ -379,14 +398,14 @@ IMPORTANT: Execute every task in order. RUS-01 runs alone because it establishes
 
 - **IMPLEMENT**: Extend `.gitignore` for `node_modules/`, `dist/`, `coverage/`, `.sst/`, generated SST types/outputs, Vite caches, local environment files, and editor/OS noise while preserving `!.env.example` and Codex-log rules.
 - **IMPLEMENT**: Expand README with product summary, canonical wiki links, physical layout/ownership, prerequisites, `npm ci`, safe local `npm run dev`, all quality commands, explicit `--stage` examples, and a boxed warning that `sst dev`/deploy and AWS/remote changes require authorization.
-- **IMPLEMENT**: Explain that `npm run infra:diff -- --stage dev-<slug>` is preview-only and must stop if SST requests an unapproved bootstrap/write.
+- **IMPLEMENT**: Explain that `npm run infra:install -- --stage dev-<slug>` regenerates ignored provider artifacts locally, while `npm run infra:diff -- --stage dev-<slug>` is a required preview gate. If diff requests unapproved bootstrap/write, implementation stops blocked rather than recording RUS-01 complete.
 - **VALIDATE**: `npm run format:check`
 - **SATISFIES**: AC1, AC6, AC9.
 
 ### 12. VERIFY and then UPDATE AGENTS.md commands
 
 - **IMPLEMENT**: Run the full local validation matrix. Only after commands pass, replace `AGENTS.md:70` with the exact verified install/dev/test/typecheck/lint/format/build commands and retain the existing Codex-layer commands.
-- **IMPLEMENT**: Record `infra:diff` as “requires AWS credentials; preview only; no deploy” and do not claim it was verified if it was skipped or attempted to bootstrap state.
+- **IMPLEMENT**: Record `infra:install` as local provider generation and `infra:diff` as “requires AWS credentials; preview only; no deploy”. Do not mark RUS-01 complete unless the non-production diff succeeds without deployment or unauthorized bootstrap/write.
 - **GOTCHA**: Changing AGENTS.md requires a Codex restart after implementation; report that handoff explicitly.
 - **VALIDATE**: `python tooling/validate_codex_layer.py`
 - **VALIDATE**: `uv run --script tooling/mcp/codebase_search.py --self-test`
@@ -395,8 +414,9 @@ IMPORTANT: Execute every task in order. RUS-01 runs alone because it establishes
 ### 13. RUN the final local quality gate
 
 - **IMPLEMENT**: Execute every Level 1-3 command below from a clean `npm ci`; confirm no application artifact, secret, `.sst` state, or coverage/build output is accidentally staged.
-- **IMPLEMENT**: Attempt `sst diff` only as an explicitly read-only preview with valid credentials and a non-production stage; if SST proposes state bootstrap or any write, stop and report it instead of proceeding.
+- **IMPLEMENT**: Run the stage-checked `sst diff` as an explicitly non-deploying preview with valid credentials and a non-production stage. This is required acceptance evidence. If SST proposes state bootstrap or any write not separately authorized, stop, mark RUS-01 blocked, and do not claim AC4/AC6/AC8 or ticket completion.
 - **VALIDATE**: `npm run check`
+- **VALIDATE**: `npm run infra:diff -- --stage dev-plan`
 - **VALIDATE**: `git status --short`
 - **SATISFIES**: AC1-AC9.
 
@@ -409,7 +429,8 @@ IMPORTANT: Execute every task in order. RUS-01 runs alone because it establishes
 - Contracts: valid/invalid success and error envelopes, unknown fields, field-detail paths, health schema, inferred-type compile checks.
 - HTTP adapter: valid parse/callback/response, malformed JSON/input, known versus unknown errors, status headers, authoritative request ID, no stack/internal leakage.
 - Observability: recursive redaction across case variants, nested arrays/objects, authorization strings, complete URLs, query-only values, immutability, circular/depth protection, and no raw event logging.
-- Stage/app config: every accepted stage shape, invalid/missing stages, `il-central-1`, production retain/protect, and ephemeral remove/unprotected policy.
+- Stage/app config and wrapper: every accepted stage shape, invalid/missing/duplicate stages, command allowlisting, no spawn on invalid input, `dev` rejection of `production`, `il-central-1`, exact AWS provider version, production retain/protect, and ephemeral remove/unprotected policy.
+- API composition: `cors: false`, exact health route/handler, tracing, StaticSite build path, and absence of wildcard CORS.
 - Dashboard: semantic render, accessible heading/main/link, and no credential or fabricated product flow.
 - Health: exact validated response shape and request correlation.
 
@@ -417,7 +438,7 @@ Enforce 80% minimum statements/branches/functions/lines for RUS-01-owned source,
 
 ### Integration Tests
 
-RUS-01 has no database or deployed AWS integration. Its local integration boundary is workspace resolution: backend imports contracts successfully, SST references the real handler path, StaticSite runs the dashboard build command, and root scripts exercise every package. `sst diff` is the infrastructure composition preview, not a deployment.
+RUS-01 has no database or deployed AWS integration. Its local integration boundary is workspace resolution: backend imports contracts successfully, SST references the real handler path, StaticSite runs the dashboard build command, and root scripts exercise every package. A successful stage-checked `sst diff` is the required infrastructure composition proof; it is not a deployment. If it cannot complete without unapproved state/resource mutation, the ticket remains blocked.
 
 Do not fabricate mocked Cognito/S3/DynamoDB tests before their owning tickets. Reserve `tests/integration` for cross-package behavior added later.
 
@@ -470,16 +491,13 @@ npm run test:coverage
 ```powershell
 npm run build
 npm exec sst -- version
+npm test -- tooling/run-sst.test.ts
+npm run infra:install -- --stage dev-plan
 npm test -- infra/config
-```
-
-Optional read-only infrastructure preview with a non-production stage and configured AWS credentials:
-
-```powershell
 npm run infra:diff -- --stage dev-plan
 ```
 
-Do not continue if SST asks to create/bootstrap remote state or otherwise write externally. Never substitute `sst deploy` or `sst dev` during this ticket without separate owner authorization.
+The non-production diff is required acceptance evidence. Do not continue if SST asks to create/bootstrap remote state or otherwise write externally without separate authorization; leave RUS-01 blocked instead. Never substitute `sst deploy` or `sst dev` during this ticket without separate owner authorization.
 
 ### Level 4: Manual Local Validation
 
@@ -506,12 +524,12 @@ git status --short
 
 - **AC1** [ ] One installable TypeScript npm workspace covers SST infrastructure, Lambda code, shared contracts, tests, and React/Vite dashboard with explicit package dependency directions.
 - **AC2** [ ] The local directory is a Git checkout whose `origin` is `https://github.com/noamtz/utility-services.git`; all existing AI-layer files are preserved and no unauthorized remote branch/push occurred.
-- **AC3** [ ] SST uses `il-central-1` and rejects stages outside deterministic `dev-*`, `pr-N`, and `production` naming.
-- **AC4** [ ] One modular SST app defines an `sst.aws.StaticSite` dashboard and API Gateway HTTP API `GET /v1/health` Node.js Lambda; no file body/proxy path exists.
+- **AC3** [ ] SST uses `il-central-1`; the checked wrapper rejects missing/invalid stages and prevents config-evaluating SST commands from using implicit `dev-*`, `pr-N`, or `production` stages.
+- **AC4** [ ] One modular SST app defines an `sst.aws.StaticSite` dashboard and API Gateway HTTP API `GET /v1/health` Node.js Lambda with `cors: false`; no file body/proxy path exists.
 - **AC5** [ ] Zod is the documented schema library; external runtime input, success/error envelopes, request correlation, Powertools observability, and sensitive-value redaction seams have automated tests.
-- **AC6** [ ] `npm ci`, local development, tests/coverage, type-check, lint, format, build, and infrastructure-preview commands are documented and only commands actually verified are recorded as verified in AGENTS.md/README.
+- **AC6** [ ] `npm ci`, local development, provider installation, tests/coverage, type-check, lint, format, build, and stage-checked infrastructure-preview commands are documented; only commands actually verified are recorded as verified in AGENTS.md/README, and a successful non-production diff is required for completion.
 - **AC7** [ ] Production app policy uses retained stateful-resource removal defaults and stage protection; tests prove ephemeral stages remain removable.
-- **AC8** [ ] Automated tests explicitly cover stage/region policy, envelopes, validation failures, request IDs, health output, dashboard shell, and redaction, and the full local quality gate passes.
+- **AC8** [ ] Automated tests explicitly cover stage/region/provider policy, the SST wrapper, CORS, envelopes, validation failures, request IDs, health output, dashboard shell, and redaction; the full quality gate and non-production infrastructure diff pass.
 - **AC9** [ ] No AWS resource deployment/modification, credential creation, secret exposure, remote commit/branch, or push occurs without separate owner authorization.
 
 ---
@@ -522,7 +540,7 @@ git status --short
 - [ ] Direct dependency compatibility rechecked; no forced/legacy peer resolution.
 - [ ] `package-lock.json` is reproducible with `npm ci`.
 - [ ] Full format, lint, type-check, unit, coverage, and build suite passes.
-- [ ] Infrastructure policy tests and, if safely available, read-only `sst diff` pass for a non-production stage.
+- [ ] Infrastructure policy/wrapper tests and the required non-production `sst diff` pass; otherwise RUS-01 is explicitly blocked and not complete.
 - [ ] No deploy command was run and no AWS resource/state bootstrap was created without authorization.
 - [ ] README and AGENTS.md contain truthful commands and canonical wiki links.
 - [ ] Existing Codex-layer validation and codebase-search self-test still pass.
@@ -538,8 +556,10 @@ git status --short
 - **SST version assumption:** The architecture specifies SST components but no major version. The plan pins the registry’s current stable `sst@4.17.1` as of 2026-08-14 and requires an immediate compatibility recheck. Do not downgrade to v3 based solely on older migration terminology or adopt a newer major silently.
 - **Toolchain assumption:** Node 24/npm 11 and TypeScript 6.0.3 are selected from the current environment/registry. TypeScript 7.0.2 is intentionally deferred because the selected `typescript-eslint` peer range is `<6.1.0`.
 - **Schema decision:** Zod 4 is selected and is not an open implementation choice unless an incompatibility is demonstrated before coding. Changing it would alter a cross-cutting contract and should amend this plan.
-- **Git fact:** The local directory has no `.git`; GitHub is empty with read-only viewer permission. Local initialization and remote configuration are in scope, but a remote default branch/commit/push needs explicit owner authorization and suitable credentials.
-- **SST preview caveat:** Official `sst diff` is non-deploying, but a first run can still require credentials/state setup. Treat any requested external bootstrap/write as a stop condition; local tests remain the required validation in its absence.
+- **Git fact:** The local directory is an established checkout with `origin/main` at baseline `2bd72c8`; this plan is on `docs/rus-01-foundation-plan`. Implementation verifies that state and never reinitializes Git. GitHub operations must use only `noamtz`.
+- **SST preview decision:** Official `sst diff` is non-deploying but may require credentials or state setup. A successful non-production diff is a ticket-completion gate. Any requested external bootstrap/write remains a stop condition unless separately authorized; local tests do not substitute for the missing evidence, and the ticket stays blocked.
+- **SST command decision:** Config-evaluating SST commands use the tested stage wrapper. Missing, invalid, or unsafe stages fail before SST starts; `sst dev` remains unauthorized for RUS-01 even with a valid stage.
+- **CORS decision:** RUS-01 sets `cors: false` because its dashboard shell does not call the API. Later browser/API work must define and test the minimum allowlist before enabling CORS.
 - **Styling assumption:** Use small plain CSS for the shell because no existing styling strategy/design system exists. Selecting a UI framework is outside RUS-01.
 - **No blocking product/architecture questions:** The approved architecture explicitly says none remain for MVP planning. The hard presigned-PUT size-enforcement and CloudTrail byte-metering caveats discovered during research belong to RUS-05/RUS-08 plans and must not expand RUS-01.
 
@@ -555,4 +575,7 @@ The production retention policy is intentionally established before stateful res
 
 ## AMENDMENTS
 
-(None at creation.)
+- **2026-08-21 — PR #12 review resolution:** Pinned the AWS provider to `@pulumi/aws@7.43.0`, required stage-checked `sst install`, and documented ignored/reproducible generated provider artifacts.
+- **2026-08-21 — Acceptance gate:** Made successful non-production `sst diff` mandatory; an unapproved bootstrap/write request blocks completion instead of becoming an optional skipped check.
+- **2026-08-21 — Checkout correction:** Replaced obsolete Git initialization/empty-repository assumptions with verification of the existing checkout, baseline, branch, origin, and `noamtz` identity.
+- **2026-08-21 — Stage and CORS decisions:** Added a tested explicit-stage wrapper and set RUS-01 API CORS to disabled until a later browser integration owns a restrictive allowlist.
