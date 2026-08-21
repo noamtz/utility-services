@@ -7,6 +7,7 @@ This greenfield product provides reusable, language-agnostic utility services to
 ## Sources of truth and repository map
 
 - The GitHub wiki is the canonical documentation and project-management system. Read the relevant wiki pages before planning or implementation work, update them directly when approved product or architecture decisions change, and do not recreate local copies unless the owner changes this policy.
+- GitHub operations for this repository must authenticate exclusively as `noamtz`. Verify the active identity before any GitHub write, and never switch to or use `noamtznm`.
 - [Product Requirements (Epic)](https://github.com/noamtz/utility-services/wiki/Product-Requirements-Epic) is the source of truth for product intent, MVP scope, and success criteria.
 - [Architecture](https://github.com/noamtz/utility-services/wiki/Architecture) is the source of truth for technical choices and boundaries.
 - Application code has not been scaffolded. Do not claim application paths, package commands, or library choices that do not yet exist.
