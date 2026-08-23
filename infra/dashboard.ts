@@ -20,7 +20,7 @@ interface DashboardResources {
 }
 
 export function createDashboard(resources: DashboardResources) {
-  const cachePolicy = new $aws.cloudfront.CachePolicy(CONTROL_CACHE_POLICY_NAME, {
+  const cachePolicy = new aws.cloudfront.CachePolicy(CONTROL_CACHE_POLICY_NAME, {
     minTtl: DASHBOARD_CONTROL_POLICY.minTtl,
     defaultTtl: DASHBOARD_CONTROL_POLICY.defaultTtl,
     maxTtl: DASHBOARD_CONTROL_POLICY.maxTtl,

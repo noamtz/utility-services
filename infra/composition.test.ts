@@ -1,8 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { API_COMPONENT_NAME, API_CORS, HEALTH_ROUTE } from "./api.js";
-import { CONTROL_ROUTES, DASHBOARD_CONTROL_POLICY } from "./config/control.js";
-import { DASHBOARD_COMPONENT_NAME, DASHBOARD_CONFIG } from "./dashboard.js";
+import {
+  CONTROL_CACHE_POLICY_NAME,
+  CONTROL_ROUTES,
+  DASHBOARD_CONTROL_POLICY,
+} from "./config/control.js";
+import { DASHBOARD_COMPONENT_NAME, DASHBOARD_CONFIG, createDashboard } from "./dashboard.js";
+
+function output<T>(value: T): SstOutput<T> {
+  return {
+    apply(callback) {
+      return output(callback(value));
+    },
+  };
+}
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("SST composition contracts", () => {
   it("keeps health public and defines three separate control routes", () => {
@@ -32,5 +46,52 @@ describe("SST composition contracts", () => {
     expect(DASHBOARD_CONTROL_POLICY.headers).toEqual(["Authorization", "Content-Type"]);
     expect(DASHBOARD_CONTROL_POLICY.queryStrings).toEqual(["limit", "cursor"]);
     expect(DASHBOARD_CONTROL_POLICY.cookieBehavior).toBe("none");
+  });
+
+  it("creates the dashboard cache policy through SST's AWS provider global", () => {
+    let cachePolicyName: string | undefined;
+    let siteArgs: unknown;
+    class CachePolicy {
+      public readonly id = output("cache-policy-id");
+
+      public constructor(name: string) {
+        cachePolicyName = name;
+      }
+    }
+    class StaticSite {
+      public readonly url = output("https://dashboard.example.com");
+
+      public constructor(_name: string, args: unknown) {
+        siteArgs = args;
+      }
+    }
+    vi.stubGlobal("aws", { cloudfront: { CachePolicy } });
+    vi.stubGlobal("sst", { aws: { StaticSite } });
+
+    createDashboard({
+      apiUrl: output("https://api.example.com"),
+      userPoolId: output("il-central-1_pool"),
+      userPoolClientId: output("0123456789abcdefghijklmnop"),
+    });
+
+    expect(cachePolicyName).toBe(CONTROL_CACHE_POLICY_NAME);
+    const transform = (
+      siteArgs as {
+        transform: {
+          cdn(args: { origins: unknown[]; orderedCacheBehaviors?: unknown[] }): void;
+        };
+      }
+    ).transform;
+    const cdnArgs: { origins: unknown[]; orderedCacheBehaviors?: unknown[] } = {
+      origins: [],
+      orderedCacheBehaviors: [],
+    };
+    transform.cdn(cdnArgs);
+    expect(cdnArgs.origins).toHaveLength(1);
+    const behaviors = cdnArgs.orderedCacheBehaviors as
+      Array<{ pathPattern: string; cachePolicyId: unknown }> | undefined;
+    expect(behaviors).toHaveLength(1);
+    expect(behaviors?.[0]?.pathPattern).toBe("v1/control/*");
+    expect(behaviors?.[0]?.cachePolicyId).toBeDefined();
   });
 });

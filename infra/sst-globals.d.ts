@@ -7,7 +7,7 @@ declare const $interpolate: (
   ...values: unknown[]
 ) => SstOutput<string>;
 
-declare namespace $aws.cloudfront {
+declare namespace aws.cloudfront {
   class CachePolicy {
     public constructor(
       name: string,
