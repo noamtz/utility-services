@@ -4,9 +4,18 @@ import {
   type PriceVersion,
   type TrustedProjectContext,
 } from "@utility-services/contracts";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { describe, expect, it, vi } from "vitest";
 
-import { createAuthorizeUploadHandler } from "../../packages/backend/src/modules/file-management/handlers.js";
+import {
+  createAuthorizeDownloadHandler,
+  createAuthorizeUploadHandler,
+  createPublicDownloadHandler,
+} from "../../packages/backend/src/modules/file-management/handlers.js";
+import {
+  createDownloadService,
+  type PublicProjectReader,
+} from "../../packages/backend/src/modules/file-management/downloads.js";
 import {
   parseFileItem,
   type CompletionEvidence,
@@ -16,7 +25,10 @@ import type {
   ObjectStore,
   StoredObjectEvidence,
 } from "../../packages/backend/src/modules/file-management/object-store.js";
-import type { UploadPresigner } from "../../packages/backend/src/modules/file-management/presigning.js";
+import {
+  createS3DownloadPresigner,
+  type UploadPresigner,
+} from "../../packages/backend/src/modules/file-management/presigning.js";
 import {
   FileCollisionError,
   StorageQuotaExceededError,
@@ -34,6 +46,7 @@ import { toCredentialItems } from "../../packages/backend/src/modules/identity-c
 import type { CredentialRepository } from "../../packages/backend/src/modules/identity-control/credentials/repository.js";
 import type { InternalProject } from "../../packages/backend/src/modules/identity-control/projects/model.js";
 import { createProjectAuthenticationService } from "../../packages/backend/src/modules/project-authentication/service.js";
+import type { ProjectAuthenticationService } from "../../packages/backend/src/modules/project-authentication/service.js";
 import type {
   AggregateItem,
   RecordEventResult,
@@ -61,6 +74,7 @@ const secret = "s".repeat(43);
 const apiKey = `rus_v1.${keyId}.${secret}`;
 const fileId = "fil_0123456789abcdefghijkl";
 const publicFileId = "pfil_0123456789abcdefghijkl";
+const publicReadyFileId = "fil_abcdefghijkl0123456789";
 
 const project: InternalProject = {
   internalProjectId,
@@ -90,6 +104,14 @@ class MemoryFiles implements FileRepository {
   }
   public async get(projectId: string, requestedFileId: string) {
     return this.items.get(this.key(projectId, requestedFileId));
+  }
+  public async getPublic(requestedProjectId: string, requestedPublicFileId: string) {
+    return [...this.items.values()].find(
+      (item) =>
+        item.visibility === "public" &&
+        item.publicProjectId === requestedProjectId &&
+        item.publicFileId === requestedPublicFileId,
+    );
   }
   public async list(input: ListFilesInput) {
     const items = [...this.items.values()]
@@ -293,6 +315,42 @@ function gatewayEvent(body: unknown) {
   };
 }
 
+function downloadEvent(
+  requestedFileId: string,
+  bearer = apiKey,
+  requestId = "download-integration-request",
+) {
+  return {
+    requestContext: {
+      requestId,
+      http: { method: "POST", path: `/v1/files/${requestedFileId}/downloads` },
+    },
+    headers: { authorization: `Bearer ${bearer}` },
+    pathParameters: { fileId: requestedFileId },
+  };
+}
+
+function publicDownloadEvent(
+  requestedProjectId: string,
+  requestedPublicFileId: string,
+  requestId = "public-download-integration-request",
+) {
+  return {
+    requestContext: {
+      requestId,
+      http: {
+        method: "GET",
+        path: `/files/public/${requestedProjectId}/${requestedPublicFileId}`,
+      },
+    },
+    headers: {},
+    pathParameters: {
+      publicProjectId: requestedProjectId,
+      publicFileId: requestedPublicFileId,
+    },
+  };
+}
+
 describe("assembled direct upload file lifecycle", () => {
   it("authenticates, authorizes direct PUT, completes once, and isolates project reads", async () => {
     const files = new MemoryFiles();
@@ -463,6 +521,235 @@ describe("assembled direct upload file lifecycle", () => {
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
     expect(files.reservedBytes).toBe(12n);
+  });
+
+  it("authorizes fresh project-scoped downloads and fail-closed stable public redirects", async () => {
+    const files = new MemoryFiles();
+    const uploadPresigner: UploadPresigner = {
+      authorizePut: vi.fn().mockResolvedValue({
+        url: "https://upload.example.com/object?X-Amz-Signature=synthetic",
+        requiredHeaders: {
+          "content-type": "text/plain",
+          "content-length": "12",
+          "if-none-match": "*",
+        },
+      }),
+    };
+    const ids = [
+      { fileId, publicFileId },
+      { fileId: publicReadyFileId, publicFileId },
+    ];
+    const fileService = createFileService({
+      repository: files,
+      presigner: uploadPresigner,
+      generateIds: () => ids.shift()!,
+      now: () => new Date(timestamp),
+    });
+    await fileService.authorizeUpload(projectContext(), {
+      name: "private.txt",
+      mediaType: "text/plain",
+      sizeBytes: 12,
+      visibility: "private",
+    });
+    await fileService.authorizeUpload(projectContext(), {
+      name: "public.txt",
+      mediaType: "text/plain",
+      sizeBytes: 12,
+      visibility: "public",
+    });
+
+    const objects = new Map<string, StoredObjectEvidence>([
+      [
+        `projects/${internalProjectId}/files/${fileId}`,
+        {
+          sizeBytes: 12n,
+          mediaType: "text/plain",
+          eTag: "private-etag",
+          lastModified: completedAt,
+        },
+      ],
+      [
+        `projects/${internalProjectId}/files/${publicReadyFileId}`,
+        { sizeBytes: 12n, mediaType: "text/plain", eTag: "public-etag", lastModified: completedAt },
+      ],
+    ]);
+    const objectStore: ObjectStore = {
+      head: vi.fn().mockImplementation(async (key: string) => objects.get(key)),
+      delete: vi.fn().mockImplementation(async (key: string) => {
+        objects.delete(key);
+      }),
+    };
+    const usage = createUsagePricingService({
+      repository: new MemoryUsage(),
+      now: () => completedAt,
+    });
+    const completion = createUploadCompletionService({
+      repository: files,
+      objectStore,
+      usage,
+      bucketName: "private-bucket",
+      now: () => completedAt,
+    });
+    await completion.handleS3Event({
+      Records: [
+        {
+          eventName: "ObjectCreated:Put",
+          eventTime: completedAt,
+          s3: {
+            bucket: { name: "private-bucket" },
+            object: {
+              key: `projects/${internalProjectId}/files/${fileId}`,
+              size: 12,
+              eTag: "private-etag",
+              sequencer: "0011",
+            },
+          },
+        },
+        {
+          eventName: "ObjectCreated:Put",
+          eventTime: completedAt,
+          s3: {
+            bucket: { name: "private-bucket" },
+            object: {
+              key: `projects/${internalProjectId}/files/${publicReadyFileId}`,
+              size: 12,
+              eTag: "public-etag",
+              sequencer: "0012",
+            },
+          },
+        },
+      ],
+    });
+
+    let issued = 0;
+    let currentTime = new Date(timestamp);
+    const sign = vi.fn().mockImplementation(async () => {
+      issued += 1;
+      return `https://private-bucket.s3.il-central-1.amazonaws.com/object?X-Amz-Signature=synthetic&issued=${issued}`;
+    });
+    const downloadPresigner = createS3DownloadPresigner({
+      client: {} as S3Client,
+      bucketName: "private-bucket",
+      sign,
+    });
+    const publicProjects: PublicProjectReader = {
+      inspect: vi.fn().mockResolvedValue(project),
+    };
+    const downloads = createDownloadService({
+      repository: files,
+      projects: publicProjects,
+      presigner: downloadPresigner,
+      now: () => currentTime,
+    });
+    const authentication = createProjectAuthenticationService({ repository: authRepository() });
+    const logger = { info: vi.fn(), error: vi.fn() };
+    const privateHandler = createAuthorizeDownloadHandler(downloads, authentication, logger);
+    const publicHandler = createPublicDownloadHandler(downloads, logger);
+
+    const privateResult = await privateHandler(downloadEvent(fileId));
+    const publicOwnerResult = await privateHandler(downloadEvent(publicReadyFileId));
+    expect(privateResult.statusCode).toBe(200);
+    expect(publicOwnerResult.statusCode).toBe(200);
+    expect(JSON.parse(privateResult.body ?? "{}")).toMatchObject({
+      data: {
+        file: { fileId, visibility: "private", status: "ready" },
+        download: { method: "GET", expiresAt: "2026-08-23T08:05:00.000Z" },
+      },
+    });
+
+    const otherContext: TrustedProjectContext = {
+      ...projectContext(),
+      internalProjectId: "22222222-2222-4222-8222-222222222222",
+      publicProjectId: "prj_abcdefghijkl0123456789",
+    };
+    const otherAuthentication: ProjectAuthenticationService = {
+      authenticate: vi.fn().mockResolvedValue(otherContext),
+    };
+    const crossProject = await createAuthorizeDownloadHandler(
+      downloads,
+      otherAuthentication,
+    )(downloadEvent(fileId));
+    expect(crossProject.statusCode).toBe(404);
+    expect(crossProject.headers).not.toHaveProperty("location");
+    expect(crossProject.body).not.toContain("X-Amz-Signature");
+
+    currentTime = new Date("2026-08-23T08:06:00.000Z");
+    const fresh = await privateHandler(downloadEvent(fileId, apiKey, "fresh-download"));
+    const freshBody = JSON.parse(fresh.body ?? "{}") as {
+      data: { download: { expiresAt: string; url: string } };
+    };
+    expect(freshBody.data.download.expiresAt).toBe("2026-08-23T08:11:00.000Z");
+    expect(freshBody.data.download.url).toContain("issued=3");
+
+    const publicResponse = await publicHandler(publicDownloadEvent(publicProjectId, publicFileId));
+    expect(publicResponse).toMatchObject({ statusCode: 302, body: "" });
+    const publicHeaders = publicResponse.headers as Record<string, string>;
+    expect(publicHeaders["location"]).toContain("issued=4");
+    expect(publicHeaders["cache-control"]).toBe("no-store");
+    const lastSignCall = sign.mock.calls.at(-1) as unknown[] | undefined;
+    const command = lastSignCall?.[1] as GetObjectCommand | undefined;
+    expect(command).toBeInstanceOf(GetObjectCommand);
+    expect((command as GetObjectCommand).input).toEqual({
+      Bucket: "private-bucket",
+      Key: `projects/${internalProjectId}/files/${publicReadyFileId}`,
+    });
+    expect((command as GetObjectCommand).input).not.toHaveProperty("Range");
+    expect(lastSignCall?.[2]).toEqual({ expiresIn: 300 });
+
+    const callsBeforeDenials = sign.mock.calls.length;
+    const wrongPair = await publicHandler(
+      publicDownloadEvent("prj_abcdefghijkl0123456789", publicFileId, "wrong-pair"),
+    );
+    expect(wrongPair.statusCode).toBe(404);
+
+    const privateItem = files.items.get(`${internalProjectId}|${fileId}`)!;
+    const publicItem = files.items.get(`${internalProjectId}|${publicReadyFileId}`)!;
+    files.items.set(`${internalProjectId}|${publicReadyFileId}`, {
+      ...publicItem,
+      status: "pending",
+    } as unknown as FileItem);
+    expect(
+      (await publicHandler(publicDownloadEvent(publicProjectId, publicFileId, "pending")))
+        .statusCode,
+    ).toBe(404);
+    files.items.set(`${internalProjectId}|${publicReadyFileId}`, {
+      ...publicItem,
+      status: "failed",
+    } as unknown as FileItem);
+    expect(
+      (await publicHandler(publicDownloadEvent(publicProjectId, publicFileId, "failed")))
+        .statusCode,
+    ).toBe(404);
+    files.items.set(`${internalProjectId}|${publicReadyFileId}`, {
+      ...publicItem,
+      status: "trashed",
+    } as unknown as FileItem);
+    expect(
+      (await publicHandler(publicDownloadEvent(publicProjectId, publicFileId, "trashed")))
+        .statusCode,
+    ).toBe(404);
+    files.items.set(`${internalProjectId}|${publicReadyFileId}`, privateItem);
+    expect(
+      (await publicHandler(publicDownloadEvent(publicProjectId, publicFileId, "private")))
+        .statusCode,
+    ).toBe(404);
+    files.items.delete(`${internalProjectId}|${publicReadyFileId}`);
+    expect(
+      (await publicHandler(publicDownloadEvent(publicProjectId, publicFileId, "purged")))
+        .statusCode,
+    ).toBe(404);
+    expect(sign).toHaveBeenCalledTimes(callsBeforeDenials);
+
+    const logged = JSON.stringify([logger.info.mock.calls, logger.error.mock.calls]);
+    for (const forbidden of [
+      apiKey,
+      "X-Amz-Signature",
+      "private-bucket",
+      `projects/${internalProjectId}`,
+      internalProjectId,
+    ]) {
+      expect(logged).not.toContain(forbidden);
+    }
   });
 });
 

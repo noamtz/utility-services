@@ -46,12 +46,20 @@ describe("SST composition contracts", () => {
   });
 
   it("keeps file utility routes separate and storage private", () => {
-    expect(FILE_ROUTES).toHaveLength(3);
+    expect(FILE_ROUTES).toHaveLength(5);
     expect(FILE_ROUTES.map((route) => route.route)).toEqual([
       "POST /v1/files/uploads",
       "GET /v1/files",
       "GET /v1/files/{fileId}",
+      "POST /v1/files/{fileId}/downloads",
+      "GET /files/public/{publicProjectId}/{publicFileId}",
     ]);
+    expect(FILE_ROUTES.slice(3).map((route) => route.bucketActions)).toEqual([
+      ["s3:GetObject"],
+      ["s3:GetObject"],
+    ]);
+    expect(FILE_ROUTES[4]?.controlTableActions).toEqual([]);
+    expect(FILE_ROUTES[4]?.fileTableActions).toEqual([]);
     expect(FILE_TABLE_POLICY.globalIndexes).toHaveProperty("PublicFiles");
     expect(FILE_TABLE_POLICY.globalIndexes).toHaveProperty("FileLifecycle");
     expect(FILE_BUCKET_POLICY.cors).toBe(false);

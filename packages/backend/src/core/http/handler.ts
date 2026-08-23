@@ -111,6 +111,12 @@ interface HandlerOptions<
   logger?: SafeLogger;
 }
 
+type SuccessRenderer<TResponse extends AnySchema> = (
+  data: z.input<TResponse>,
+  requestId: string,
+  responseSchema: TResponse,
+) => APIGatewayProxyStructuredResultV2;
+
 function toDetails(section: string, error: z.ZodError): ValidationDetail[] {
   return error.issues.map((issue) => ({
     path: [section, ...issue.path.map(String)].filter(Boolean).join("."),
@@ -178,19 +184,18 @@ function errorResponse(error: HttpError, requestId: string): APIGatewayProxyStru
   return jsonResponse(error.statusCode, requestId, ErrorEnvelopeSchema.parse(errorBody));
 }
 
-export function createHttpHandler<
-  TPath extends AnySchema | undefined = undefined,
-  TQuery extends AnySchema | undefined = undefined,
-  THeaders extends AnySchema | undefined = undefined,
-  TBody extends AnySchema | undefined = undefined,
-  TResponse extends AnySchema = AnySchema,
-  TAuthorization = undefined,
->(options: HandlerOptions<TPath, TQuery, THeaders, TBody, TResponse, TAuthorization>) {
-  const successStatusCode = options.successStatusCode ?? 200;
-  if (!Number.isInteger(successStatusCode) || successStatusCode < 200 || successStatusCode > 299) {
-    throw new RangeError("successStatusCode must be an integer between 200 and 299");
-  }
-
+function createBoundaryHandler<
+  TPath extends AnySchema | undefined,
+  TQuery extends AnySchema | undefined,
+  THeaders extends AnySchema | undefined,
+  TBody extends AnySchema | undefined,
+  TResponse extends AnySchema,
+  TAuthorization,
+>(
+  options: HandlerOptions<TPath, TQuery, THeaders, TBody, TResponse, TAuthorization>,
+  successStatusCode: number,
+  renderSuccess: SuccessRenderer<TResponse>,
+) {
   return async (event: unknown): Promise<APIGatewayProxyStructuredResultV2> => {
     const requestId = getAuthoritativeRequestId(event);
 
@@ -234,12 +239,9 @@ export function createHttpHandler<
       } as ParsedHttpRequest<TPath, TQuery, THeaders, TBody, TAuthorization>;
 
       const data = await options.callback(request);
-      const envelope = createSuccessEnvelopeSchema(options.schemas.response).parse({
-        data,
-        requestId,
-      });
+      const response = renderSuccess(data, requestId, options.schemas.response);
       options.logger?.info("http.request.completed", { requestId, statusCode: successStatusCode });
-      return jsonResponse(successStatusCode, requestId, envelope);
+      return response;
     } catch (error) {
       if (error instanceof HttpError) {
         options.logger?.info("http.request.rejected", {
@@ -262,4 +264,42 @@ export function createHttpHandler<
       );
     }
   };
+}
+
+export function createHttpHandler<
+  TPath extends AnySchema | undefined = undefined,
+  TQuery extends AnySchema | undefined = undefined,
+  THeaders extends AnySchema | undefined = undefined,
+  TBody extends AnySchema | undefined = undefined,
+  TResponse extends AnySchema = AnySchema,
+  TAuthorization = undefined,
+>(options: HandlerOptions<TPath, TQuery, THeaders, TBody, TResponse, TAuthorization>) {
+  const successStatusCode = options.successStatusCode ?? 200;
+  if (!Number.isInteger(successStatusCode) || successStatusCode < 200 || successStatusCode > 299) {
+    throw new RangeError("successStatusCode must be an integer between 200 and 299");
+  }
+
+  return createBoundaryHandler(options, successStatusCode, (data, requestId, responseSchema) => {
+    const envelope = createSuccessEnvelopeSchema(responseSchema).parse({ data, requestId });
+    return jsonResponse(successStatusCode, requestId, envelope);
+  });
+}
+
+export function createHttpRedirectHandler<
+  TPath extends AnySchema | undefined = undefined,
+  TQuery extends AnySchema | undefined = undefined,
+  THeaders extends AnySchema | undefined = undefined,
+  TBody extends AnySchema | undefined = undefined,
+  TAuthorization = undefined,
+>(options: HandlerOptions<TPath, TQuery, THeaders, TBody, z.ZodType<string>, TAuthorization>) {
+  const successStatusCode = 302;
+  return createBoundaryHandler(options, successStatusCode, (data, requestId, responseSchema) => ({
+    statusCode: successStatusCode,
+    headers: {
+      location: responseSchema.parse(data),
+      "cache-control": "no-store",
+      "x-request-id": requestId,
+    },
+    body: "",
+  }));
 }

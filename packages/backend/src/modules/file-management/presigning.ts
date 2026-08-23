@@ -1,4 +1,4 @@
-import { PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   FileMediaTypeSchema,
@@ -25,6 +25,21 @@ export interface UploadPresigner {
   }): Promise<PresignedUpload>;
 }
 
+export interface PresignedDownload {
+  readonly url: string;
+}
+
+export interface DownloadPresigner {
+  authorizeGet(input: {
+    readonly objectKey: string;
+    readonly expiresInSeconds: number;
+  }): Promise<PresignedDownload>;
+}
+
+function parseExpiresInSeconds(value: number): number {
+  return z.number().int().min(60).max(3_600).parse(value);
+}
+
 export function createS3UploadPresigner(options: {
   readonly client: S3Client;
   readonly bucketName: string;
@@ -42,7 +57,7 @@ export function createS3UploadPresigner(options: {
         .positive()
         .max(BigInt(Number.MAX_SAFE_INTEGER))
         .parse(input.sizeBytes);
-      const expiresInSeconds = z.number().int().min(60).max(3_600).parse(input.expiresInSeconds);
+      const expiresInSeconds = parseExpiresInSeconds(input.expiresInSeconds);
       const requiredHeaders = UploadRequiredHeadersSchema.parse({
         "content-type": mediaType,
         "content-length": sizeBytes.toString(),
@@ -68,6 +83,25 @@ export function createS3UploadPresigner(options: {
         throw new Error("Presigned upload omitted a required signed header");
       }
       return Object.freeze({ url: parsedUrl, requiredHeaders });
+    },
+  };
+}
+
+export function createS3DownloadPresigner(options: {
+  readonly client: S3Client;
+  readonly bucketName: string;
+  readonly sign?: typeof getSignedUrl;
+}): DownloadPresigner {
+  const bucketName = z.string().trim().min(1).parse(options.bucketName);
+  const sign = options.sign ?? getSignedUrl;
+
+  return {
+    async authorizeGet(input) {
+      parseFileObjectKey(input.objectKey);
+      const expiresInSeconds = parseExpiresInSeconds(input.expiresInSeconds);
+      const command = new GetObjectCommand({ Bucket: bucketName, Key: input.objectKey });
+      const url = await sign(options.client, command, { expiresIn: expiresInSeconds });
+      return Object.freeze({ url: z.url().startsWith("https://").parse(url) });
     },
   };
 }

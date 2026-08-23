@@ -5,15 +5,19 @@ import { Resource } from "sst";
 import { z } from "zod";
 
 import { safeLogger } from "../../core/observability/powertools.js";
+import { createDynamoProjectRepository } from "../identity-control/projects/repository.js";
 import { createProjectAuthenticationRuntime } from "../project-authentication/runtime.js";
 import { createUsagePricingRuntime } from "../usage-pricing/runtime.js";
+import { createDownloadService } from "./downloads.js";
 import {
+  createAuthorizeDownloadHandler,
   createAuthorizeUploadHandler,
   createInspectFileHandler,
   createListFilesHandler,
+  createPublicDownloadHandler,
 } from "./handlers.js";
 import { createS3ObjectStore } from "./object-store.js";
-import { createS3UploadPresigner } from "./presigning.js";
+import { createS3DownloadPresigner, createS3UploadPresigner } from "./presigning.js";
 import { createDynamoFileRepository, FILE_DOCUMENT_CLIENT_OPTIONS } from "./repository.js";
 import { createFileService } from "./service.js";
 
@@ -25,11 +29,13 @@ export function createFileApiRuntime(options: {
   const controlTableName = z.string().trim().min(1).parse(options.controlTableName);
   const fileTableName = z.string().trim().min(1).parse(options.fileTableName);
   const bucketName = z.string().trim().min(1).parse(options.bucketName);
-  const dynamo = new DynamoDBClient({});
-  const controlClient = DynamoDBDocumentClient.from(dynamo, {
+  const controlClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
     marshallOptions: { removeUndefinedValues: true },
   });
-  const fileClient = DynamoDBDocumentClient.from(dynamo, FILE_DOCUMENT_CLIENT_OPTIONS);
+  const fileClient = DynamoDBDocumentClient.from(
+    new DynamoDBClient({}),
+    FILE_DOCUMENT_CLIENT_OPTIONS,
+  );
   const authentication = createProjectAuthenticationRuntime({
     tableName: controlTableName,
     documentClient: controlClient,
@@ -37,12 +43,19 @@ export function createFileApiRuntime(options: {
   const repository = createDynamoFileRepository({
     client: fileClient,
     tableName: fileTableName,
+    publicIndexName: "PublicFiles",
     lifecycleIndexName: "FileLifecycle",
+  });
+  const projects = createDynamoProjectRepository({
+    client: controlClient,
+    tableName: controlTableName,
   });
   const s3 = new S3Client({});
   const presigner = createS3UploadPresigner({ client: s3, bucketName });
+  const downloadPresigner = createS3DownloadPresigner({ client: s3, bucketName });
   const service = createFileService({ repository, presigner });
-  return Object.freeze({ authentication, repository, service });
+  const downloads = createDownloadService({ repository, projects, presigner: downloadPresigner });
+  return Object.freeze({ authentication, repository, projects, service, downloads });
 }
 
 export function createFileWorkerRuntime(options: {
@@ -58,6 +71,7 @@ export function createFileWorkerRuntime(options: {
   const repository = createDynamoFileRepository({
     client: fileClient,
     tableName: fileTableName,
+    publicIndexName: "PublicFiles",
     lifecycleIndexName: "FileLifecycle",
   });
   const objectStore = createS3ObjectStore({ client: new S3Client({}), bucketName });
@@ -97,5 +111,11 @@ export function getFileHandlers() {
     ),
     listFiles: createListFilesHandler(composed.service, composed.authentication, safeLogger),
     inspectFile: createInspectFileHandler(composed.service, composed.authentication, safeLogger),
+    authorizeDownload: createAuthorizeDownloadHandler(
+      composed.downloads,
+      composed.authentication,
+      safeLogger,
+    ),
+    publicDownload: createPublicDownloadHandler(composed.downloads, safeLogger),
   });
 }

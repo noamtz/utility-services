@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/unbound-method -- Vitest verifies method mocks */
 import {
   MAX_FILE_SIZE_BYTES,
+  type DownloadAuthorization,
   type File,
   type TrustedProjectContext,
   type UploadAuthorization,
@@ -10,10 +11,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { ProjectAuthenticationService } from "../project-authentication/service.js";
 import { HttpError } from "../../core/http/handler.js";
 import {
+  createAuthorizeDownloadHandler,
   createAuthorizeUploadHandler,
   createInspectFileHandler,
   createListFilesHandler,
+  createPublicDownloadHandler,
 } from "./handlers.js";
+import type { DownloadService } from "./downloads.js";
 import type { FileService } from "./service.js";
 
 const context: TrustedProjectContext = {
@@ -47,6 +51,15 @@ const authorization: UploadAuthorization = {
     },
   },
 };
+const readyFile: File = { ...file, status: "ready" };
+const downloadAuthorization: DownloadAuthorization = {
+  file: readyFile,
+  download: {
+    method: "GET",
+    url: "https://bucket.example.com/key?X-Amz-Signature=synthetic",
+    expiresAt: "2026-08-23T08:05:00.000Z",
+  },
+};
 
 function authentication(): ProjectAuthenticationService {
   return { authenticate: vi.fn().mockResolvedValue(context) };
@@ -57,6 +70,13 @@ function service(): FileService {
     authorizeUpload: vi.fn().mockResolvedValue(authorization),
     list: vi.fn().mockResolvedValue({ items: [file] }),
     inspect: vi.fn().mockResolvedValue(file),
+  };
+}
+
+function downloads(): DownloadService {
+  return {
+    authorizePrivate: vi.fn().mockResolvedValue(downloadAuthorization),
+    authorizePublic: vi.fn().mockResolvedValue(downloadAuthorization.download.url),
   };
 }
 
@@ -168,5 +188,110 @@ describe("file HTTP handlers", () => {
         )
       ).statusCode,
     ).toBe(200);
+  });
+
+  it("returns a validated private download envelope from trusted authorization", async () => {
+    const downloadService = downloads();
+    const response = await createAuthorizeDownloadHandler(
+      downloadService,
+      authentication(),
+    )(
+      event({
+        method: "POST",
+        path: `/v1/files/${file.fileId}/downloads`,
+        pathParameters: { fileId: file.fileId },
+      }),
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body ?? "{}")).toEqual({
+      data: downloadAuthorization,
+      requestId: "request-1",
+    });
+    expect(downloadService.authorizePrivate).toHaveBeenCalledWith(context, file.fileId);
+  });
+
+  it.each([undefined, "Bearer malformed"])(
+    "rejects a missing or malformed private bearer before download lookup",
+    async (authorizationHeader) => {
+      const downloadService = downloads();
+      const request = {
+        ...event({
+          method: "POST",
+          path: `/v1/files/${file.fileId}/downloads`,
+          pathParameters: { fileId: file.fileId },
+        }),
+        headers: authorizationHeader ? { authorization: authorizationHeader } : {},
+      };
+      const response = await createAuthorizeDownloadHandler(
+        downloadService,
+        authentication(),
+      )(request);
+
+      expect(response.statusCode).toBe(401);
+      expect(downloadService.authorizePrivate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns a fixed public redirect without authenticating or logging the URL", async () => {
+    const downloadService = downloads();
+    const logger = { info: vi.fn(), error: vi.fn() };
+    const response = await createPublicDownloadHandler(
+      downloadService,
+      logger,
+    )(
+      event({
+        method: "GET",
+        path: `/files/public/${context.publicProjectId}/pfil_0123456789abcdefghijkl`,
+        pathParameters: {
+          publicProjectId: context.publicProjectId,
+          publicFileId: "pfil_0123456789abcdefghijkl",
+        },
+      }),
+    );
+
+    expect(response).toEqual({
+      statusCode: 302,
+      headers: {
+        location: downloadAuthorization.download.url,
+        "cache-control": "no-store",
+        "x-request-id": "request-1",
+      },
+      body: "",
+    });
+    expect(downloadService.authorizePublic).toHaveBeenCalledWith(
+      context.publicProjectId,
+      "pfil_0123456789abcdefghijkl",
+    );
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain("X-Amz-Signature");
+  });
+
+  it("uses shared validation and not-found responses on the public route", async () => {
+    const downloadService = downloads();
+    const malformed = await createPublicDownloadHandler(downloadService)(
+      event({
+        method: "GET",
+        path: "/files/public/bad/bad",
+        pathParameters: { publicProjectId: "bad", publicFileId: "bad" },
+      }),
+    );
+    expect(malformed.statusCode).toBe(400);
+    expect(downloadService.authorizePublic).not.toHaveBeenCalled();
+
+    vi.mocked(downloadService.authorizePublic).mockRejectedValue(
+      new HttpError(404, "FILE_NOT_FOUND", "File not found"),
+    );
+    const missing = await createPublicDownloadHandler(downloadService)(
+      event({
+        method: "GET",
+        path: `/files/public/${context.publicProjectId}/pfil_0123456789abcdefghijkl`,
+        pathParameters: {
+          publicProjectId: context.publicProjectId,
+          publicFileId: "pfil_0123456789abcdefghijkl",
+        },
+      }),
+    );
+    expect(missing.statusCode).toBe(404);
+    expect(missing.headers).not.toHaveProperty("location");
   });
 });

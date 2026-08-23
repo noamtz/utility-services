@@ -41,6 +41,7 @@ function file(): FileItem {
 function repository(overrides: Partial<FileRepository> = {}): FileRepository {
   return {
     get: vi.fn().mockResolvedValue(file()),
+    getPublic: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue({ items: [file()] }),
     reservePending: vi.fn().mockResolvedValue(undefined),
     claimCompletion: vi.fn(),
