@@ -17,15 +17,13 @@ import { createS3UploadPresigner } from "./presigning.js";
 import { createDynamoFileRepository, FILE_DOCUMENT_CLIENT_OPTIONS } from "./repository.js";
 import { createFileService } from "./service.js";
 
-export function createFileManagementRuntime(options: {
+export function createFileApiRuntime(options: {
   readonly controlTableName: string;
   readonly fileTableName: string;
-  readonly usageTableName: string;
   readonly bucketName: string;
 }) {
   const controlTableName = z.string().trim().min(1).parse(options.controlTableName);
   const fileTableName = z.string().trim().min(1).parse(options.fileTableName);
-  const usageTableName = z.string().trim().min(1).parse(options.usageTableName);
   const bucketName = z.string().trim().min(1).parse(options.bucketName);
   const dynamo = new DynamoDBClient({});
   const controlClient = DynamoDBDocumentClient.from(dynamo, {
@@ -43,33 +41,54 @@ export function createFileManagementRuntime(options: {
   });
   const s3 = new S3Client({});
   const presigner = createS3UploadPresigner({ client: s3, bucketName });
-  const objectStore = createS3ObjectStore({ client: s3, bucketName });
-  const usage = createUsagePricingRuntime({ tableName: usageTableName });
   const service = createFileService({ repository, presigner });
-  return Object.freeze({
-    authentication,
-    repository,
-    objectStore,
-    usage,
-    service,
-    bucketName,
-  });
+  return Object.freeze({ authentication, repository, service });
 }
 
-let runtime: ReturnType<typeof createFileManagementRuntime> | undefined;
+export function createFileWorkerRuntime(options: {
+  readonly fileTableName: string;
+  readonly usageTableName: string;
+  readonly bucketName: string;
+}) {
+  const fileTableName = z.string().trim().min(1).parse(options.fileTableName);
+  const usageTableName = z.string().trim().min(1).parse(options.usageTableName);
+  const bucketName = z.string().trim().min(1).parse(options.bucketName);
+  const dynamo = new DynamoDBClient({});
+  const fileClient = DynamoDBDocumentClient.from(dynamo, FILE_DOCUMENT_CLIENT_OPTIONS);
+  const repository = createDynamoFileRepository({
+    client: fileClient,
+    tableName: fileTableName,
+    lifecycleIndexName: "FileLifecycle",
+  });
+  const objectStore = createS3ObjectStore({ client: new S3Client({}), bucketName });
+  const usage = createUsagePricingRuntime({ tableName: usageTableName });
+  return Object.freeze({ repository, objectStore, usage, bucketName });
+}
 
-export function getFileManagementRuntime() {
-  runtime ??= createFileManagementRuntime({
+let apiRuntime: ReturnType<typeof createFileApiRuntime> | undefined;
+
+export function getFileApiRuntime() {
+  apiRuntime ??= createFileApiRuntime({
     controlTableName: Resource.ControlTable.name,
+    fileTableName: Resource.FileTable.name,
+    bucketName: Resource.FileBucket.name,
+  });
+  return apiRuntime;
+}
+
+let workerRuntime: ReturnType<typeof createFileWorkerRuntime> | undefined;
+
+export function getFileWorkerRuntime() {
+  workerRuntime ??= createFileWorkerRuntime({
     fileTableName: Resource.FileTable.name,
     usageTableName: Resource.UsagePricingTable.name,
     bucketName: Resource.FileBucket.name,
   });
-  return runtime;
+  return workerRuntime;
 }
 
 export function getFileHandlers() {
-  const composed = getFileManagementRuntime();
+  const composed = getFileApiRuntime();
   return Object.freeze({
     authorizeUpload: createAuthorizeUploadHandler(
       composed.service,

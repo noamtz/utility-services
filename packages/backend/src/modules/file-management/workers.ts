@@ -1,11 +1,11 @@
 import { createUploadCompletionService } from "./completion.js";
-import { getFileManagementRuntime } from "./runtime.js";
+import { getFileWorkerRuntime } from "./runtime.js";
 
 let service: ReturnType<typeof createUploadCompletionService> | undefined;
 
 function completionService() {
   if (!service) {
-    const runtime = getFileManagementRuntime();
+    const runtime = getFileWorkerRuntime();
     service = createUploadCompletionService({
       repository: runtime.repository,
       objectStore: runtime.objectStore,
