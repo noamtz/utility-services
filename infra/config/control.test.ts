@@ -40,11 +40,15 @@ describe("identity/control infrastructure policy", () => {
     expect(controlTableDeletionProtection(false)).toBe(false);
   });
 
-  it("defines exactly three owner-authorized control routes", () => {
+  it("defines exactly seven owner-authorized control routes", () => {
     expect(CONTROL_ROUTES.map(({ route }) => route)).toEqual([
       "POST /v1/control/projects",
       "GET /v1/control/projects",
       "GET /v1/control/projects/{projectId}",
+      "POST /v1/control/projects/{projectId}/api-keys",
+      "GET /v1/control/projects/{projectId}/api-keys",
+      "DELETE /v1/control/projects/{projectId}/api-keys/{keyId}",
+      "POST /v1/control/projects/{projectId}/api-keys/{keyId}/replace",
     ]);
     expect(
       CONTROL_ROUTES.map(({ name, additionalTableActions }) => [name, additionalTableActions]),
@@ -52,6 +56,16 @@ describe("identity/control infrastructure policy", () => {
       ["CreateProjectRoute", ["dynamodb:PutItem"]],
       ["ListProjectsRoute", []],
       ["InspectProjectRoute", []],
+      [
+        "IssueProjectApiKeyRoute",
+        ["dynamodb:ConditionCheckItem", "dynamodb:GetItem", "dynamodb:PutItem"],
+      ],
+      ["ListProjectApiKeysRoute", ["dynamodb:GetItem"]],
+      ["RevokeProjectApiKeyRoute", ["dynamodb:GetItem", "dynamodb:UpdateItem"]],
+      [
+        "ReplaceProjectApiKeyRoute",
+        ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+      ],
     ]);
     expect(JSON.stringify(CONTROL_ROUTES)).not.toContain("dynamodb:TransactWriteItems");
     expect(JSON.stringify(CONTROL_ROUTES)).not.toContain("*");
@@ -75,6 +89,7 @@ describe("identity/control infrastructure policy", () => {
     expect(DASHBOARD_CONTROL_POLICY.pathPattern).not.toBe("v1/*");
     expect(DASHBOARD_CONTROL_POLICY.headers).not.toContain("*");
     expect(DASHBOARD_CONTROL_POLICY.queryStrings).not.toContain("*");
-    expect(CONTROL_ROUTES.some(({ route }) => /^(PUT|PATCH|DELETE) /.test(route))).toBe(false);
+    expect(CONTROL_ROUTES.some(({ route }) => /^(PUT|PATCH) /.test(route))).toBe(false);
+    expect(CONTROL_ROUTES.filter(({ route }) => route.startsWith("DELETE "))).toHaveLength(1);
   });
 });
