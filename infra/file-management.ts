@@ -8,6 +8,11 @@ import {
   FILE_COMPLETION_TABLE_ACTIONS,
   FILE_COMPLETION_USAGE_ACTIONS,
   FILE_OBJECT_PREFIX,
+  FILE_PURGE_BUCKET_ACTIONS,
+  FILE_PURGE_COMPONENT_NAME,
+  FILE_PURGE_SCHEDULE,
+  FILE_PURGE_TABLE_ACTIONS,
+  FILE_PURGE_USAGE_ACTIONS,
   FILE_RECONCILIATION_COMPONENT_NAME,
   FILE_RECONCILIATION_SCHEDULE,
   FILE_TABLE_COMPONENT_NAME,
@@ -78,5 +83,20 @@ export function createFileManagementResources(options: FileResourceDependencies)
     },
   });
 
-  return { table, bucket, notification, reconciler };
+  const purge = new sst.aws.Cron(FILE_PURGE_COMPONENT_NAME, {
+    schedule: FILE_PURGE_SCHEDULE,
+    function: {
+      handler: "packages/backend/src/functions/files/purge-trashed-files.handler",
+      runtime: "nodejs24.x" as const,
+      link: [table, bucket, options.usageTable],
+      permissions: [
+        { actions: [...FILE_PURGE_TABLE_ACTIONS], resources: [table.arn] },
+        { actions: [...FILE_PURGE_BUCKET_ACTIONS], resources: objectResources },
+        { actions: [...FILE_PURGE_USAGE_ACTIONS], resources: [options.usageTable.arn] },
+      ],
+      transform: { function: { tracingConfig: { mode: "Active" as const } } },
+    },
+  });
+
+  return { table, bucket, notification, reconciler, purge };
 }

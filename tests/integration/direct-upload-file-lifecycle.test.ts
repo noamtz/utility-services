@@ -18,6 +18,9 @@ import {
 } from "../../packages/backend/src/modules/file-management/downloads.js";
 import {
   parseFileItem,
+  trashPurgeSortKey,
+  TRASH_PURGE_INDEX_PARTITION,
+  UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS,
   type CompletionEvidence,
   type FileItem,
 } from "../../packages/backend/src/modules/file-management/model.js";
@@ -31,8 +34,10 @@ import {
 } from "../../packages/backend/src/modules/file-management/presigning.js";
 import {
   FileCollisionError,
+  FileStateConflictError,
   StorageQuotaExceededError,
   type DuePendingResult,
+  type DuePurgeResult,
   type FileRepository,
   type ListFilesInput,
 } from "../../packages/backend/src/modules/file-management/repository.js";
@@ -203,6 +208,119 @@ class MemoryFiles implements FileRepository {
   }
   public async listDuePending(): Promise<DuePendingResult> {
     return { items: [...this.items.values()].filter((item) => item.status === "pending") };
+  }
+  public async trash(file: FileItem, trashedAt: string, purgeAt: string) {
+    const current = (await this.get(file.internalProjectId, file.fileId))!;
+    if (current.status === "trashed" && current.purgeStartedAt === undefined) return current;
+    if (current.status !== "ready") throw new FileStateConflictError();
+    const next = parseFileItem({
+      ...current,
+      status: "trashed",
+      trashedAt,
+      purgeAt,
+      gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+      gsi2sk: trashPurgeSortKey(purgeAt, current.internalProjectId, current.fileId),
+      updatedAt: trashedAt,
+      revision: current.revision + 1n,
+    });
+    this.items.set(this.key(next.internalProjectId, next.fileId), next);
+    return next;
+  }
+  public async restore(file: FileItem, now: string) {
+    const current = (await this.get(file.internalProjectId, file.fileId))!;
+    if (current.status === "ready") return current;
+    if (
+      current.status !== "trashed" ||
+      current.purgeStartedAt !== undefined ||
+      new Date(now).getTime() >= new Date(current.purgeAt!).getTime()
+    ) {
+      throw new FileStateConflictError();
+    }
+    const {
+      gsi2pk: _pk,
+      gsi2sk: _sk,
+      trashedAt: _trashedAt,
+      purgeAt: _purgeAt,
+      purgeStartedAt: _purgeStartedAt,
+      objectRemovedAt: _objectRemovedAt,
+      ...base
+    } = current;
+    void _pk;
+    void _sk;
+    void _trashedAt;
+    void _purgeAt;
+    void _purgeStartedAt;
+    void _objectRemovedAt;
+    const next = parseFileItem({
+      ...base,
+      status: "ready",
+      updatedAt: now,
+      revision: current.revision + 1n,
+    });
+    this.items.set(this.key(next.internalProjectId, next.fileId), next);
+    return next;
+  }
+  public async claimPermanentRemoval(file: FileItem, now: string, force: boolean) {
+    const current = (await this.get(file.internalProjectId, file.fileId))!;
+    if (current.status === "trashed" && current.purgeStartedAt !== undefined) return current;
+    if (
+      (current.status !== "ready" && current.status !== "trashed") ||
+      (!force && new Date(current.purgeAt!).getTime() > new Date(now).getTime())
+    ) {
+      throw new FileStateConflictError();
+    }
+    const trashedAt = current.status === "trashed" ? current.trashedAt! : now;
+    const purgeAt = force
+      ? new Date(
+          Math.max(
+            new Date(now).getTime(),
+            new Date(current.uploadExpiresAt).getTime() +
+              UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS,
+          ),
+        ).toISOString()
+      : current.purgeAt!;
+    const next = parseFileItem({
+      ...current,
+      status: "trashed",
+      trashedAt,
+      purgeAt,
+      purgeStartedAt: now,
+      gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+      gsi2sk: trashPurgeSortKey(purgeAt, current.internalProjectId, current.fileId),
+      updatedAt: now,
+      revision: current.revision + 1n,
+    });
+    this.items.set(this.key(next.internalProjectId, next.fileId), next);
+    return next;
+  }
+  public async recordObjectRemoved(file: FileItem, removedAt: string) {
+    const current = (await this.get(file.internalProjectId, file.fileId))!;
+    if (current.objectRemovedAt !== undefined) return current;
+    const next = parseFileItem({
+      ...current,
+      objectRemovedAt: removedAt,
+      updatedAt: removedAt,
+      revision: current.revision + 1n,
+    });
+    this.items.set(this.key(next.internalProjectId, next.fileId), next);
+    return next;
+  }
+  public async finalizePermanentRemoval(file: FileItem) {
+    const current = await this.get(file.internalProjectId, file.fileId);
+    if (!current) return;
+    if (current.objectRemovedAt === undefined) throw new FileStateConflictError();
+    this.items.delete(this.key(current.internalProjectId, current.fileId));
+    this.retainedBytes -= current.completionEvidence!.sizeBytes;
+  }
+  public async listDuePurge(dueThrough: string): Promise<DuePurgeResult> {
+    return {
+      items: [...this.items.values()].filter(
+        (item) =>
+          item.status === "trashed" &&
+          item.purgeAt !== undefined &&
+          new Date(item.purgeAt).getTime() <= new Date(dueThrough).getTime(),
+      ),
+    };
   }
 }
 

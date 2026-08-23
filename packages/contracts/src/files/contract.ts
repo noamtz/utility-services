@@ -12,7 +12,7 @@ export const PublicFileIdSchema = z
   .string()
   .regex(/^pfil_[A-Za-z0-9_-]{22}$/u, "Public file ID is invalid");
 export const FileVisibilitySchema = z.enum(["private", "public"]);
-export const FileStatusSchema = z.enum(["pending", "ready", "failed"]);
+export const FileStatusSchema = z.enum(["pending", "ready", "failed", "trashed"]);
 
 export const FileNameSchema = z
   .string()
@@ -51,6 +51,14 @@ export const FileListQuerySchema = z
   .strict();
 
 export const FilePathSchema = z.object({ fileId: FileIdSchema }).strict();
+export const DeleteFileQuerySchema = z
+  .object({
+    force: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+  })
+  .strict();
 export const PublicFilePathSchema = z
   .object({
     publicProjectId: PublicProjectIdSchema,
@@ -69,6 +77,8 @@ export const FileSchema = z
     sizeBytes: FileSizeBytesSchema,
     visibility: FileVisibilitySchema,
     status: FileStatusSchema,
+    trashedAt: TimestampSchema.optional(),
+    purgeAt: TimestampSchema.optional(),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -86,6 +96,55 @@ export const FileSchema = z
         code: "custom",
         path: ["publicFileId"],
         message: "Private files cannot have a public file ID",
+      });
+    }
+    const hasTrashTimestamps = file.trashedAt !== undefined && file.purgeAt !== undefined;
+    if (file.status === "trashed" && !hasTrashTimestamps) {
+      context.addIssue({
+        code: "custom",
+        path: [file.trashedAt === undefined ? "trashedAt" : "purgeAt"],
+        message: "Trashed files require lifecycle timestamps",
+      });
+    }
+    if (file.status !== "trashed" && (file.trashedAt !== undefined || file.purgeAt !== undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: ["status"],
+        message: "Only trashed files may expose lifecycle timestamps",
+      });
+    }
+    if (
+      hasTrashTimestamps &&
+      new Date(file.purgeAt!).getTime() < new Date(file.trashedAt!).getTime()
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["purgeAt"],
+        message: "Purge time cannot precede trash time",
+      });
+    }
+  });
+
+export const DeleteFileResultSchema = z
+  .object({
+    fileId: FileIdSchema,
+    disposition: z.enum(["trashed", "purge-pending", "purged"]),
+    purgeAt: TimestampSchema.optional(),
+  })
+  .strict()
+  .superRefine((result, context) => {
+    if (result.disposition !== "purged" && result.purgeAt === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["purgeAt"],
+        message: "Non-purged results require a purge time",
+      });
+    }
+    if (result.disposition === "purged" && result.purgeAt !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["purgeAt"],
+        message: "Purged results cannot include a purge time",
       });
     }
   });
@@ -150,6 +209,7 @@ export const UploadAuthorizationResponseSchema =
 export const DownloadAuthorizationResponseSchema = createSuccessEnvelopeSchema(
   DownloadAuthorizationSchema,
 );
+export const DeleteFileResponseSchema = createSuccessEnvelopeSchema(DeleteFileResultSchema);
 
 export type FileId = z.infer<typeof FileIdSchema>;
 export type PublicFileId = z.infer<typeof PublicFileIdSchema>;
@@ -165,4 +225,6 @@ export type DownloadAuthorizationResponse = z.infer<typeof DownloadAuthorization
 export type FileListQuery = z.infer<typeof FileListQuerySchema>;
 export type FileListPayload = z.infer<typeof FileListPayloadSchema>;
 export type FilePath = z.infer<typeof FilePathSchema>;
+export type DeleteFileQuery = z.infer<typeof DeleteFileQuerySchema>;
+export type DeleteFileResult = z.infer<typeof DeleteFileResultSchema>;
 export type PublicFilePath = z.infer<typeof PublicFilePathSchema>;

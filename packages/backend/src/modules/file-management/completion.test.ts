@@ -10,11 +10,19 @@ import {
 import {
   createPendingFile,
   parseFileItem,
+  trashPurgeSortKey,
+  TRASH_PURGE_INDEX_PARTITION,
+  TRASH_RETENTION_MILLISECONDS,
   type CompletionEvidence,
   type FileItem,
 } from "./model.js";
 import type { ObjectStore, StoredObjectEvidence } from "./object-store.js";
-import type { DuePendingResult, FileRepository, ListFilesInput } from "./repository.js";
+import type {
+  DuePendingResult,
+  DuePurgeResult,
+  FileRepository,
+  ListFilesInput,
+} from "./repository.js";
 
 const project = "11111111-1111-4111-8111-111111111111";
 const publicProject = "prj_0123456789abcdefghijkl";
@@ -118,6 +126,24 @@ class MemoryRepository implements FileRepository {
   public async listDuePending(): Promise<DuePendingResult> {
     return { items: this.item.status === "pending" ? [this.item] : [] };
   }
+  public async trash(): Promise<FileItem> {
+    throw new Error("not used by completion tests");
+  }
+  public async restore(): Promise<FileItem> {
+    throw new Error("not used by completion tests");
+  }
+  public async claimPermanentRemoval(): Promise<FileItem> {
+    throw new Error("not used by completion tests");
+  }
+  public async recordObjectRemoved(): Promise<FileItem> {
+    throw new Error("not used by completion tests");
+  }
+  public async finalizePermanentRemoval() {
+    throw new Error("not used by completion tests");
+  }
+  public async listDuePurge(): Promise<DuePurgeResult> {
+    return { items: [] };
+  }
 }
 
 function event(overrides: Record<string, unknown> = {}) {
@@ -192,6 +218,30 @@ describe("upload completion saga", () => {
       openedAt: occurredAt,
     });
     await service.handleS3Event(event());
+    expect(usage.recordUsage).toHaveBeenCalledOnce();
+    expect(usage.openStorage).toHaveBeenCalledOnce();
+  });
+
+  it("treats matching completion evidence for a trashed file as an idempotent replay", async () => {
+    const { repository, usage, service } = fixture();
+    await service.handleS3Event(event());
+    const trashedAt = "2026-08-24T08:00:00.000Z";
+    const purgeAt = new Date(
+      new Date(trashedAt).getTime() + TRASH_RETENTION_MILLISECONDS,
+    ).toISOString();
+    repository.item = parseFileItem({
+      ...repository.item,
+      status: "trashed",
+      trashedAt,
+      purgeAt,
+      gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+      gsi2sk: trashPurgeSortKey(purgeAt, project, fileId),
+      updatedAt: trashedAt,
+      revision: repository.item.revision + 1n,
+    });
+
+    await expect(service.handleS3Event(event())).resolves.toEqual({ processed: 1 });
+    expect(repository.item.status).toBe("trashed");
     expect(usage.recordUsage).toHaveBeenCalledOnce();
     expect(usage.openStorage).toHaveBeenCalledOnce();
   });

@@ -2,6 +2,7 @@
 import {
   MAX_FILE_SIZE_BYTES,
   type DownloadAuthorization,
+  type DeleteFileResult,
   type File,
   type TrustedProjectContext,
   type UploadAuthorization,
@@ -13,10 +14,13 @@ import { HttpError } from "../../core/http/handler.js";
 import {
   createAuthorizeDownloadHandler,
   createAuthorizeUploadHandler,
+  createDeleteFileHandler,
   createInspectFileHandler,
   createListFilesHandler,
   createPublicDownloadHandler,
+  createRestoreFileHandler,
 } from "./handlers.js";
+import type { FileLifecycleService } from "./lifecycle.js";
 import type { DownloadService } from "./downloads.js";
 import type { FileService } from "./service.js";
 
@@ -60,6 +64,11 @@ const downloadAuthorization: DownloadAuthorization = {
     expiresAt: "2026-08-23T08:05:00.000Z",
   },
 };
+const deleteResult: DeleteFileResult = {
+  fileId: file.fileId,
+  disposition: "trashed",
+  purgeAt: "2026-09-07T08:00:00.000Z",
+};
 
 function authentication(): ProjectAuthenticationService {
   return { authenticate: vi.fn().mockResolvedValue(context) };
@@ -80,17 +89,27 @@ function downloads(): DownloadService {
   };
 }
 
+function lifecycle(): FileLifecycleService {
+  return {
+    delete: vi.fn().mockResolvedValue(deleteResult),
+    restore: vi.fn().mockResolvedValue(readyFile),
+    purgeDue: vi.fn(),
+  };
+}
+
 function event(input: {
   method: string;
   path: string;
   body?: unknown;
   pathParameters?: Record<string, string>;
+  queryStringParameters?: Record<string, string>;
 }) {
   return {
     requestContext: { requestId: "request-1", http: { method: input.method, path: input.path } },
     headers: { authorization: `Bearer rus_v1.${context.keyId}.${"s".repeat(43)}` },
     ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
     ...(input.pathParameters ? { pathParameters: input.pathParameters } : {}),
+    ...(input.queryStringParameters ? { queryStringParameters: input.queryStringParameters } : {}),
   };
 }
 
@@ -293,5 +312,74 @@ describe("file HTTP handlers", () => {
     );
     expect(missing.statusCode).toBe(404);
     expect(missing.headers).not.toHaveProperty("location");
+  });
+
+  it("requires exact force confirmation and returns a deletion envelope", async () => {
+    const service = lifecycle();
+    const pendingForceResult: DeleteFileResult = {
+      fileId: file.fileId,
+      disposition: "purge-pending",
+      purgeAt: "2026-08-23T08:20:00.000Z",
+    };
+    vi.mocked(service.delete).mockResolvedValue(pendingForceResult);
+    const response = await createDeleteFileHandler(
+      service,
+      authentication(),
+    )(
+      event({
+        method: "DELETE",
+        path: `/v1/files/${file.fileId}`,
+        pathParameters: { fileId: file.fileId },
+        queryStringParameters: { force: "true" },
+      }),
+    );
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body ?? "{}")).toEqual({
+      data: pendingForceResult,
+      requestId: "request-1",
+    });
+    expect(service.delete).toHaveBeenCalledWith(context, file.fileId, { force: true });
+
+    const malformed = await createDeleteFileHandler(
+      service,
+      authentication(),
+    )(
+      event({
+        method: "DELETE",
+        path: `/v1/files/${file.fileId}`,
+        pathParameters: { fileId: file.fileId },
+        queryStringParameters: { force: "TRUE" },
+      }),
+    );
+    expect(malformed.statusCode).toBe(400);
+    expect(service.delete).toHaveBeenCalledOnce();
+  });
+
+  it("defaults delete to trash and restores through trusted project context", async () => {
+    const service = lifecycle();
+    await createDeleteFileHandler(
+      service,
+      authentication(),
+    )(
+      event({
+        method: "DELETE",
+        path: `/v1/files/${file.fileId}`,
+        pathParameters: { fileId: file.fileId },
+      }),
+    );
+    expect(service.delete).toHaveBeenCalledWith(context, file.fileId, { force: false });
+
+    const restored = await createRestoreFileHandler(
+      service,
+      authentication(),
+    )(
+      event({
+        method: "POST",
+        path: `/v1/files/${file.fileId}/restore`,
+        pathParameters: { fileId: file.fileId },
+      }),
+    );
+    expect(restored.statusCode).toBe(200);
+    expect(service.restore).toHaveBeenCalledWith(context, file.fileId);
   });
 });

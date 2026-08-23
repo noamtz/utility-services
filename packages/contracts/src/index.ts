@@ -74,6 +74,9 @@ export {
 export { TrustedProjectContextSchema, type TrustedProjectContext } from "./auth/project-context.js";
 export {
   CreateUploadRequestSchema,
+  DeleteFileQuerySchema,
+  DeleteFileResponseSchema,
+  DeleteFileResultSchema,
   DEFAULT_FILE_LIST_LIMIT,
   DownloadAuthorizationResponseSchema,
   DownloadAuthorizationSchema,
@@ -99,6 +102,8 @@ export {
   UploadAuthorizationSchema,
   UploadRequiredHeadersSchema,
   type CreateUploadRequest,
+  type DeleteFileQuery,
+  type DeleteFileResult,
   type DownloadAuthorization,
   type DownloadAuthorizationResponse,
   type DownloadTransfer,
