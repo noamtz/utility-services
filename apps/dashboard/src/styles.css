@@ -1,6 +1,6 @@
 :root {
-  color: #16201d;
-  background: #eef2eb;
+  color: #15231e;
+  background: #edf2ec;
   font-family:
     Inter,
     ui-sans-serif,
@@ -16,11 +16,17 @@
 * {
   box-sizing: border-box;
 }
-
 body {
   margin: 0;
   min-width: 20rem;
   min-height: 100vh;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
 }
 
 .shell {
@@ -29,55 +35,166 @@ body {
   place-items: center;
   padding: 2rem;
   background:
-    radial-gradient(circle at top left, rgb(218 235 222 / 90%), transparent 42%),
-    linear-gradient(145deg, #f7f3e8, #e7efe7);
+    radial-gradient(circle at top left, #d9ebde, transparent 42%),
+    linear-gradient(145deg, #f8f4e9, #e6eee7);
 }
 
-.hero {
-  width: min(44rem, 100%);
-  padding: clamp(2rem, 7vw, 5rem);
+.auth-card,
+.panel {
   border: 1px solid rgb(22 32 29 / 12%);
-  border-radius: 1.5rem;
-  background: rgb(255 255 255 / 78%);
-  box-shadow: 0 1.5rem 4rem rgb(42 65 55 / 12%);
+  border-radius: 1.25rem;
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 1rem 3rem rgb(42 65 55 / 10%);
+}
+
+.auth-card {
+  width: min(30rem, 100%);
+  padding: clamp(2rem, 7vw, 4rem);
+}
+.auth-card form,
+.create-form {
+  display: grid;
+  gap: 0.8rem;
+}
+input {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #93a29c;
+  border-radius: 0.5rem;
+}
+button {
+  padding: 0.7rem 1rem;
+  border: 0;
+  border-radius: 0.5rem;
+  color: white;
+  background: #18523e;
+  font-weight: 700;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 0.2rem solid #d87c42;
+  outline-offset: 0.15rem;
 }
 
 .eyebrow {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.45rem;
   color: #39705b;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.75rem;
+  font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-
-h1 {
-  max-width: 12ch;
+h1,
+h2 {
   margin: 0;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(2.7rem, 8vw, 5.5rem);
   font-weight: 500;
-  letter-spacing: -0.045em;
-  line-height: 0.96;
+}
+h1 {
+  font-size: clamp(2.2rem, 6vw, 4.5rem);
+}
+h2 {
+  font-size: 1.7rem;
+}
+[role="alert"] {
+  color: #8d261f;
 }
 
-.status {
-  max-width: 38rem;
-  margin: 1.75rem 0;
-  color: #49554f;
-  font-size: 1.08rem;
-  line-height: 1.7;
+.dashboard-shell {
+  min-height: 100vh;
+  padding: clamp(1rem, 4vw, 3rem);
 }
-
-.documentation-link {
-  display: inline-block;
-  color: #174f3b;
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  margin: 0 auto 2rem;
+  max-width: 86rem;
+}
+.dashboard-header h1 {
+  font-size: clamp(2rem, 5vw, 3.8rem);
+}
+.dashboard-header button {
+  color: #18523e;
+  background: transparent;
+  border: 1px solid #18523e;
+}
+.project-workspace {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+  max-width: 86rem;
+  margin: 0 auto;
+  align-items: start;
+}
+.panel {
+  padding: 1.5rem;
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.field-grid label {
+  display: grid;
+  gap: 0.4rem;
+}
+.field-note {
+  margin: 0;
+  color: #59655f;
+  font-size: 0.9rem;
+}
+.project-list ul {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0;
+  list-style: none;
+}
+.project-list li button {
+  display: grid;
+  width: 100%;
+  gap: 0.2rem;
+  text-align: left;
+  color: #15231e;
+  background: #eef4ef;
+}
+.project-list li button[aria-pressed="true"] {
+  outline: 0.15rem solid #39705b;
+}
+.project-list li span {
+  color: #59655f;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+.project-details dl {
+  display: grid;
+  gap: 1rem;
+}
+.project-details dl div {
+  display: grid;
+  gap: 0.2rem;
+}
+.project-details dt {
+  color: #59655f;
+  font-size: 0.8rem;
   font-weight: 700;
-  text-underline-offset: 0.25rem;
+  text-transform: uppercase;
+}
+.project-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
-.documentation-link:focus-visible {
-  border-radius: 0.2rem;
-  outline: 0.2rem solid #d87c42;
-  outline-offset: 0.25rem;
+@media (max-width: 58rem) {
+  .project-workspace {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-header {
+    align-items: flex-start;
+  }
 }

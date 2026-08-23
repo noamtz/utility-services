@@ -1,3 +1,6 @@
+import { AWS_REGION } from "./config/app.js";
+import { CONTROL_AUTHORIZER_NAME, CONTROL_ROUTES } from "./config/control.js";
+
 export const API_COMPONENT_NAME = "ServiceApi";
 export const API_CORS = false;
 export const HEALTH_ROUTE = {
@@ -8,7 +11,13 @@ export const HEALTH_ROUTE = {
   tracingMode: "Active",
 } as const;
 
-export function createApi() {
+interface ControlResources {
+  userPool: sst.aws.CognitoUserPool;
+  userPoolClient: sst.aws.CognitoUserPoolClient;
+  table: sst.aws.Dynamo;
+}
+
+export function createApi(control: ControlResources) {
   const api = new sst.aws.ApiGatewayV2(API_COMPONENT_NAME, { cors: API_CORS });
   api.route(
     HEALTH_ROUTE.route,
@@ -23,5 +32,36 @@ export function createApi() {
     },
     { name: HEALTH_ROUTE.name },
   );
+  const authorizer = api.addAuthorizer({
+    name: CONTROL_AUTHORIZER_NAME,
+    jwt: {
+      issuer: control.userPool.id.apply(
+        (poolId) => `https://cognito-idp.${AWS_REGION}.amazonaws.com/${poolId}`,
+      ),
+      audiences: [control.userPoolClient.id],
+    },
+  });
+  for (const route of CONTROL_ROUTES) {
+    api.route(
+      route.route,
+      {
+        handler: route.handler,
+        runtime: "nodejs24.x",
+        link: [control.table],
+        ...(route.additionalTableActions.length > 0
+          ? {
+              permissions: [
+                {
+                  actions: [...route.additionalTableActions],
+                  resources: [control.table.arn],
+                },
+              ],
+            }
+          : {}),
+        transform: { function: { tracingConfig: { mode: "Active" } } },
+      },
+      { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },
+    );
+  }
   return api;
 }

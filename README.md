@@ -1,10 +1,11 @@
 # Reusable Utility Services
 
 Reusable Utility Services is a modular, language-agnostic utility platform. The first MVP utility
-will provide invite-only File Management through a React dashboard and `/v1` REST API. RUS-01
-establishes the deployable TypeScript/SST foundation, shared runtime contracts, a public health
-route, and an accessible dashboard shell; identity, project credentials, file behavior, and usage
-metering belong to later tickets.
+will provide invite-only File Management through a React dashboard and `/v1` REST API. The current
+implementation includes the TypeScript/SST foundation plus RUS-02 owner identity and project
+control: an invite-only Cognito boundary, owner-scoped project create/list/inspect operations, and
+an authenticated dashboard. Project credentials, file behavior, and usage metering belong to later
+tickets.
 
 The [Product Requirements](https://github.com/noamtz/utility-services/wiki/Product-Requirements-Epic),
 [Architecture](https://github.com/noamtz/utility-services/wiki/Architecture), and
@@ -14,28 +15,37 @@ GitHub wiki are canonical.
 ## Repository layout
 
 ```text
-apps/dashboard                 React/Vite dashboard composition and UI behavior
-packages/contracts             Browser/Node-compatible Zod runtime contracts
+apps/dashboard                 React/Vite invite-only auth and project-control UI
+packages/contracts             Browser/Node-compatible HTTP and project Zod contracts
 packages/backend/src/core      Universal Lambda HTTP and observability foundations
 packages/backend/src/functions Thin deployed function entry points
-packages/backend/src/modules   Future cohesive bounded-context slices
-infra                          One SST application and stage/resource composition
-tests/integration              Future behavior crossing packages or slices
+packages/backend/src/modules   Cohesive bounded-context slices, currently identity-control
+infra                          SST identity, control table, API, and dashboard composition
+tests/integration              Behavior crossing packages or slices
 tests/e2e                      Future assembled user journeys
 ```
 
 ## Local quick start
 
-Prerequisites are Node.js 24 and npm 11. Install exactly from the committed lockfile, then start the
-fully local Vite dashboard:
+Prerequisites are Node.js 24 and npm 11. Install exactly from the committed lockfile. For a local UI
+preview, provide syntactically valid public Cognito identifiers in an untracked `.env.local`, then
+start Vite:
+
+```dotenv
+VITE_COGNITO_USER_POOL_ID=il-central-1_LocalPreview
+VITE_COGNITO_USER_POOL_CLIENT_ID=0123456789abcdefghijklmnop
+```
 
 ```powershell
 npm ci
 npm run dev
 ```
 
-The dashboard command does not evaluate SST configuration or access AWS. Run the local quality
-suite with:
+The local preview does not evaluate SST configuration or create AWS resources. Placeholder IDs let
+the signed-out UI render, but authentication cannot succeed. Live sign-in requires a separately
+authorized deployed non-production stage and an administrator-created Cognito user. Public
+self-registration is disabled; invitation creation is an external operator action and is not
+automated by this repository. Run the local quality suite with:
 
 ```powershell
 npm run format:check
@@ -55,6 +65,11 @@ explicit stage:
 - `production`
 - `pr-<positive-integer>`, such as `pr-12`
 - `dev-<lowercase-slug>`, such as `dev-noam`
+
+Networked SST commands are pinned to AWS CLI profile `ntz-cli`, account `162067902192`, and region
+`il-central-1`. On Windows the wrapper also supplies the installed AWS CLI CA bundle, then verifies
+the exact `ntz-cli` caller identity before `diff`, `dev`, or `deploy`; it will not fall back to
+another local profile. Credential values remain only in the local AWS shared credentials file.
 
 Generate the ignored local provider declarations after installation or a provider change:
 
@@ -83,7 +98,10 @@ npm run infra:deploy -- --stage dev-noam
 
 The provider installation regenerates `.sst/platform` locally from pinned `sst@4.17.1` and
 `@pulumi/aws@7.43.0`; generated SST files are intentionally ignored. A successful non-production
-`infra:diff` is the RUS-01 infrastructure-composition gate and never substitutes for a deployment.
+`infra:diff` is the infrastructure-composition gate and never substitutes for a deployment. RUS-02
+adds one invite-only user pool and secretless client, one owner-control table, three JWT-protected
+project routes, and a no-cache same-origin `v1/control/*` dashboard behavior; `/v1/health` remains
+public.
 
 ## Codex project setup
 

@@ -8,7 +8,12 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: ["packages/**/*.test.ts", "infra/**/*.test.ts", "tooling/**/*.test.ts"],
+          include: [
+            "packages/**/*.test.ts",
+            "infra/**/*.test.ts",
+            "tests/**/*.test.ts",
+            "tooling/**/*.test.ts",
+          ],
         },
       },
       {
@@ -16,7 +21,7 @@ export default defineConfig({
         test: {
           name: "dashboard",
           environment: "jsdom",
-          include: ["apps/dashboard/**/*.test.tsx"],
+          include: ["apps/dashboard/**/*.test.{ts,tsx}"],
           setupFiles: ["apps/dashboard/src/test/setup.ts"],
         },
       },

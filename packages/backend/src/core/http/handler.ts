@@ -25,12 +25,14 @@ export interface ParsedHttpRequest<
   TQuery extends AnySchema | undefined,
   THeaders extends AnySchema | undefined,
   TBody extends AnySchema | undefined,
+  TAuthorization = undefined,
 > {
   requestId: string;
   path: SchemaOutput<TPath>;
   query: SchemaOutput<TQuery>;
   headers: SchemaOutput<THeaders>;
   body: SchemaOutput<TBody>;
+  authorization: TAuthorization;
 }
 
 export class HttpError extends Error {
@@ -96,11 +98,16 @@ interface HandlerOptions<
   THeaders extends AnySchema | undefined,
   TBody extends AnySchema | undefined,
   TResponse extends AnySchema,
+  TAuthorization,
 > {
   schemas: HandlerSchemas<TPath, TQuery, THeaders, TBody, TResponse>;
   callback: (
-    request: ParsedHttpRequest<TPath, TQuery, THeaders, TBody>,
+    request: ParsedHttpRequest<TPath, TQuery, THeaders, TBody, TAuthorization>,
   ) => MaybePromise<z.input<TResponse>>;
+  deriveAuthorization?: (
+    gatewayEvent: z.output<typeof GatewayEventSchema>,
+  ) => MaybePromise<TAuthorization>;
+  successStatusCode?: number;
   logger?: SafeLogger;
 }
 
@@ -177,7 +184,13 @@ export function createHttpHandler<
   THeaders extends AnySchema | undefined = undefined,
   TBody extends AnySchema | undefined = undefined,
   TResponse extends AnySchema = AnySchema,
->(options: HandlerOptions<TPath, TQuery, THeaders, TBody, TResponse>) {
+  TAuthorization = undefined,
+>(options: HandlerOptions<TPath, TQuery, THeaders, TBody, TResponse, TAuthorization>) {
+  const successStatusCode = options.successStatusCode ?? 200;
+  if (!Number.isInteger(successStatusCode) || successStatusCode < 200 || successStatusCode > 299) {
+    throw new RangeError("successStatusCode must be an integer between 200 and 299");
+  }
+
   return async (event: unknown): Promise<APIGatewayProxyStructuredResultV2> => {
     const requestId = getAuthoritativeRequestId(event);
 
@@ -199,6 +212,10 @@ export function createHttpHandler<
         path: gatewayEvent.requestContext.http?.path,
       });
 
+      const authorization = options.deriveAuthorization
+        ? await options.deriveAuthorization(gatewayEvent)
+        : (undefined as TAuthorization);
+
       const request = {
         requestId,
         path: parseSection(options.schemas.path, gatewayEvent.pathParameters ?? {}, "path"),
@@ -213,15 +230,16 @@ export function createHttpHandler<
           parseJsonBody(gatewayEvent.body, gatewayEvent.isBase64Encoded ?? false),
           "body",
         ),
-      } as ParsedHttpRequest<TPath, TQuery, THeaders, TBody>;
+        authorization,
+      } as ParsedHttpRequest<TPath, TQuery, THeaders, TBody, TAuthorization>;
 
       const data = await options.callback(request);
       const envelope = createSuccessEnvelopeSchema(options.schemas.response).parse({
         data,
         requestId,
       });
-      options.logger?.info("http.request.completed", { requestId, statusCode: 200 });
-      return jsonResponse(200, requestId, envelope);
+      options.logger?.info("http.request.completed", { requestId, statusCode: successStatusCode });
+      return jsonResponse(successStatusCode, requestId, envelope);
     } catch (error) {
       if (error instanceof HttpError) {
         options.logger?.info("http.request.rejected", {

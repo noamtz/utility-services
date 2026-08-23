@@ -10,11 +10,19 @@ This greenfield product provides reusable, language-agnostic utility services to
 - GitHub operations for this repository must authenticate exclusively as `noamtz`. Verify the active identity before any GitHub write, and never switch to or use `noamtznm`.
 - [Product Requirements (Epic)](https://github.com/noamtz/utility-services/wiki/Product-Requirements-Epic) is the source of truth for product intent, MVP scope, and success criteria.
 - [Architecture](https://github.com/noamtz/utility-services/wiki/Architecture) is the source of truth for technical choices and boundaries.
-- Application code has not been scaffolded. Do not claim application paths, package commands, or library choices that do not yet exist.
+- The TypeScript workspace, SST application, React dashboard, shared contracts, REST/observability core, and invite-only owner/project control slice are implemented. Identity/control lives under `packages/backend/src/modules/identity-control`; later project-authentication, File Management, and usage/pricing slices remain unimplemented.
 - The required logical boundaries are identity/control, project authentication, File Management, direct S3 transfer, usage/pricing, and shared REST/observability foundations. Preserve these boundaries when choosing the physical layout during implementation planning.
 - `.agents/skills/` contains repo-scoped workflows; `.agents/references/` contains on-demand engineering guidance.
 - `.codex/config.toml`, `.codex/agents/`, and `.codex/hooks.json` define project Codex tooling. `tooling/validate_codex_layer.py` validates it.
 - `.agents/archive/` is migration/archive material and is not active instruction context.
+
+## AWS target and authentication continuity
+
+- The only AWS target for this repository is account `162067902192` in `il-central-1`. The required local IAM principal is `arn:aws:iam::162067902192:user/ntz-cli`, configured under AWS CLI profile `ntz-cli`. Never fall back to `default`, `ntz-mgmt`, `taxflow-sst`, or another configured profile.
+- On this Windows machine, AWS CLI calls for this profile require `AWS_CA_BUNDLE=C:\Program Files\Amazon\AWSCLIV2\awscli\botocore\cacert.pem`; omitting it can misleadingly produce `InvalidClientTokenId`. Do not diagnose or rotate credentials until retrying with that CA bundle.
+- Before any direct AWS read or an authorized mutation, set `AWS_PROFILE=ntz-cli`, `AWS_REGION=il-central-1`, and the CA bundle, then run `aws sts get-caller-identity`. Continue only when both the account and full principal ARN exactly match the values above; otherwise stop and report the mismatch without probing unrelated profiles.
+- `tooling/run-sst.mjs` applies this environment and performs the exact identity preflight before `diff`, `dev`, or `deploy`; `install` remains local. Never bypass the wrapper. RUS-01 was deployed as stage `dev-plan`, but this record is context, not authorization to change or remove it.
+- AWS access keys stay only in the local AWS shared credentials file. Never print, copy into chat, log, commit, or store credential values in project instructions, plans, issues, reports, or evidence.
 
 ## Architecture rules
 
