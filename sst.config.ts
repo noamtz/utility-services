@@ -22,16 +22,23 @@ export default $config({
       { createApi },
       { createControlResources },
       { createDashboard },
+      { createFileManagementResources },
       { createUsagePricingResources },
     ] = await Promise.all([
       import("./infra/api.js"),
       import("./infra/control.js"),
       import("./infra/dashboard.js"),
+      import("./infra/file-management.js"),
       import("./infra/usage-pricing.js"),
     ]);
     const control = createControlResources({ production: $app.stage === "production" });
     const usagePricing = createUsagePricingResources({ production: $app.stage === "production" });
-    const api = createApi(control);
+    const files = createFileManagementResources({
+      production: $app.stage === "production",
+      controlTable: control.table,
+      usageTable: usagePricing.table,
+    });
+    const api = createApi(control, usagePricing, files);
     const dashboard = createDashboard({
       apiUrl: api.url,
       userPoolId: control.userPool.id,
@@ -44,6 +51,7 @@ export default $config({
       dashboardClientId: control.userPoolClient.id,
       controlTableName: control.table.name,
       usagePricingTableName: usagePricing.table.name,
+      fileTableName: files.table.name,
     };
   },
 });

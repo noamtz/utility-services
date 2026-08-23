@@ -56,7 +56,7 @@ async function authError(repo: CredentialRepository, credential = { keyId, secre
 }
 
 describe("project authentication service", () => {
-  it("returns a frozen minimal trusted context for a valid active key", async () => {
+  it("returns a frozen trusted context built only from the verified snapshot", async () => {
     const context = await createProjectAuthenticationService({
       repository: repository(),
     }).authenticate({
@@ -65,11 +65,13 @@ describe("project authentication service", () => {
     });
     expect(context).toEqual({
       internalProjectId: project.internalProjectId,
+      publicProjectId: project.publicProjectId,
       keyId,
       enabledUtilities: ["file-management"],
+      fileManagement: project.fileManagement,
     });
     expect(Object.isFrozen(context)).toBe(true);
-    expect(JSON.stringify(context)).not.toMatch(/secret|owner|publicProjectId|pk/);
+    expect(JSON.stringify(context)).not.toMatch(/secret|owner|\"pk\"/);
   });
 
   it("uses a fixed-size dummy comparison for an unknown parseable key", async () => {

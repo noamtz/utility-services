@@ -150,6 +150,53 @@ declare namespace sst {
       public readonly arn: SstOutput<string>;
     }
 
+    interface BucketArgs {
+      cors?: false;
+      enforceHttps?: boolean;
+      policy?: Array<{
+        actions: readonly string[];
+        effect?: "allow" | "deny";
+        principals: "*";
+        conditions?: ReadonlyArray<{
+          test: string;
+          variable: string;
+          values: readonly string[];
+        }>;
+      }>;
+      transform?: {
+        bucket?: (args: { forceDestroy?: boolean }) => void;
+        publicAccessBlock?: (args: {
+          blockPublicAcls?: boolean;
+          blockPublicPolicy?: boolean;
+          ignorePublicAcls?: boolean;
+          restrictPublicBuckets?: boolean;
+        }) => void;
+      };
+    }
+
+    interface BucketNotificationArgs {
+      notifications: Array<{
+        name: string;
+        events: Array<"s3:ObjectCreated:Put">;
+        filterPrefix: string;
+        function: FunctionDefinition;
+      }>;
+    }
+
+    class Bucket {
+      public constructor(name: string, args?: BucketArgs);
+      public readonly name: SstOutput<string>;
+      public readonly arn: SstOutput<string>;
+      public notify(args: BucketNotificationArgs): unknown;
+    }
+
+    class Cron {
+      public constructor(
+        name: string,
+        args: { schedule: `rate(${string})` | `cron(${string})`; function: FunctionDefinition },
+      );
+    }
+
     interface DistributionOrigin {
       originId: string;
       domainName: string | SstOutput<string>;

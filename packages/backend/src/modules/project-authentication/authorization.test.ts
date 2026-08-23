@@ -12,8 +12,10 @@ const keyId = "key_0123456789abcdefghijkl";
 const apiKey = `rus_v1.${keyId}.${"s".repeat(43)}`;
 const context: TrustedProjectContext = {
   internalProjectId: "11111111-1111-4111-8111-111111111111",
+  publicProjectId: "prj_0123456789abcdefghijkl",
   keyId,
   enabledUtilities: ["file-management"],
+  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
 };
 
 function event(authorization?: string): unknown {

@@ -70,6 +70,16 @@ describe("redactSensitiveValues", () => {
     ).toEqual({ presignedUrl: "[REDACTED]", upload_url: "[REDACTED]" });
   });
 
+  it("strips the signed query from the nested upload DTO URL field", () => {
+    expect(
+      redactSensitiveValues({
+        upload: {
+          url: "https://private-bucket.s3.il-central-1.amazonaws.com/object?X-Amz-Signature=secret",
+        },
+      }),
+    ).toEqual({ upload: { url: "https://private-bucket.s3.il-central-1.amazonaws.com/object" } });
+  });
+
   it("redacts credential-specific aliases across case and punctuation variants", () => {
     expect(
       redactSensitiveValues({

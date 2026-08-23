@@ -86,8 +86,10 @@ export function createProjectAuthenticationService(
 
       const result = TrustedProjectContextSchema.safeParse({
         internalProjectId: snapshot.project.internalProjectId,
+        publicProjectId: snapshot.project.publicProjectId,
         keyId: snapshot.lookup.keyId,
         enabledUtilities: snapshot.project.enabledUtilities,
+        fileManagement: snapshot.project.fileManagement,
       });
       if (!result.success) throw unauthorized();
       return Object.freeze(result.data);
