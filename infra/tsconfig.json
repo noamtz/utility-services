@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "../.tsbuild/infra",
+    "tsBuildInfoFile": "../.tsbuild/infra.tsbuildinfo"
+  },
+  "include": ["**/*.ts"]
+}

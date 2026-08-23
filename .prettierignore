@@ -1,0 +1,13 @@
+node_modules/
+.sst/
+.tsbuild/
+coverage/
+dist/
+**/dist/
+package-lock.json
+.agents/
+.archon/
+.codex/
+AGENTS.md
+tooling/mcp/
+.agents/archive/

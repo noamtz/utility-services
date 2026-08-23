@@ -68,7 +68,33 @@ This greenfield product provides reusable, language-agnostic utility services to
 
 ## Commands
 
-No application install, run, test, typecheck, or lint command exists until the application is scaffolded. Add the verified commands here when the implementation establishes them.
+Install and run the fully local dashboard:
+
+```powershell
+npm ci
+npm run dev
+```
+
+Run the verified application quality gates:
+
+```powershell
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run test:coverage
+npm run build
+npm run check
+```
+
+Generate ignored SST provider artifacts locally and preview a required explicit non-production stage:
+
+```powershell
+npm run infra:install -- --stage dev-<slug>
+npm run infra:diff -- --stage dev-<slug>
+```
+
+`infra:diff` requires valid AWS credentials and is preview-only. After explicit owner authorization and a successful preview, deploy the same non-production stage with `npm run infra:deploy -- --stage dev-<slug>`. Production deployment is intentionally rejected by the RUS-01 wrapper. Never bypass the wrapper or run `sst dev`, deploy, modify AWS resources, or create credentials without explicit authorization.
 
 Validate the Codex layer after changing instructions, skills, agents, hooks, or MCP configuration:
 
