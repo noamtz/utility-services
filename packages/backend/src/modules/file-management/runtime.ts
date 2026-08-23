@@ -29,11 +29,13 @@ export function createFileApiRuntime(options: {
   const controlTableName = z.string().trim().min(1).parse(options.controlTableName);
   const fileTableName = z.string().trim().min(1).parse(options.fileTableName);
   const bucketName = z.string().trim().min(1).parse(options.bucketName);
-  const dynamo = new DynamoDBClient({});
-  const controlClient = DynamoDBDocumentClient.from(dynamo, {
+  const controlClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
     marshallOptions: { removeUndefinedValues: true },
   });
-  const fileClient = DynamoDBDocumentClient.from(dynamo, FILE_DOCUMENT_CLIENT_OPTIONS);
+  const fileClient = DynamoDBDocumentClient.from(
+    new DynamoDBClient({}),
+    FILE_DOCUMENT_CLIENT_OPTIONS,
+  );
   const authentication = createProjectAuthenticationRuntime({
     tableName: controlTableName,
     documentClient: controlClient,

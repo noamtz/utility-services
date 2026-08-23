@@ -53,6 +53,9 @@ describe("file management infrastructure policy", () => {
       "AuthorizeFileDownloadRoute",
       "PublicFileDownloadRoute",
     ]);
+    expect(FILE_ROUTES[0]).toMatchObject({
+      fileTableActions: ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
+    });
     const privateDownload = FILE_ROUTES[3];
     expect(privateDownload).toMatchObject({
       handler: "packages/backend/src/functions/files/authorize-download.handler",
