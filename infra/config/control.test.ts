@@ -51,7 +51,7 @@ describe("identity/control infrastructure policy", () => {
   it("forwards only the narrow no-cache control path and required request values", () => {
     expect(DASHBOARD_CONTROL_POLICY).toEqual({
       pathPattern: "v1/control/*",
-      allowedMethods: ["GET", "HEAD", "OPTIONS", "POST"],
+      allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
       cachedMethods: ["GET", "HEAD"],
       viewerProtocolPolicy: "redirect-to-https",
       originProtocolPolicy: "https-only",
@@ -66,5 +66,6 @@ describe("identity/control infrastructure policy", () => {
     expect(DASHBOARD_CONTROL_POLICY.pathPattern).not.toBe("v1/*");
     expect(DASHBOARD_CONTROL_POLICY.headers).not.toContain("*");
     expect(DASHBOARD_CONTROL_POLICY.queryStrings).not.toContain("*");
+    expect(CONTROL_ROUTES.some(({ route }) => /^(PUT|PATCH|DELETE) /.test(route))).toBe(false);
   });
 });

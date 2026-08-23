@@ -50,7 +50,9 @@ export const CONTROL_ROUTES = [
 
 export const DASHBOARD_CONTROL_POLICY = {
   pathPattern: "v1/control/*",
-  allowedMethods: ["GET", "HEAD", "OPTIONS", "POST"],
+  // CloudFront requires its full seven-method set whenever POST is forwarded.
+  // API Gateway still authorizes only the explicit CONTROL_ROUTES above.
+  allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
   cachedMethods: ["GET", "HEAD"],
   viewerProtocolPolicy: "redirect-to-https",
   originProtocolPolicy: "https-only",
