@@ -2,13 +2,16 @@
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it, vi } from "vitest";
 
-const linkedResourceReads = vi.hoisted(() => ({ usagePricingTable: 0 }));
+const linkedResourceReads = vi.hoisted(() => ({ fileBucket: 0, usagePricingTable: 0 }));
 
 vi.mock("sst", () => ({
   Resource: {
     ControlTable: { name: "ControlTable" },
     FileTable: { name: "FileTable" },
-    FileBucket: { name: "private-file-bucket" },
+    get FileBucket() {
+      linkedResourceReads.fileBucket += 1;
+      return { name: "private-file-bucket" };
+    },
     get UsagePricingTable() {
       linkedResourceReads.usagePricingTable += 1;
       return { name: "UsageTable" };
@@ -74,15 +77,20 @@ describe("file management runtime", () => {
     ).toThrow();
   });
 
-  it("does not read the worker-only usage link while composing API handlers", () => {
+  it("does not read transfer or worker-only links while composing metadata handlers", () => {
+    expect(linkedResourceReads.fileBucket).toBe(0);
     expect(linkedResourceReads.usagePricingTable).toBe(0);
     expect(getFileHandlers().authorizeUpload).toBeTypeOf("function");
+    expect(getFileHandlers().listFiles).toBeTypeOf("function");
+    expect(getFileHandlers().inspectFile).toBeTypeOf("function");
     expect(getFileHandlers().authorizeDownload).toBeTypeOf("function");
     expect(getFileHandlers().publicDownload).toBeTypeOf("function");
     expect(getFileLifecycleHandlers().deleteFile).toBeTypeOf("function");
     expect(getFileLifecycleHandlers().restoreFile).toBeTypeOf("function");
+    expect(linkedResourceReads.fileBucket).toBe(0);
     expect(linkedResourceReads.usagePricingTable).toBe(0);
     expect(getFileWorkerRuntime().usage.recordUsage).toBeTypeOf("function");
+    expect(linkedResourceReads.fileBucket).toBe(1);
     expect(linkedResourceReads.usagePricingTable).toBe(1);
   });
 });

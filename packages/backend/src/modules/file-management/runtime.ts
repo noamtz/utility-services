@@ -20,18 +20,30 @@ import {
 } from "./handlers.js";
 import { createFileLifecycleService, type LifecycleUsageService } from "./lifecycle.js";
 import { createS3ObjectStore, type ObjectStore } from "./object-store.js";
-import { createS3DownloadPresigner, createS3UploadPresigner } from "./presigning.js";
+import {
+  createS3DownloadPresigner,
+  createS3UploadPresigner,
+  type DownloadPresigner,
+  type UploadPresigner,
+} from "./presigning.js";
 import { createDynamoFileRepository, FILE_DOCUMENT_CLIENT_OPTIONS } from "./repository.js";
 import { createFileService } from "./service.js";
 
 export function createFileApiRuntime(options: {
   readonly controlTableName: string;
   readonly fileTableName: string;
-  readonly bucketName: string;
+  readonly bucketName?: string;
+  readonly uploadPresigner?: UploadPresigner;
+  readonly downloadPresigner?: DownloadPresigner;
 }) {
   const controlTableName = z.string().trim().min(1).parse(options.controlTableName);
   const fileTableName = z.string().trim().min(1).parse(options.fileTableName);
-  const bucketName = z.string().trim().min(1).parse(options.bucketName);
+  const bucketName = options.bucketName
+    ? z.string().trim().min(1).parse(options.bucketName)
+    : undefined;
+  if (!bucketName && (!options.uploadPresigner || !options.downloadPresigner)) {
+    throw new Error("File API runtime requires a bucket or both transfer presigners");
+  }
   const controlClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
     marshallOptions: { removeUndefinedValues: true },
   });
@@ -53,9 +65,12 @@ export function createFileApiRuntime(options: {
     client: controlClient,
     tableName: controlTableName,
   });
-  const s3 = new S3Client({});
-  const presigner = createS3UploadPresigner({ client: s3, bucketName });
-  const downloadPresigner = createS3DownloadPresigner({ client: s3, bucketName });
+  const s3 = bucketName ? new S3Client({}) : undefined;
+  const presigner =
+    options.uploadPresigner ?? createS3UploadPresigner({ client: s3!, bucketName: bucketName! });
+  const downloadPresigner =
+    options.downloadPresigner ??
+    createS3DownloadPresigner({ client: s3!, bucketName: bucketName! });
   const service = createFileService({ repository, presigner });
   const downloads = createDownloadService({ repository, projects, presigner: downloadPresigner });
   return Object.freeze({ authentication, repository, projects, service, downloads });
@@ -117,11 +132,31 @@ export function createFileLifecycleRuntime(options: {
 
 let apiRuntime: ReturnType<typeof createFileApiRuntime> | undefined;
 
+let transferRuntime:
+  Readonly<{ uploadPresigner: UploadPresigner; downloadPresigner: DownloadPresigner }> | undefined;
+
+function getFileTransferRuntime() {
+  if (!transferRuntime) {
+    const bucketName = Resource.FileBucket.name;
+    const client = new S3Client({});
+    transferRuntime = Object.freeze({
+      uploadPresigner: createS3UploadPresigner({ client, bucketName }),
+      downloadPresigner: createS3DownloadPresigner({ client, bucketName }),
+    });
+  }
+  return transferRuntime;
+}
+
 export function getFileApiRuntime() {
   apiRuntime ??= createFileApiRuntime({
     controlTableName: Resource.ControlTable.name,
     fileTableName: Resource.FileTable.name,
-    bucketName: Resource.FileBucket.name,
+    uploadPresigner: {
+      authorizePut: (input) => getFileTransferRuntime().uploadPresigner.authorizePut(input),
+    },
+    downloadPresigner: {
+      authorizeGet: (input) => getFileTransferRuntime().downloadPresigner.authorizeGet(input),
+    },
   });
   return apiRuntime;
 }
