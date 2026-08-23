@@ -24,6 +24,7 @@ import {
   publicFilePartitionKey,
   publicFileSortKey,
   trashPurgeSortKey,
+  UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS,
   type CompletionEvidence,
   type FileItem,
 } from "./model.js";
@@ -243,7 +244,10 @@ export function createDynamoFileRepository(options: {
       }
       if (items.length === 0) return undefined;
       if (items.length !== 1) throw new CorruptFileRecordError();
-      return parsePublicStoredFile(items[0], publicProjectId, publicFileId);
+      const indexed = parsePublicStoredFile(items[0], publicProjectId, publicFileId);
+      const primary = await get(indexed.internalProjectId, indexed.fileId);
+      if (!primary) return undefined;
+      return parsePublicStoredFile(primary, publicProjectId, publicFileId);
     },
 
     async list(input) {
@@ -717,7 +721,14 @@ export function createDynamoFileRepository(options: {
         throw new FileStateConflictError();
       }
       const trashedAt = file.status === "trashed" ? file.trashedAt! : now;
-      const purgeAt = force ? now : file.purgeAt!;
+      const purgeAt = force
+        ? new Date(
+            Math.max(
+              new Date(now).getTime(),
+              new Date(file.uploadExpiresAt).getTime() + UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS,
+            ),
+          ).toISOString()
+        : file.purgeAt!;
       const lifecycleSortKey = trashPurgeSortKey(purgeAt, file.internalProjectId, file.fileId);
       const statusCondition = force
         ? "(#status = :ready OR #status = :trashed)"
@@ -764,7 +775,10 @@ export function createDynamoFileRepository(options: {
       }
       if (file.objectRemovedAt !== undefined) return file;
       const removedAt = z.iso.datetime({ offset: true }).parse(removedAtInput);
-      if (new Date(removedAt).getTime() < new Date(file.purgeStartedAt).getTime()) {
+      if (
+        new Date(removedAt).getTime() < new Date(file.purgeStartedAt).getTime() ||
+        new Date(removedAt).getTime() < new Date(file.purgeAt!).getTime()
+      ) {
         throw new FileStateConflictError();
       }
       try {
@@ -775,7 +789,7 @@ export function createDynamoFileRepository(options: {
             UpdateExpression:
               "SET objectRemovedAt = :removedAt, updatedAt = :removedAt, revision = revision + :one",
             ConditionExpression:
-              "attribute_exists(pk) AND #status = :trashed AND revision = :revision AND purgeStartedAt = :purgeStartedAt AND attribute_not_exists(objectRemovedAt)",
+              "attribute_exists(pk) AND #status = :trashed AND revision = :revision AND purgeStartedAt = :purgeStartedAt AND purgeAt <= :removedAt AND attribute_not_exists(objectRemovedAt)",
             ExpressionAttributeNames: { "#status": "status" },
             ExpressionAttributeValues: {
               ":trashed": "trashed",

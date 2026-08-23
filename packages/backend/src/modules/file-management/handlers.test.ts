@@ -316,6 +316,12 @@ describe("file HTTP handlers", () => {
 
   it("requires exact force confirmation and returns a deletion envelope", async () => {
     const service = lifecycle();
+    const pendingForceResult: DeleteFileResult = {
+      fileId: file.fileId,
+      disposition: "purge-pending",
+      purgeAt: "2026-08-23T08:20:00.000Z",
+    };
+    vi.mocked(service.delete).mockResolvedValue(pendingForceResult);
     const response = await createDeleteFileHandler(
       service,
       authentication(),
@@ -329,7 +335,7 @@ describe("file HTTP handlers", () => {
     );
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.body ?? "{}")).toEqual({
-      data: deleteResult,
+      data: pendingForceResult,
       requestId: "request-1",
     });
     expect(service.delete).toHaveBeenCalledWith(context, file.fileId, { force: true });

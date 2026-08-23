@@ -63,7 +63,7 @@ describe("SST composition contracts", () => {
       ["s3:GetObject"],
     ]);
     expect(FILE_ROUTES[6]?.controlTableActions).toEqual([]);
-    expect(FILE_ROUTES[6]?.fileTableActions).toEqual([]);
+    expect(FILE_ROUTES[6]?.fileTableActions).toEqual(["dynamodb:GetItem"]);
     expect(FILE_ROUTES[4]?.usageTableActions.length).toBeGreaterThan(0);
     expect(FILE_ROUTES[5]?.usageTableActions).toEqual([]);
     expect(FILE_TABLE_POLICY.globalIndexes).toHaveProperty("PublicFiles");

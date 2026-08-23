@@ -124,6 +124,19 @@ describe("file contracts", () => {
       DeleteFileResultSchema.parse({ fileId: privateFile.fileId, disposition: "purged" }),
     ).toMatchObject({ disposition: "purged" });
     expect(
+      DeleteFileResultSchema.parse({
+        fileId: privateFile.fileId,
+        disposition: "purge-pending",
+        purgeAt: "2026-08-23T08:05:00.000Z",
+      }),
+    ).toMatchObject({ disposition: "purge-pending" });
+    expect(
+      DeleteFileResultSchema.safeParse({
+        fileId: privateFile.fileId,
+        disposition: "purge-pending",
+      }).success,
+    ).toBe(false);
+    expect(
       DeleteFileResultSchema.safeParse({
         fileId: privateFile.fileId,
         disposition: "purged",

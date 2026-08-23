@@ -15,6 +15,7 @@ export const QUOTA_SORT_KEY = "QUOTA" as const;
 export const PENDING_UPLOAD_INDEX_PARTITION = "UPLOAD#PENDING" as const;
 export const TRASH_PURGE_INDEX_PARTITION = "TRASH#PENDING_PURGE" as const;
 export const TRASH_RETENTION_MILLISECONDS = 14 * 24 * 60 * 60 * 1_000;
+export const UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS = 5 * 60 * 1_000;
 export const FILE_STORAGE_QUOTA_BYTES = 5n * 2n ** 30n;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
@@ -241,9 +242,11 @@ export function parseFileItem(input: unknown): FileItem {
       !Number.isFinite(purgeAt) ||
       purgeAt < trashedAt ||
       (purgeStartedAt === undefined && purgeAt - trashedAt !== TRASH_RETENTION_MILLISECONDS) ||
-      (purgeStartedAt !== undefined && purgeStartedAt < purgeAt) ||
+      (purgeStartedAt !== undefined && purgeStartedAt < trashedAt) ||
       (objectRemovedAt !== undefined &&
-        (purgeStartedAt === undefined || objectRemovedAt < purgeStartedAt))
+        (purgeStartedAt === undefined ||
+          objectRemovedAt < purgeStartedAt ||
+          objectRemovedAt < purgeAt))
     ) {
       throw new Error("Trashed file state is inconsistent");
     }

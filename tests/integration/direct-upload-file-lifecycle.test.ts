@@ -20,6 +20,7 @@ import {
   parseFileItem,
   trashPurgeSortKey,
   TRASH_PURGE_INDEX_PARTITION,
+  UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS,
   type CompletionEvidence,
   type FileItem,
 } from "../../packages/backend/src/modules/file-management/model.js";
@@ -269,7 +270,15 @@ class MemoryFiles implements FileRepository {
       throw new FileStateConflictError();
     }
     const trashedAt = current.status === "trashed" ? current.trashedAt! : now;
-    const purgeAt = force ? now : current.purgeAt!;
+    const purgeAt = force
+      ? new Date(
+          Math.max(
+            new Date(now).getTime(),
+            new Date(current.uploadExpiresAt).getTime() +
+              UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS,
+          ),
+        ).toISOString()
+      : current.purgeAt!;
     const next = parseFileItem({
       ...current,
       status: "trashed",

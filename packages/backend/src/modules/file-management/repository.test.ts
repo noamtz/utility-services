@@ -74,6 +74,40 @@ function ready(): FileItem {
   });
 }
 
+function publicReady(): FileItem {
+  const source = publicPending();
+  const { gsi2pk: _pendingPk, gsi2sk: _pendingSk, ...base } = source;
+  void _pendingPk;
+  void _pendingSk;
+  return parseFileItem({
+    ...base,
+    status: "ready",
+    completionEvidence: {
+      completedAt: timestamp,
+      sizeBytes: 12n,
+      mediaType: "text/plain",
+      eTag: "etag",
+    },
+    readyAt: timestamp,
+  });
+}
+
+function publicTrashed(): FileItem {
+  const source = publicReady();
+  const trashedAt = "2026-08-23T10:00:00.000Z";
+  const purgeAt = new Date(
+    new Date(trashedAt).getTime() + TRASH_RETENTION_MILLISECONDS,
+  ).toISOString();
+  return parseFileItem({
+    ...source,
+    status: "trashed",
+    trashedAt,
+    purgeAt,
+    gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+    gsi2sk: trashPurgeSortKey(purgeAt, project, source.fileId),
+  });
+}
+
 function trashed(claimed = false, removed = false): FileItem {
   const source = ready();
   const trashedAt = "2026-08-23T10:00:00.000Z";
@@ -180,7 +214,9 @@ describe("Dynamo file repository", () => {
 
   it("queries the exact public project/file pair through the sparse index", async () => {
     const { send, repository } = fixture();
-    send.mockResolvedValue({ Items: [publicPending()] });
+    send
+      .mockResolvedValueOnce({ Items: [publicPending()] })
+      .mockResolvedValueOnce({ Item: publicPending() });
 
     await expect(repository.getPublic(publicProject, publicFileId)).resolves.toEqual(
       publicPending(),
@@ -199,6 +235,30 @@ describe("Dynamo file repository", () => {
     });
     expect(command.input).not.toHaveProperty("ConsistentRead");
     expect(JSON.stringify(command.input)).not.toContain("Scan");
+    const primaryRead = send.mock.calls[1]?.[0] as { input: Record<string, unknown> };
+    expect(primaryRead.constructor.name).toBe("GetCommand");
+    expect(primaryRead.input).toMatchObject({
+      TableName: "FileTable",
+      ConsistentRead: true,
+    });
+  });
+
+  it("returns the strongly consistent primary state when the public index is stale", async () => {
+    const { send, repository } = fixture();
+    send
+      .mockResolvedValueOnce({ Items: [publicReady()] })
+      .mockResolvedValueOnce({ Item: publicTrashed() });
+
+    await expect(repository.getPublic(publicProject, publicFileId)).resolves.toEqual(
+      publicTrashed(),
+    );
+    expect(send).toHaveBeenCalledTimes(2);
+
+    const purged = fixture();
+    purged.send
+      .mockResolvedValueOnce({ Items: [publicReady()] })
+      .mockResolvedValueOnce({ Item: undefined });
+    await expect(purged.repository.getPublic(publicProject, publicFileId)).resolves.toBeUndefined();
   });
 
   it("returns missing public pairs and rejects duplicate public index records", async () => {
@@ -507,6 +567,38 @@ describe("Dynamo file repository", () => {
       claimed,
     );
     expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("defers a force claim until the upload capability plus skew has expired", async () => {
+    const forceAt = "2026-08-23T10:00:00.000Z";
+    const source = parseFileItem({
+      ...ready(),
+      uploadExpiresAt: "2026-08-23T10:30:00.000Z",
+      failureEligibleAt: "2026-08-23T11:30:00.000Z",
+    });
+    const removalDueAt = "2026-08-23T10:35:00.000Z";
+    const claimed = parseFileItem({
+      ...source,
+      status: "trashed",
+      trashedAt: forceAt,
+      purgeAt: removalDueAt,
+      purgeStartedAt: forceAt,
+      gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+      gsi2sk: trashPurgeSortKey(removalDueAt, project, source.fileId),
+      revision: source.revision + 1n,
+      updatedAt: forceAt,
+    });
+    const { send, repository } = fixture();
+    send.mockResolvedValueOnce({ Attributes: claimed });
+
+    await expect(repository.claimPermanentRemoval(source, forceAt, true)).resolves.toEqual(claimed);
+    const command = send.mock.calls[0]?.[0] as {
+      input: { ExpressionAttributeValues: Record<string, unknown> };
+    };
+    expect(command.input.ExpressionAttributeValues[":purgeAt"]).toBe(removalDueAt);
+    expect(command.input.ExpressionAttributeValues[":lifecycleSk"]).toBe(
+      trashPurgeSortKey(removalDueAt, project, source.fileId),
+    );
   });
 
   it("queries due trash separately and treats an absent finalized row as idempotent", async () => {

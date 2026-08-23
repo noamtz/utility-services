@@ -119,7 +119,7 @@ export const FILE_ROUTES = [
     route: "GET /files/public/{publicProjectId}/{publicFileId}",
     handler: "packages/backend/src/functions/files/public-download.handler",
     controlTableActions: [],
-    fileTableActions: [],
+    fileTableActions: ["dynamodb:GetItem"],
     bucketActions: ["s3:GetObject"],
     usageTableActions: [],
   },

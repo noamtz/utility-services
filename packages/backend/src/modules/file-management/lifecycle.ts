@@ -98,6 +98,13 @@ export function createFileLifecycleService(
             timestamp,
             true,
           );
+          if (new Date(claimed.purgeAt!).getTime() > new Date(timestamp).getTime()) {
+            return DeleteFileResultSchema.parse({
+              fileId: file.fileId,
+              disposition: "purge-pending",
+              purgeAt: claimed.purgeAt,
+            });
+          }
           await permanentlyRemove(claimed);
           return DeleteFileResultSchema.parse({ fileId: file.fileId, disposition: "purged" });
         }

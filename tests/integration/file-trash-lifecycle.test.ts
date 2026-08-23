@@ -9,6 +9,7 @@ import {
   parseFileItem,
   trashPurgeSortKey,
   TRASH_PURGE_INDEX_PARTITION,
+  UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS,
   type FileItem,
 } from "../../packages/backend/src/modules/file-management/model.js";
 import type { ObjectStore } from "../../packages/backend/src/modules/file-management/object-store.js";
@@ -33,7 +34,7 @@ const project: TrustedProjectContext = {
   fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
 };
 
-function readyFile(): FileItem {
+function readyFile(uploadExpiresAt = "2026-08-01T08:15:00.000Z"): FileItem {
   const pending = createPendingFile({
     internalProjectId,
     publicProjectId,
@@ -43,8 +44,10 @@ function readyFile(): FileItem {
     mediaType: "text/plain",
     sizeBytes: 12n,
     visibility: "public",
-    uploadExpiresAt: "2026-08-01T08:15:00.000Z",
-    failureEligibleAt: "2026-08-01T09:15:00.000Z",
+    uploadExpiresAt,
+    failureEligibleAt: new Date(
+      new Date(uploadExpiresAt).getTime() + 60 * 60 * 1_000,
+    ).toISOString(),
     createdAt: readyAt,
   });
   const { gsi2pk: _pendingPk, gsi2sk: _pendingSk, ...base } = pending;
@@ -160,7 +163,15 @@ function memoryRepository(initial: FileItem) {
         throw new FileStateConflictError();
       }
       const trashedAt = state.item.status === "trashed" ? state.item.trashedAt : now;
-      const purgeAt = force ? now : state.item.purgeAt!;
+      const purgeAt = force
+        ? new Date(
+            Math.max(
+              new Date(now).getTime(),
+              new Date(state.item.uploadExpiresAt).getTime() +
+                UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS,
+            ),
+          ).toISOString()
+        : state.item.purgeAt!;
       state.item = parseFileItem({
         ...state.item,
         status: "trashed",
@@ -203,10 +214,10 @@ function memoryRepository(initial: FileItem) {
   return { repository, state };
 }
 
-function fixture() {
+function fixture(initial = readyFile()) {
   let clock = "2026-08-24T08:00:00.000Z";
-  const { repository, state } = memoryRepository(readyFile());
-  const objects = new Set([readyFile().objectKey]);
+  const { repository, state } = memoryRepository(initial);
+  const objects = new Set([initial.objectKey]);
   const deleteObject = vi.fn().mockImplementation(async (key: string) => {
     objects.delete(key);
   });
@@ -321,6 +332,41 @@ describe("file trash lifecycle integration", () => {
     });
     expect(harness.objects.size).toBe(0);
     expect(harness.state.item).toBeUndefined();
+    expect(harness.state.retainedBytes).toBe(0n);
+  });
+
+  it("keeps the original object until upload-capability replay is no longer possible", async () => {
+    const source = readyFile("2026-08-24T08:30:00.000Z");
+    const harness = fixture(source);
+
+    await expect(harness.lifecycle.delete(project, fileId, { force: true })).resolves.toEqual({
+      fileId,
+      disposition: "purge-pending",
+      purgeAt: "2026-08-24T08:35:00.000Z",
+    });
+    expect(harness.state.item).toMatchObject({
+      status: "trashed",
+      purgeStartedAt: "2026-08-24T08:00:00.000Z",
+      purgeAt: "2026-08-24T08:35:00.000Z",
+    });
+    expect(harness.objects.has(source.objectKey)).toBe(true);
+    expect(harness.state.retainedBytes).toBe(12n);
+    expect(harness.deleteObject).not.toHaveBeenCalled();
+    expect(harness.closeStorage).not.toHaveBeenCalled();
+    await expect(harness.downloads.authorizePrivate(project, fileId)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+
+    const replayResult = harness.objects.has(source.objectKey)
+      ? "precondition-failed"
+      : "recreated";
+    expect(replayResult).toBe("precondition-failed");
+
+    harness.setClock("2026-08-24T08:34:59.999Z");
+    await expect(harness.lifecycle.purgeDue()).resolves.toEqual({ processed: 0, pages: 1 });
+    harness.setClock("2026-08-24T08:35:00.000Z");
+    await expect(harness.lifecycle.purgeDue()).resolves.toEqual({ processed: 1, pages: 1 });
+    expect(harness.objects.has(source.objectKey)).toBe(false);
     expect(harness.state.retainedBytes).toBe(0n);
   });
 

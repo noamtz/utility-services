@@ -120,8 +120,11 @@ describe("file persisted model", () => {
     expect(() =>
       parseFileItem({ ...trashed, purgeStartedAt: trashedAt, gsi2sk: "wrong" }),
     ).toThrow();
-    expect(() => parseFileItem({ ...trashed, purgeStartedAt: trashedAt })).toThrow();
+    expect(parseFileItem({ ...trashed, purgeStartedAt: trashedAt }).purgeStartedAt).toBe(trashedAt);
     expect(() => parseFileItem({ ...trashed, objectRemovedAt: trashedAt })).toThrow();
+    expect(() =>
+      parseFileItem({ ...trashed, purgeStartedAt: trashedAt, objectRemovedAt: trashedAt }),
+    ).toThrow();
     expect(
       parseFileItem({
         ...trashed,

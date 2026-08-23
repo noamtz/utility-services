@@ -60,6 +60,16 @@ function ready(projectId = internalProjectId): FileItem {
   });
 }
 
+function readyWithUploadExpiry(uploadExpiresAt: string): FileItem {
+  return parseFileItem({
+    ...ready(),
+    uploadExpiresAt,
+    failureEligibleAt: new Date(
+      new Date(uploadExpiresAt).getTime() + 60 * 60 * 1_000,
+    ).toISOString(),
+  });
+}
+
 function trashed(input?: { claimed?: boolean; removed?: boolean }): FileItem {
   const source = ready();
   const purgeStartedAt = "2026-09-07T08:00:00.000Z";
@@ -73,6 +83,33 @@ function trashed(input?: { claimed?: boolean; removed?: boolean }): FileItem {
     gsi2sk: trashPurgeSortKey(purgeAt, internalProjectId, fileId),
     ...(input?.claimed ? { purgeStartedAt } : {}),
     ...(input?.removed ? { objectRemovedAt } : {}),
+  });
+}
+
+function forceClaimed(removed = false): FileItem {
+  const source = ready();
+  const objectRemovedAt = "2026-08-24T08:00:01.000Z";
+  return parseFileItem({
+    ...source,
+    status: "trashed",
+    trashedAt: timestamp,
+    purgeAt: timestamp,
+    purgeStartedAt: timestamp,
+    gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+    gsi2sk: trashPurgeSortKey(timestamp, internalProjectId, fileId),
+    ...(removed ? { objectRemovedAt } : {}),
+  });
+}
+
+function deferredForceClaim(source: FileItem, removalDueAt: string): FileItem {
+  return parseFileItem({
+    ...source,
+    status: "trashed",
+    trashedAt: timestamp,
+    purgeAt: removalDueAt,
+    purgeStartedAt: timestamp,
+    gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+    gsi2sk: trashPurgeSortKey(removalDueAt, internalProjectId, fileId),
   });
 }
 
@@ -196,8 +233,8 @@ describe("file lifecycle service", () => {
 
   it("forces deletion through object removal, stable storage closure, then finalization", async () => {
     const source = ready();
-    const claimed = trashed({ claimed: true });
-    const removed = trashed({ claimed: true, removed: true });
+    const claimed = forceClaimed();
+    const removed = forceClaimed(true);
     const files = repository({
       get: vi.fn().mockResolvedValue(source),
       claimPermanentRemoval: vi.fn().mockResolvedValue(claimed),
@@ -210,7 +247,7 @@ describe("file lifecycle service", () => {
       .fn()
       .mockReturnValueOnce(timestamp)
       .mockReturnValueOnce(removed.objectRemovedAt)
-      .mockReturnValueOnce("2026-09-07T08:00:02.000Z");
+      .mockReturnValueOnce("2026-08-24T08:00:02.000Z");
     const service = createFileLifecycleService({
       repository: files,
       objectStore: objects,
@@ -232,12 +269,40 @@ describe("file lifecycle service", () => {
     });
     expect(files.finalizePermanentRemoval).toHaveBeenCalledWith(
       removed,
-      "2026-09-07T08:00:02.000Z",
+      "2026-08-24T08:00:02.000Z",
     );
   });
 
+  it("revokes access immediately but defers physical force removal past upload expiry", async () => {
+    const source = readyWithUploadExpiry("2026-08-24T08:30:00.000Z");
+    const removalDueAt = "2026-08-24T08:35:00.000Z";
+    const claimed = deferredForceClaim(source, removalDueAt);
+    const files = repository({
+      get: vi.fn().mockResolvedValue(source),
+      claimPermanentRemoval: vi.fn().mockResolvedValue(claimed),
+    });
+    const objects = objectStore();
+    const storage = usage();
+    const service = createFileLifecycleService({
+      repository: files,
+      objectStore: objects,
+      usage: storage,
+      now: () => timestamp,
+    });
+
+    await expect(service.delete(context, fileId, { force: true })).resolves.toEqual({
+      fileId,
+      disposition: "purge-pending",
+      purgeAt: removalDueAt,
+    });
+    expect(files.claimPermanentRemoval).toHaveBeenCalledWith(source, timestamp, true);
+    expect(objects.delete).not.toHaveBeenCalled();
+    expect(storage.closeStorage).not.toHaveBeenCalled();
+    expect(files.finalizePermanentRemoval).not.toHaveBeenCalled();
+  });
+
   it("does not close storage or release metadata when object deletion fails", async () => {
-    const claimed = trashed({ claimed: true });
+    const claimed = forceClaimed();
     const files = repository({
       get: vi.fn().mockResolvedValue(ready()),
       claimPermanentRemoval: vi.fn().mockResolvedValue(claimed),
@@ -261,8 +326,8 @@ describe("file lifecycle service", () => {
   });
 
   it("retries idempotent object deletion when removal evidence persistence fails", async () => {
-    const claimed = trashed({ claimed: true });
-    const removed = trashed({ claimed: true, removed: true });
+    const claimed = forceClaimed();
+    const removed = forceClaimed(true);
     const files = repository({
       get: vi.fn().mockResolvedValueOnce(ready()).mockResolvedValueOnce(claimed),
       claimPermanentRemoval: vi.fn().mockResolvedValue(claimed),
@@ -296,8 +361,8 @@ describe("file lifecycle service", () => {
   });
 
   it("resumes after storage failure without deleting the object twice or changing close time", async () => {
-    const claimed = trashed({ claimed: true });
-    const removed = trashed({ claimed: true, removed: true });
+    const claimed = forceClaimed();
+    const removed = forceClaimed(true);
     const files = repository({
       get: vi.fn().mockResolvedValueOnce(claimed).mockResolvedValueOnce(removed),
       claimPermanentRemoval: vi.fn().mockResolvedValueOnce(claimed).mockResolvedValueOnce(removed),
@@ -331,8 +396,8 @@ describe("file lifecycle service", () => {
   });
 
   it("replays the identical storage close when final metadata and quota removal fails", async () => {
-    const claimed = trashed({ claimed: true });
-    const removed = trashed({ claimed: true, removed: true });
+    const claimed = forceClaimed();
+    const removed = forceClaimed(true);
     const files = repository({
       get: vi.fn().mockResolvedValueOnce(ready()).mockResolvedValueOnce(removed),
       claimPermanentRemoval: vi.fn().mockResolvedValueOnce(claimed).mockResolvedValueOnce(removed),

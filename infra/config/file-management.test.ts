@@ -91,7 +91,7 @@ describe("file management infrastructure policy", () => {
     expect(publicDownload).toMatchObject({
       handler: "packages/backend/src/functions/files/public-download.handler",
       controlTableActions: [],
-      fileTableActions: [],
+      fileTableActions: ["dynamodb:GetItem"],
       bucketActions: ["s3:GetObject"],
     });
     expect(JSON.stringify([privateDownload, restore, publicDownload])).not.toMatch(

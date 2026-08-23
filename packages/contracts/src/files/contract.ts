@@ -128,16 +128,16 @@ export const FileSchema = z
 export const DeleteFileResultSchema = z
   .object({
     fileId: FileIdSchema,
-    disposition: z.enum(["trashed", "purged"]),
+    disposition: z.enum(["trashed", "purge-pending", "purged"]),
     purgeAt: TimestampSchema.optional(),
   })
   .strict()
   .superRefine((result, context) => {
-    if (result.disposition === "trashed" && result.purgeAt === undefined) {
+    if (result.disposition !== "purged" && result.purgeAt === undefined) {
       context.addIssue({
         code: "custom",
         path: ["purgeAt"],
-        message: "Trashed results require a purge time",
+        message: "Non-purged results require a purge time",
       });
     }
     if (result.disposition === "purged" && result.purgeAt !== undefined) {
