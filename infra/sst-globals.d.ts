@@ -19,11 +19,23 @@ declare namespace aws.cloudfront {
           enableAcceptEncodingBrotli: boolean;
           enableAcceptEncodingGzip: boolean;
           cookiesConfig: { cookieBehavior: "none" };
-          headersConfig: { headerBehavior: "whitelist"; headers: { items: string[] } };
-          queryStringsConfig: {
-            queryStringBehavior: "whitelist";
-            queryStrings: { items: string[] };
-          };
+          headersConfig: { headerBehavior: "none" };
+          queryStringsConfig: { queryStringBehavior: "none" };
+        };
+      },
+    );
+    public readonly id: SstOutput<string>;
+  }
+
+  class OriginRequestPolicy {
+    public constructor(
+      name: string,
+      args: {
+        cookiesConfig: { cookieBehavior: "none" };
+        headersConfig: { headerBehavior: "whitelist"; headers: { items: string[] } };
+        queryStringsConfig: {
+          queryStringBehavior: "whitelist";
+          queryStrings: { items: string[] };
         };
       },
     );
@@ -137,6 +149,7 @@ declare namespace sst {
       cachedMethods: string[];
       compress: boolean;
       cachePolicyId: SstOutput<string>;
+      originRequestPolicyId: SstOutput<string>;
     }
 
     interface StaticSiteArgs {

@@ -5,6 +5,7 @@ export const OWNER_INDEX_NAME = "OwnerProjects";
 export const CONTROL_AUTHORIZER_NAME = "OwnerJwtAuthorizer";
 export const CONTROL_ORIGIN_ID = "control-api";
 export const CONTROL_CACHE_POLICY_NAME = "DashboardControlCachePolicy";
+export const CONTROL_ORIGIN_REQUEST_POLICY_NAME = "DashboardControlOriginRequestPolicy";
 
 export const USER_POOL_POLICY = {
   usernames: ["email"],

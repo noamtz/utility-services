@@ -1,6 +1,7 @@
 import {
   CONTROL_CACHE_POLICY_NAME,
   CONTROL_ORIGIN_ID,
+  CONTROL_ORIGIN_REQUEST_POLICY_NAME,
   DASHBOARD_CONTROL_POLICY,
 } from "./config/control.js";
 
@@ -28,6 +29,14 @@ export function createDashboard(resources: DashboardResources) {
       enableAcceptEncodingBrotli: false,
       enableAcceptEncodingGzip: false,
       cookiesConfig: { cookieBehavior: DASHBOARD_CONTROL_POLICY.cookieBehavior },
+      headersConfig: { headerBehavior: "none" },
+      queryStringsConfig: { queryStringBehavior: "none" },
+    },
+  });
+  const originRequestPolicy = new aws.cloudfront.OriginRequestPolicy(
+    CONTROL_ORIGIN_REQUEST_POLICY_NAME,
+    {
+      cookiesConfig: { cookieBehavior: DASHBOARD_CONTROL_POLICY.cookieBehavior },
       headersConfig: {
         headerBehavior: "whitelist",
         headers: { items: [...DASHBOARD_CONTROL_POLICY.headers] },
@@ -37,7 +46,7 @@ export function createDashboard(resources: DashboardResources) {
         queryStrings: { items: [...DASHBOARD_CONTROL_POLICY.queryStrings] },
       },
     },
-  });
+  );
   return new sst.aws.StaticSite(DASHBOARD_COMPONENT_NAME, {
     ...DASHBOARD_CONFIG,
     environment: {
@@ -69,6 +78,7 @@ export function createDashboard(resources: DashboardResources) {
             cachedMethods: [...DASHBOARD_CONTROL_POLICY.cachedMethods],
             compress: true,
             cachePolicyId: cachePolicy.id,
+            originRequestPolicyId: originRequestPolicy.id,
           },
         ];
       },

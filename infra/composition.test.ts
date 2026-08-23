@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { API_COMPONENT_NAME, API_CORS, HEALTH_ROUTE } from "./api.js";
 import {
   CONTROL_CACHE_POLICY_NAME,
+  CONTROL_ORIGIN_REQUEST_POLICY_NAME,
   CONTROL_ROUTES,
   DASHBOARD_CONTROL_POLICY,
 } from "./config/control.js";
@@ -50,12 +51,24 @@ describe("SST composition contracts", () => {
 
   it("creates the dashboard cache policy through SST's AWS provider global", () => {
     let cachePolicyName: string | undefined;
+    let cachePolicyArgs: unknown;
+    let originRequestPolicyName: string | undefined;
+    let originRequestPolicyArgs: unknown;
     let siteArgs: unknown;
     class CachePolicy {
       public readonly id = output("cache-policy-id");
 
-      public constructor(name: string) {
+      public constructor(name: string, args: unknown) {
         cachePolicyName = name;
+        cachePolicyArgs = args;
+      }
+    }
+    class OriginRequestPolicy {
+      public readonly id = output("origin-request-policy-id");
+
+      public constructor(name: string, args: unknown) {
+        originRequestPolicyName = name;
+        originRequestPolicyArgs = args;
       }
     }
     class StaticSite {
@@ -65,7 +78,7 @@ describe("SST composition contracts", () => {
         siteArgs = args;
       }
     }
-    vi.stubGlobal("aws", { cloudfront: { CachePolicy } });
+    vi.stubGlobal("aws", { cloudfront: { CachePolicy, OriginRequestPolicy } });
     vi.stubGlobal("sst", { aws: { StaticSite } });
 
     createDashboard({
@@ -75,6 +88,28 @@ describe("SST composition contracts", () => {
     });
 
     expect(cachePolicyName).toBe(CONTROL_CACHE_POLICY_NAME);
+    expect(cachePolicyArgs).toMatchObject({
+      minTtl: 0,
+      defaultTtl: 0,
+      maxTtl: 0,
+      parametersInCacheKeyAndForwardedToOrigin: {
+        cookiesConfig: { cookieBehavior: "none" },
+        headersConfig: { headerBehavior: "none" },
+        queryStringsConfig: { queryStringBehavior: "none" },
+      },
+    });
+    expect(originRequestPolicyName).toBe(CONTROL_ORIGIN_REQUEST_POLICY_NAME);
+    expect(originRequestPolicyArgs).toEqual({
+      cookiesConfig: { cookieBehavior: "none" },
+      headersConfig: {
+        headerBehavior: "whitelist",
+        headers: { items: ["Authorization", "Content-Type"] },
+      },
+      queryStringsConfig: {
+        queryStringBehavior: "whitelist",
+        queryStrings: { items: ["limit", "cursor"] },
+      },
+    });
     const transform = (
       siteArgs as {
         transform: {
@@ -89,9 +124,11 @@ describe("SST composition contracts", () => {
     transform.cdn(cdnArgs);
     expect(cdnArgs.origins).toHaveLength(1);
     const behaviors = cdnArgs.orderedCacheBehaviors as
-      Array<{ pathPattern: string; cachePolicyId: unknown }> | undefined;
+      | Array<{ pathPattern: string; cachePolicyId: unknown; originRequestPolicyId: unknown }>
+      | undefined;
     expect(behaviors).toHaveLength(1);
     expect(behaviors?.[0]?.pathPattern).toBe("v1/control/*");
     expect(behaviors?.[0]?.cachePolicyId).toBeDefined();
+    expect(behaviors?.[0]?.originRequestPolicyId).toBeDefined();
   });
 });
