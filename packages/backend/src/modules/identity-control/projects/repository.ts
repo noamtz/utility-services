@@ -7,9 +7,9 @@ import {
   FILE_MANAGEMENT_SORT_KEY,
   OWNER_INDEX_NAME,
   PROJECT_METADATA_SORT_KEY,
-  ProjectMetadataItemSchema,
   assembleProject,
   ownerPartitionKey,
+  parseProjectMetadataItem,
   projectPartitionKey,
   toEnabledUtilityItem,
   toProjectMetadataItem,
@@ -65,7 +65,7 @@ function parseMetadataItems(items: unknown, expectedOwnerId: string): ProjectMet
   const array = z.array(z.unknown()).parse(items ?? []);
   try {
     return array.map((item) => {
-      const parsed = ProjectMetadataItemSchema.parse(item);
+      const parsed = parseProjectMetadataItem(item);
       if (
         parsed.ownerId !== expectedOwnerId ||
         parsed.gsi1pk !== ownerPartitionKey(expectedOwnerId)

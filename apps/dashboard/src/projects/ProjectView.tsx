@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CreateProjectRequest, Project, ProjectSummary } from "@utility-services/contracts";
 
@@ -14,6 +14,10 @@ interface ProjectViewProps {
   onUnauthorized: () => Promise<void>;
 }
 
+interface LoadProjectsOptions {
+  supersede?: boolean;
+}
+
 export function ProjectView({ api, onUnauthorized }: ProjectViewProps) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project>();
@@ -21,6 +25,8 @@ export function ProjectView({ api, onUnauthorized }: ProjectViewProps) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
+  const listGeneration = useRef(0);
+  const inFlightListRequests = useRef(new Map<string, number>());
 
   const handleFailure = useCallback(
     async (failure: unknown) => {
@@ -34,17 +40,28 @@ export function ProjectView({ api, onUnauthorized }: ProjectViewProps) {
   );
 
   const loadProjects = useCallback(
-    async (cursor?: string) => {
+    async (cursor?: string, { supersede = false }: LoadProjectsOptions = {}) => {
+      const requestKey = cursor ?? "initial";
+      if (!supersede && inFlightListRequests.current.has(requestKey)) return;
+
+      const generation = listGeneration.current + 1;
+      listGeneration.current = generation;
+      if (supersede) inFlightListRequests.current.clear();
+      inFlightListRequests.current.set(requestKey, generation);
       setLoading(true);
       setError(undefined);
       try {
         const page = await api.list(cursor ? { cursor } : undefined);
+        if (generation !== listGeneration.current) return;
         setProjects((current) => (cursor ? [...current, ...page.items] : page.items));
         setNextCursor(page.nextCursor);
       } catch (failure) {
-        await handleFailure(failure);
+        if (generation === listGeneration.current) await handleFailure(failure);
       } finally {
-        setLoading(false);
+        if (inFlightListRequests.current.get(requestKey) === generation) {
+          inFlightListRequests.current.delete(requestKey);
+        }
+        if (generation === listGeneration.current) setLoading(false);
       }
     },
     [api, handleFailure],
@@ -60,9 +77,7 @@ export function ProjectView({ api, onUnauthorized }: ProjectViewProps) {
     try {
       const created = await api.create(input);
       setSelectedProject(created);
-      const page = await api.list();
-      setProjects(page.items);
-      setNextCursor(page.nextCursor);
+      await loadProjects(undefined, { supersede: true });
     } catch (failure) {
       await handleFailure(failure);
     } finally {

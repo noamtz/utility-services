@@ -120,6 +120,26 @@ describe("Dynamo project repository", () => {
     );
   });
 
+  it("fails closed if an owner-index item has noncanonical key relationships", async () => {
+    const metadata = toProjectMetadataItem(project);
+    const send = vi.fn().mockResolvedValue({
+      Items: [
+        {
+          ...metadata,
+          gsi1sk: `PROJECT#${project.createdAt}#prj_0123456789abcdefghijkm`,
+        },
+      ],
+    });
+    const repository = createDynamoProjectRepository({
+      client: clientWith(send),
+      tableName: "Control",
+    });
+
+    await expect(repository.list({ ownerId: "owner-1", limit: 20 })).rejects.toBeInstanceOf(
+      CorruptProjectRecordError,
+    );
+  });
+
   it("inspects a project partition consistently and validates both items", async () => {
     const metadata = toProjectMetadataItem(project);
     const utility = toEnabledUtilityItem(
@@ -159,6 +179,20 @@ describe("Dynamo project repository", () => {
             project.updatedAt,
           ),
         ],
+      })
+      .mockResolvedValueOnce({
+        Items: [
+          {
+            ...metadata,
+            publicProjectId: "prj_0123456789abcdefghijkm",
+          },
+          toEnabledUtilityItem(
+            project.publicProjectId,
+            project.fileManagement,
+            project.createdAt,
+            project.updatedAt,
+          ),
+        ],
       });
     const repository = createDynamoProjectRepository({
       client: clientWith(send),
@@ -166,6 +200,9 @@ describe("Dynamo project repository", () => {
     });
 
     await expect(repository.inspect(project.publicProjectId)).resolves.toBeUndefined();
+    await expect(repository.inspect(project.publicProjectId)).rejects.toBeInstanceOf(
+      CorruptProjectRecordError,
+    );
     await expect(repository.inspect(project.publicProjectId)).rejects.toBeInstanceOf(
       CorruptProjectRecordError,
     );

@@ -73,9 +73,21 @@ export function ownerProjectSortKey(createdAt: string, publicProjectId: string):
   return `PROJECT#${TimestampSchema.parse(createdAt)}#${PublicProjectIdSchema.parse(publicProjectId)}`;
 }
 
+export function parseProjectMetadataItem(input: unknown): ProjectMetadataItem {
+  const metadata = ProjectMetadataItemSchema.parse(input);
+  if (
+    metadata.pk !== projectPartitionKey(metadata.publicProjectId) ||
+    metadata.gsi1pk !== ownerPartitionKey(metadata.ownerId) ||
+    metadata.gsi1sk !== ownerProjectSortKey(metadata.createdAt, metadata.publicProjectId)
+  ) {
+    throw new Error("Project metadata keys are inconsistent");
+  }
+  return metadata;
+}
+
 export function toProjectMetadataItem(project: InternalProject): ProjectMetadataItem {
   const parsed = InternalProjectSchema.parse(project);
-  return ProjectMetadataItemSchema.parse({
+  return parseProjectMetadataItem({
     pk: projectPartitionKey(parsed.publicProjectId),
     sk: PROJECT_METADATA_SORT_KEY,
     gsi1pk: ownerPartitionKey(parsed.ownerId),
@@ -110,9 +122,9 @@ export function toEnabledUtilityItem(
 }
 
 export function assembleProject(metadataInput: unknown, utilityInput: unknown): InternalProject {
-  const metadata = ProjectMetadataItemSchema.parse(metadataInput);
+  const metadata = parseProjectMetadataItem(metadataInput);
   const utility = EnabledUtilityItemSchema.parse(utilityInput);
-  if (metadata.pk !== utility.pk) {
+  if (utility.pk !== projectPartitionKey(metadata.publicProjectId)) {
     throw new Error("Project items belong to different partitions");
   }
 

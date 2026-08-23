@@ -6,6 +6,7 @@ import {
   assembleProject,
   ownerPartitionKey,
   ownerProjectSortKey,
+  parseProjectMetadataItem,
   projectPartitionKey,
   toEnabledUtilityItem,
   toProjectMetadataItem,
@@ -72,6 +73,33 @@ describe("project model", () => {
     expect(() => assembleProject(metadata, { ...utility, pk: "PROJECT#other" })).toThrow(
       "Project items belong to different partitions",
     );
+  });
+
+  it("fails closed for valid-format metadata keys that disagree with embedded fields", () => {
+    const metadata = toProjectMetadataItem(project);
+    const utility = toEnabledUtilityItem(
+      project.publicProjectId,
+      project.fileManagement,
+      project.createdAt,
+      project.updatedAt,
+    );
+    const otherProjectId = "prj_0123456789abcdefghijkm";
+
+    expect(() =>
+      assembleProject(
+        { ...metadata, pk: `PROJECT#${otherProjectId}` },
+        { ...utility, pk: `PROJECT#${otherProjectId}` },
+      ),
+    ).toThrow("Project metadata keys are inconsistent");
+    expect(() => parseProjectMetadataItem({ ...metadata, gsi1pk: "OWNER#owner-2" })).toThrow(
+      "Project metadata keys are inconsistent",
+    );
+    expect(() =>
+      parseProjectMetadataItem({
+        ...metadata,
+        gsi1sk: ownerProjectSortKey(project.createdAt, otherProjectId),
+      }),
+    ).toThrow("Project metadata keys are inconsistent");
   });
 
   it("rejects malformed external Dynamo item values", () => {
