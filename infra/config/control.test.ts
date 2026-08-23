@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CONTROL_ROUTES,
-  CONTROL_TABLE_ACTIONS,
+  CONTROL_TABLE_LINK_ACTIONS,
   CONTROL_TABLE_POLICY,
   DASHBOARD_CONTROL_POLICY,
   USER_POOL_CLIENT_POLICY,
@@ -30,8 +30,9 @@ describe("identity/control infrastructure policy", () => {
     expect(CONTROL_TABLE_POLICY.globalIndexes).toEqual({
       OwnerProjects: { hashKey: "gsi1pk", rangeKey: "gsi1sk", projection: "all" },
     });
-    expect(CONTROL_TABLE_ACTIONS).toEqual(["dynamodb:Query", "dynamodb:TransactWriteItems"]);
-    expect(CONTROL_TABLE_ACTIONS).not.toContain("dynamodb:Scan");
+    expect(CONTROL_TABLE_LINK_ACTIONS).toEqual(["dynamodb:Query"]);
+    expect(CONTROL_TABLE_LINK_ACTIONS).not.toContain("dynamodb:TransactWriteItems");
+    expect(CONTROL_TABLE_LINK_ACTIONS).not.toContain("dynamodb:Scan");
   });
 
   it("enables table deletion protection only in production", () => {
@@ -45,6 +46,14 @@ describe("identity/control infrastructure policy", () => {
       "GET /v1/control/projects",
       "GET /v1/control/projects/{projectId}",
     ]);
+    expect(
+      CONTROL_ROUTES.map(({ name, additionalTableActions }) => [name, additionalTableActions]),
+    ).toEqual([
+      ["CreateProjectRoute", ["dynamodb:PutItem"]],
+      ["ListProjectsRoute", []],
+      ["InspectProjectRoute", []],
+    ]);
+    expect(JSON.stringify(CONTROL_ROUTES)).not.toContain("dynamodb:TransactWriteItems");
     expect(JSON.stringify(CONTROL_ROUTES)).not.toContain("*");
   });
 

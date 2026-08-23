@@ -61,6 +61,7 @@ declare namespace sst {
       handler: string;
       runtime: "nodejs24.x";
       link?: unknown[];
+      permissions?: Array<{ actions: string[]; resources: unknown[] }>;
       transform?: { function?: { tracingConfig?: { mode: "Active" | "PassThrough" } } };
     }
 

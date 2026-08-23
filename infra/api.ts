@@ -48,6 +48,16 @@ export function createApi(control: ControlResources) {
         handler: route.handler,
         runtime: "nodejs24.x",
         link: [control.table],
+        ...(route.additionalTableActions.length > 0
+          ? {
+              permissions: [
+                {
+                  actions: [...route.additionalTableActions],
+                  resources: [control.table.arn],
+                },
+              ],
+            }
+          : {}),
         transform: { function: { tracingConfig: { mode: "Active" } } },
       },
       { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },

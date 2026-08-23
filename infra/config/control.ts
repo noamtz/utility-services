@@ -28,23 +28,26 @@ export const CONTROL_TABLE_POLICY = {
   },
 } as const;
 
-export const CONTROL_TABLE_ACTIONS = ["dynamodb:Query", "dynamodb:TransactWriteItems"] as const;
+export const CONTROL_TABLE_LINK_ACTIONS = ["dynamodb:Query"] as const;
 
 export const CONTROL_ROUTES = [
   {
     name: "CreateProjectRoute",
     route: "POST /v1/control/projects",
     handler: "packages/backend/src/functions/control/create-project.handler",
+    additionalTableActions: ["dynamodb:PutItem"],
   },
   {
     name: "ListProjectsRoute",
     route: "GET /v1/control/projects",
     handler: "packages/backend/src/functions/control/list-projects.handler",
+    additionalTableActions: [],
   },
   {
     name: "InspectProjectRoute",
     route: "GET /v1/control/projects/{projectId}",
     handler: "packages/backend/src/functions/control/inspect-project.handler",
+    additionalTableActions: [],
   },
 ] as const;
 

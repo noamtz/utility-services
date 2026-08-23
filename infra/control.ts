@@ -1,5 +1,5 @@
 import {
-  CONTROL_TABLE_ACTIONS,
+  CONTROL_TABLE_LINK_ACTIONS,
   CONTROL_TABLE_COMPONENT_NAME,
   CONTROL_TABLE_POLICY,
   USER_POOL_CLIENT_NAME,
@@ -17,7 +17,7 @@ function configureLeastPrivilegeDynamoLink() {
     properties: { name: table.name },
     include: [
       sst.aws.permission({
-        actions: [...CONTROL_TABLE_ACTIONS],
+        actions: [...CONTROL_TABLE_LINK_ACTIONS],
         resources: [table.arn, $interpolate`${table.arn}/index/*`],
       }),
     ],
