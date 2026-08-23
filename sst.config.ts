@@ -18,15 +18,24 @@ export default $config({
     };
   },
   async run() {
-    const [{ createApi }, { createDashboard }] = await Promise.all([
+    const [{ createApi }, { createControlResources }, { createDashboard }] = await Promise.all([
       import("./infra/api.js"),
+      import("./infra/control.js"),
       import("./infra/dashboard.js"),
     ]);
-    const api = createApi();
-    const dashboard = createDashboard();
+    const control = createControlResources({ production: $app.stage === "production" });
+    const api = createApi(control);
+    const dashboard = createDashboard({
+      apiUrl: api.url,
+      userPoolId: control.userPool.id,
+      userPoolClientId: control.userPoolClient.id,
+    });
     return {
       apiUrl: api.url,
       dashboardUrl: dashboard.url,
+      ownerUserPoolId: control.userPool.id,
+      dashboardClientId: control.userPoolClient.id,
+      controlTableName: control.table.name,
     };
   },
 });

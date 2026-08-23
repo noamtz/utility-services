@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { HttpError, createHttpHandler } from "./handler.js";
+import { HttpError, createHttpHandler, type ParsedHttpRequest } from "./handler.js";
 
 function event(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -48,6 +48,86 @@ describe("createHttpHandler", () => {
       data: { greeting: "Hello Ada" },
       requestId: "gateway-request-1",
     });
+  });
+
+  it("derives a trusted authorization value without exposing the gateway event", async () => {
+    const callback = vi.fn(
+      (
+        request: ParsedHttpRequest<undefined, undefined, undefined, undefined, { ownerId: string }>,
+      ) => {
+        expect(Object.keys(request).sort()).toEqual([
+          "authorization",
+          "body",
+          "headers",
+          "path",
+          "query",
+          "requestId",
+        ]);
+        expect(request.authorization).toEqual({ ownerId: "owner-1" });
+        expect(request).not.toHaveProperty("requestContext");
+        return { greeting: "authorized" };
+      },
+    );
+    const deriveAuthorization = vi.fn(() => ({ ownerId: "owner-1" }));
+    const handler = createHttpHandler({
+      schemas: { response: ResponseSchema },
+      deriveAuthorization,
+      callback,
+    });
+
+    const response = await handler(event());
+
+    expect(response.statusCode).toBe(200);
+    expect(deriveAuthorization).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenCalledOnce();
+  });
+
+  it("uses an explicit successful status consistently", async () => {
+    const logger = { info: vi.fn(), error: vi.fn() };
+    const handler = createHttpHandler({
+      schemas: { response: ResponseSchema },
+      successStatusCode: 201,
+      callback: () => ({ greeting: "created" }),
+      logger,
+    });
+
+    const response = await handler(event());
+
+    expect(response.statusCode).toBe(201);
+    expect(logger.info).toHaveBeenCalledWith("http.request.completed", {
+      requestId: "gateway-request-1",
+      statusCode: 201,
+    });
+  });
+
+  it.each([199, 300, 200.5, Number.NaN])("rejects invalid success status %s", (statusCode) => {
+    expect(() =>
+      createHttpHandler({
+        schemas: { response: ResponseSchema },
+        successStatusCode: statusCode,
+        callback: () => ({ greeting: "unused" }),
+      }),
+    ).toThrow(RangeError);
+  });
+
+  it("maps authorization derivation errors through the safe error path", async () => {
+    const callback = vi.fn(() => ({ greeting: "unused" }));
+    const handler = createHttpHandler({
+      schemas: { response: ResponseSchema },
+      deriveAuthorization: () => {
+        throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
+      },
+      callback,
+    });
+
+    const response = await handler(event());
+
+    expect(response.statusCode).toBe(401);
+    expect(parsedBody(response)).toEqual({
+      error: { code: "UNAUTHORIZED", message: "Authentication required" },
+      requestId: "gateway-request-1",
+    });
+    expect(callback).not.toHaveBeenCalled();
   });
 
   it.each([
