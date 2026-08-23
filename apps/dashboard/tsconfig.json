@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "rootDir": ".",
+    "outDir": "../../.tsbuild/dashboard",
+    "tsBuildInfoFile": "../../.tsbuild/dashboard.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "references": [{ "path": "../../packages/contracts" }]
+}

@@ -4,3 +4,27 @@
 .codex/logs/
 __pycache__/
 *.pyc
+
+# Node, build, and test output
+node_modules/
+dist/
+**/dist/
+coverage/
+.tsbuild/
+*.tsbuildinfo
+.vite/
+
+# SST provider and generated application output
+.sst/
+sst-env.d.ts
+
+# Local configuration; keep safe templates trackable
+.env.local
+.env.*.local
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "allowJs": true,
+    "checkJs": true,
+    "outDir": ".tsbuild/root",
+    "tsBuildInfoFile": ".tsbuild/root.tsbuildinfo"
+  },
+  "include": ["tooling/**/*.mjs", "tooling/**/*.ts", "vitest.config.ts"],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/backend" },
+    { "path": "./apps/dashboard" },
+    { "path": "./infra" }
+  ]
+}
