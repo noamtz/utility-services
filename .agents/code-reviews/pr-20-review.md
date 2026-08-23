@@ -2,9 +2,9 @@
 
 **Original recommendation: REQUEST CHANGES**
 
-**Resolution: FIXED AND RE-REVIEWED**
+**Resolution: FIXED, RE-REVIEWED, AND DEPLOYED**
 
-Both High findings were fixed in this PR. A fresh code-reviewer re-review found no Critical, High, or Medium findings. The remaining release gate is deployed acceptance on `dev-rus02`, including a real replay of a presigned upload capability against S3.
+Both High findings were fixed in this PR. A fresh code-reviewer re-review found no Critical, High, or Medium findings. Deployed acceptance on `dev-rus02` passed, including a real replay of a presigned upload capability against S3 and scheduled-worker retry convergence.
 
 ## Summary
 
@@ -61,3 +61,4 @@ Request changes. Resolve both high findings, rerun the full local gate and this 
 - The public GSI is now only a locator. `getPublic` follows it with a strongly consistent primary-table read and revalidates the exact public identity before the download service can sign a URL (`packages/backend/src/modules/file-management/repository.ts:226`). The public route has the required primary-table `GetItem` permission (`infra/config/file-management.ts:118`), and stale-index regressions are covered (`packages/backend/src/modules/file-management/repository.test.ts:246`).
 - Force deletion now revokes access and claims the file immediately while deferring physical removal until `max(now, uploadExpiresAt + 5 minutes)` (`packages/backend/src/modules/file-management/repository.ts:724`). The API returns `purge-pending` while waiting, and the same removal saga resumes only when the claim is due (`packages/backend/src/modules/file-management/lifecycle.ts:95`). Early physical-removal evidence is rejected by both repository conditions and model invariants.
 - Post-fix `npm run check` passed 71 test files / 457 tests. Coverage passed at 86.39% statements, 80.82% branches, 92.57% functions, and 89.04% lines. A fresh-eyes re-review found no Critical, High, or Medium findings.
+- Deployed acceptance passed for trash, denial, restore, force-pending, real presigned-PUT replay (`412`), retained bytes before eligibility, scheduled purge, and a zero-due lifecycle audit. The live run also found and fixed eager unlinked-resource resolution plus the missing transactional `DeleteItem` permission; the final full gate passed at 86.09% statements, 80.82% branches, 92.03% functions, and 88.71% lines.
