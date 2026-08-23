@@ -3,10 +3,12 @@
 Reusable Utility Services is a modular, language-agnostic utility platform. The first MVP utility
 will provide invite-only File Management through a React dashboard and `/v1` REST API. The current
 implementation includes the TypeScript/SST foundation, RUS-02 owner identity and project control,
-and RUS-03 project credentials: an invite-only Cognito boundary, owner-scoped project and API-key
-lifecycle operations, an authenticated dashboard, and reusable project-bearer authentication that
-derives trusted internal context. The dashboard key-management/integration experience remains
-RUS-09, and File Management routes do not consume the new context until RUS-05.
+RUS-03 project credentials, and the RUS-04 usage/pricing bounded context: an invite-only Cognito
+boundary, owner-scoped project and API-key lifecycle operations, reusable project-bearer
+authentication, immutable versioned AWS list-price evidence, an append-only idempotent usage
+ledger, rebuildable monthly projections, storage checkpoints, and independent metering freshness.
+S3/CloudTrail ingestion, File Management routes, dashboard/API usage presentation, and deployment
+of RUS-04 remain later or separately authorized work.
 
 The [Product Requirements](https://github.com/noamtz/utility-services/wiki/Product-Requirements-Epic),
 [Architecture](https://github.com/noamtz/utility-services/wiki/Architecture), and
@@ -17,11 +19,11 @@ GitHub wiki are canonical.
 
 ```text
 apps/dashboard                 React/Vite invite-only auth and project-control UI
-packages/contracts             Browser/Node-compatible HTTP, project, credential, and auth contracts
+packages/contracts             Browser/Node-compatible HTTP, control, auth, and usage/pricing contracts
 packages/backend/src/core      Universal Lambda HTTP and observability foundations
 packages/backend/src/functions Thin deployed function entry points
-packages/backend/src/modules   Identity/control and project-authentication bounded-context slices
-infra                          SST identity, control table, API, and dashboard composition
+packages/backend/src/modules   Identity/control, project-authentication, and usage/pricing slices
+infra                          SST identity/control, independent usage table/seeds, API, and dashboard
 tests/integration              Behavior crossing packages or slices
 tests/e2e                      Future assembled user journeys
 ```
@@ -104,7 +106,12 @@ owner control plane uses one invite-only user pool and secretless client, one co
 JWT-protected project and credential routes, and a no-cache same-origin `v1/control/*` dashboard
 behavior; `/v1/health` remains public. Project API keys are server-side bearer secrets, are shown
 only by successful issue/replace responses, and must never be placed in browser code, URLs, logs,
-repositories, or examples.
+repositories, or examples. RUS-04 adds one independent on-demand usage/pricing table with PK/SK,
+TTL on retained evidence, and retained immutable price seed items; it adds no route, ingestion
+function, bucket, trail, or dashboard behavior. Its local tests cover fixed-point charging,
+idempotency, UTC price/month boundaries, projection rebuilds, storage retry semantics, quarantine,
+freshness, and project isolation. Infrastructure changes still require the preview and explicit
+authorization rules above.
 
 ## Codex project setup
 

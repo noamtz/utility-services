@@ -1,5 +1,4 @@
 import {
-  CONTROL_TABLE_LINK_ACTIONS,
   CONTROL_TABLE_COMPONENT_NAME,
   CONTROL_TABLE_POLICY,
   USER_POOL_CLIENT_NAME,
@@ -8,22 +7,7 @@ import {
   USER_POOL_POLICY,
   controlTableDeletionProtection,
 } from "./config/control.js";
-
-let dynamoLinkConfigured = false;
-
-function configureLeastPrivilegeDynamoLink() {
-  if (dynamoLinkConfigured) return;
-  sst.Linkable.wrap(sst.aws.Dynamo, (table) => ({
-    properties: { name: table.name },
-    include: [
-      sst.aws.permission({
-        actions: [...CONTROL_TABLE_LINK_ACTIONS],
-        resources: [table.arn, $interpolate`${table.arn}/index/*`],
-      }),
-    ],
-  }));
-  dynamoLinkConfigured = true;
-}
+import { configureLeastPrivilegeDynamoLink } from "./dynamo-link.js";
 
 export function createControlResources(options: { production: boolean }) {
   configureLeastPrivilegeDynamoLink();

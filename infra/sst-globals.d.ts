@@ -43,6 +43,24 @@ declare namespace aws.cloudfront {
   }
 }
 
+declare namespace aws.dynamodb {
+  interface TableItemArgs {
+    tableName: SstOutput<string> | string;
+    hashKey: string;
+    rangeKey?: string;
+    item: string;
+  }
+
+  interface TableItemOptions {
+    retainOnDelete?: boolean;
+    ignoreChanges?: string[];
+  }
+
+  class TableItem {
+    public constructor(name: string, args: TableItemArgs, options?: TableItemOptions);
+  }
+}
+
 declare namespace sst {
   class Linkable {
     public static wrap<T>(
@@ -123,6 +141,7 @@ declare namespace sst {
         { hashKey: string; rangeKey?: string; projection?: "all" | "keys-only" | string[] }
       >;
       deletionProtection?: boolean;
+      ttl?: string;
     }
 
     class Dynamo {

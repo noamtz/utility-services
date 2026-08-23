@@ -18,12 +18,19 @@ export default $config({
     };
   },
   async run() {
-    const [{ createApi }, { createControlResources }, { createDashboard }] = await Promise.all([
+    const [
+      { createApi },
+      { createControlResources },
+      { createDashboard },
+      { createUsagePricingResources },
+    ] = await Promise.all([
       import("./infra/api.js"),
       import("./infra/control.js"),
       import("./infra/dashboard.js"),
+      import("./infra/usage-pricing.js"),
     ]);
     const control = createControlResources({ production: $app.stage === "production" });
+    const usagePricing = createUsagePricingResources({ production: $app.stage === "production" });
     const api = createApi(control);
     const dashboard = createDashboard({
       apiUrl: api.url,
@@ -36,6 +43,7 @@ export default $config({
       ownerUserPoolId: control.userPool.id,
       dashboardClientId: control.userPoolClient.id,
       controlTableName: control.table.name,
+      usagePricingTableName: usagePricing.table.name,
     };
   },
 });

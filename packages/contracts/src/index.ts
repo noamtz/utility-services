@@ -72,3 +72,26 @@ export {
   type RevokedApiKeyResponse,
 } from "./credentials/contract.js";
 export { TrustedProjectContextSchema, type TrustedProjectContext } from "./auth/project-context.js";
+export {
+  CanonicalUnsignedDecimalSchema,
+  MeteringFreshnessSchema,
+  MonthlyUsageProjectionSchema,
+  PriceRateSchema,
+  PriceSourceSchema,
+  PriceVersionSchema,
+  PublishedUnsignedDecimalSchema,
+  USAGE_COST_EXCLUSIONS,
+  USAGE_COST_LABEL,
+  USAGE_METRICS,
+  UsageCurrencySchema,
+  UsageMetricBreakdownSchema,
+  UsageMetricSchema,
+  UsagePeriodSchema,
+  type MeteringFreshness,
+  type MonthlyUsageProjection,
+  type PriceRate,
+  type PriceSource,
+  type PriceVersion,
+  type UsageMetric,
+  type UsageMetricBreakdown,
+} from "./usage-pricing/contract.js";

@@ -8,6 +8,8 @@ import {
   DASHBOARD_CONTROL_POLICY,
 } from "./config/control.js";
 import { DASHBOARD_COMPONENT_NAME, DASHBOARD_CONFIG, createDashboard } from "./dashboard.js";
+import { DYNAMO_LINK_BASELINE_ACTIONS } from "./dynamo-link.js";
+import { USAGE_PRICING_TABLE_POLICY } from "./config/usage-pricing.js";
 
 function output<T>(value: T): SstOutput<T> {
   return {
@@ -31,6 +33,14 @@ describe("SST composition contracts", () => {
       tracingMode: "Active",
     });
     expect(JSON.stringify(HEALTH_ROUTE)).not.toContain("*");
+    expect(CONTROL_ROUTES).toHaveLength(7);
+  });
+
+  it("keeps usage pricing independent with the same query-only link baseline", () => {
+    expect(USAGE_PRICING_TABLE_POLICY.primaryIndex).toEqual({ hashKey: "pk", rangeKey: "sk" });
+    expect(USAGE_PRICING_TABLE_POLICY.globalIndexes).toEqual({});
+    expect(DYNAMO_LINK_BASELINE_ACTIONS).toEqual(["dynamodb:Query"]);
+    expect(JSON.stringify(DYNAMO_LINK_BASELINE_ACTIONS)).not.toMatch(/Put|Update|Get|Scan|\*/u);
     expect(CONTROL_ROUTES).toHaveLength(7);
   });
 
