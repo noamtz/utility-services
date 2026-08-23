@@ -18,8 +18,10 @@ vi.mock("sst", () => ({
 
 import {
   createFileApiRuntime,
+  createFileLifecycleRuntime,
   createFileWorkerRuntime,
   getFileHandlers,
+  getFileLifecycleHandlers,
   getFileWorkerRuntime,
 } from "./runtime.js";
 
@@ -47,6 +49,12 @@ describe("file management runtime", () => {
       usageTableName: "UsageTable",
       bucketName: "private-file-bucket",
     });
+    const lifecycle = createFileLifecycleRuntime({
+      controlTableName: "ControlTable",
+      fileTableName: "FileTable",
+      objectStore: { head: vi.fn(), delete: vi.fn() },
+      usage: { closeStorage: vi.fn() },
+    });
     expect(api.authentication.authenticate).toBeTypeOf("function");
     expect(api.service.authorizeUpload).toBeTypeOf("function");
     expect(api.downloads.authorizePrivate).toBeTypeOf("function");
@@ -55,6 +63,8 @@ describe("file management runtime", () => {
     expect("usage" in api).toBe(false);
     expect(worker.objectStore.head).toBeTypeOf("function");
     expect(worker.usage.recordUsage).toBeTypeOf("function");
+    expect(lifecycle.lifecycle.delete).toBeTypeOf("function");
+    expect(lifecycle.lifecycle.restore).toBeTypeOf("function");
     expect(() =>
       createFileApiRuntime({
         controlTableName: "",
@@ -69,6 +79,8 @@ describe("file management runtime", () => {
     expect(getFileHandlers().authorizeUpload).toBeTypeOf("function");
     expect(getFileHandlers().authorizeDownload).toBeTypeOf("function");
     expect(getFileHandlers().publicDownload).toBeTypeOf("function");
+    expect(getFileLifecycleHandlers().deleteFile).toBeTypeOf("function");
+    expect(getFileLifecycleHandlers().restoreFile).toBeTypeOf("function");
     expect(linkedResourceReads.usagePricingTable).toBe(0);
     expect(getFileWorkerRuntime().usage.recordUsage).toBeTypeOf("function");
     expect(linkedResourceReads.usagePricingTable).toBe(1);

@@ -53,6 +53,7 @@ export function toPublicFile(item: FileItem): File {
     sizeBytes: Number(item.sizeBytes),
     visibility: item.visibility,
     status: item.status,
+    ...(item.status === "trashed" ? { trashedAt: item.trashedAt, purgeAt: item.purgeAt } : {}),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   });

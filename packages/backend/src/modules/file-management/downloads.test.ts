@@ -3,7 +3,14 @@ import type { TrustedProjectContext } from "@utility-services/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { createDownloadService, type PublicProjectReader } from "./downloads.js";
-import { createPendingFile, parseFileItem, type FileItem } from "./model.js";
+import {
+  createPendingFile,
+  parseFileItem,
+  trashPurgeSortKey,
+  TRASH_PURGE_INDEX_PARTITION,
+  TRASH_RETENTION_MILLISECONDS,
+  type FileItem,
+} from "./model.js";
 import type { DownloadPresigner } from "./presigning.js";
 import type { FileRepository } from "./repository.js";
 
@@ -55,6 +62,24 @@ function ready(visibility: "private" | "public" = "private"): FileItem {
   });
 }
 
+function trashed(visibility: "private" | "public" = "private"): FileItem {
+  const source = ready(visibility);
+  const trashedAt = "2026-08-23T09:00:00.000Z";
+  const purgeAt = new Date(
+    new Date(trashedAt).getTime() + TRASH_RETENTION_MILLISECONDS,
+  ).toISOString();
+  return parseFileItem({
+    ...source,
+    status: "trashed",
+    trashedAt,
+    purgeAt,
+    gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+    gsi2sk: trashPurgeSortKey(purgeAt, source.internalProjectId, source.fileId),
+    updatedAt: trashedAt,
+    revision: source.revision + 1n,
+  });
+}
+
 function repository(overrides: Partial<FileRepository> = {}): FileRepository {
   return {
     get: vi.fn().mockResolvedValue(ready()),
@@ -67,6 +92,12 @@ function repository(overrides: Partial<FileRepository> = {}): FileRepository {
     completeFailureCleanup: vi.fn(),
     finalizeFailed: vi.fn(),
     listDuePending: vi.fn().mockResolvedValue({ items: [] }),
+    trash: vi.fn(),
+    restore: vi.fn(),
+    claimPermanentRemoval: vi.fn(),
+    recordObjectRemoved: vi.fn(),
+    finalizePermanentRemoval: vi.fn(),
+    listDuePurge: vi.fn().mockResolvedValue({ items: [] }),
     ...overrides,
   };
 }
@@ -122,7 +153,7 @@ describe("download service", () => {
     ["missing", undefined],
     ["pending", pending()],
     ["failed", { ...pending(), status: "failed" }],
-    ["future trashed", { ...ready(), status: "trashed" }],
+    ["trashed", trashed()],
     ["cross project", { ...ready(), internalProjectId: "22222222-2222-4222-8222-222222222222" }],
   ])("denies a %s private lookup without signing", async (_name, item) => {
     const signer = presigner();
@@ -163,7 +194,7 @@ describe("download service", () => {
     ["missing file", undefined, undefined],
     ["pending file", pending("public"), undefined],
     ["failed file", { ...pending("public"), status: "failed" }, undefined],
-    ["future trashed file", { ...ready("public"), status: "trashed" }, undefined],
+    ["trashed file", trashed("public"), undefined],
     ["private file", ready(), undefined],
     ["wrong file pair", { ...ready("public"), publicFileId: otherPublicFileId }, undefined],
     ["missing project", ready("public"), null],

@@ -56,6 +56,12 @@ function repository(overrides: Partial<FileRepository> = {}): FileRepository {
     completeFailureCleanup: vi.fn().mockImplementation(async (value) => value),
     finalizeFailed: vi.fn().mockImplementation(async (value) => value),
     listDuePending: vi.fn().mockResolvedValue({ items: [] }),
+    trash: vi.fn(),
+    restore: vi.fn(),
+    claimPermanentRemoval: vi.fn(),
+    recordObjectRemoved: vi.fn(),
+    finalizePermanentRemoval: vi.fn(),
+    listDuePurge: vi.fn().mockResolvedValue({ items: [] }),
     ...overrides,
   };
 }

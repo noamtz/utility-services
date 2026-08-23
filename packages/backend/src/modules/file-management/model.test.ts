@@ -8,6 +8,9 @@ import {
   parseFileItem,
   parseFileQuotaItem,
   pendingUploadSortKey,
+  trashPurgeSortKey,
+  TRASH_PURGE_INDEX_PARTITION,
+  TRASH_RETENTION_MILLISECONDS,
 } from "./model.js";
 
 const internalProjectId = "11111111-1111-4111-8111-111111111111";
@@ -80,6 +83,54 @@ describe("file persisted model", () => {
         failedAt: createdAt,
       }).status,
     ).toBe("failed");
+  });
+
+  it("accepts strict trash lifecycle evidence and preserves public identity", () => {
+    const source = pending("public");
+    const evidence = {
+      completedAt: createdAt,
+      sizeBytes: 12n,
+      mediaType: "text/plain",
+      eTag: "etag",
+    };
+    const { gsi2pk: _pendingPk, gsi2sk: _pendingSk, ...readyBase } = source;
+    void _pendingPk;
+    void _pendingSk;
+    const trashedAt = "2026-08-23T10:00:00.000Z";
+    const purgeAt = new Date(
+      new Date(trashedAt).getTime() + TRASH_RETENTION_MILLISECONDS,
+    ).toISOString();
+    const trashed = parseFileItem({
+      ...readyBase,
+      status: "trashed",
+      completionEvidence: evidence,
+      readyAt: createdAt,
+      trashedAt,
+      purgeAt,
+      gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+      gsi2sk: trashPurgeSortKey(purgeAt, internalProjectId, fileId),
+    });
+    expect(trashed).toMatchObject({
+      status: "trashed",
+      publicFileId,
+      gsi1pk: `PUBLIC_PROJECT#${publicProjectId}`,
+      gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+    });
+    expect(() => parseFileItem({ ...trashed, purgeAt: trashedAt })).toThrow();
+    expect(() =>
+      parseFileItem({ ...trashed, purgeStartedAt: trashedAt, gsi2sk: "wrong" }),
+    ).toThrow();
+    expect(() => parseFileItem({ ...trashed, purgeStartedAt: trashedAt })).toThrow();
+    expect(() => parseFileItem({ ...trashed, objectRemovedAt: trashedAt })).toThrow();
+    expect(
+      parseFileItem({
+        ...trashed,
+        purgeAt: trashedAt,
+        gsi2sk: trashPurgeSortKey(trashedAt, internalProjectId, fileId),
+        purgeStartedAt: trashedAt,
+        objectRemovedAt: trashedAt,
+      }).objectRemovedAt,
+    ).toBe(trashedAt);
   });
 
   it("rejects caller-like keys, cross-state fields, and public identity drift", () => {

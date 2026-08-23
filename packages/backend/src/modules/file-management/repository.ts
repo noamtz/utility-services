@@ -17,11 +17,13 @@ import {
   FILE_SORT_PREFIX,
   PENDING_UPLOAD_INDEX_PARTITION,
   QUOTA_SORT_KEY,
+  TRASH_PURGE_INDEX_PARTITION,
   fileProjectPartitionKey,
   fileSortKey,
   parseFileItem,
   publicFilePartitionKey,
   publicFileSortKey,
+  trashPurgeSortKey,
   type CompletionEvidence,
   type FileItem,
 } from "./model.js";
@@ -38,6 +40,11 @@ export interface ListFilesResult {
 }
 
 export interface DuePendingResult {
+  readonly items: FileItem[];
+  readonly nextStartKey?: Record<string, unknown>;
+}
+
+export interface DuePurgeResult {
   readonly items: FileItem[];
   readonly nextStartKey?: Record<string, unknown>;
 }
@@ -62,6 +69,16 @@ export interface FileRepository {
     limit: number,
     startKey?: Record<string, unknown>,
   ): Promise<DuePendingResult>;
+  trash(file: FileItem, trashedAt: string, purgeAt: string): Promise<FileItem>;
+  restore(file: FileItem, now: string): Promise<FileItem>;
+  claimPermanentRemoval(file: FileItem, now: string, force: boolean): Promise<FileItem>;
+  recordObjectRemoved(file: FileItem, removedAt: string): Promise<FileItem>;
+  finalizePermanentRemoval(file: FileItem, now: string): Promise<void>;
+  listDuePurge(
+    dueThrough: string,
+    limit: number,
+    startKey?: Record<string, unknown>,
+  ): Promise<DuePurgeResult>;
 }
 
 export interface FileDocumentClient {
@@ -173,7 +190,10 @@ function completionMatches(
   );
 }
 
-function transactionToken(operation: "reserve" | "ready" | "failed", input: string): string {
+function transactionToken(
+  operation: "reserve" | "ready" | "failed" | "purged",
+  input: string,
+): string {
   const digest = createHash("sha256").update(`${operation}:${input}`).digest("hex").slice(0, 28);
   return `${operation}-${digest}`;
 }
@@ -572,6 +592,284 @@ export function createDynamoFileRepository(options: {
           KeyConditionExpression: "gsi2pk = :pending AND gsi2sk <= :through",
           ExpressionAttributeValues: {
             ":pending": PENDING_UPLOAD_INDEX_PARTITION,
+            ":through": `${through}#\uffff`,
+          },
+          ScanIndexForward: true,
+          Limit: boundedLimit,
+          ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+        }),
+      );
+      const items = z
+        .array(z.unknown())
+        .parse(output.Items ?? [])
+        .map((item) => {
+          try {
+            return parseFileItem(item);
+          } catch {
+            throw new CorruptFileRecordError();
+          }
+        });
+      return {
+        items,
+        ...(output.LastEvaluatedKey ? { nextStartKey: output.LastEvaluatedKey } : {}),
+      };
+    },
+
+    async trash(fileInput, trashedAtInput, purgeAtInput) {
+      const file = parseFileItem(fileInput);
+      if (file.status === "trashed") {
+        if (file.purgeStartedAt === undefined) return file;
+        throw new FileStateConflictError();
+      }
+      if (file.status !== "ready") throw new FileStateConflictError();
+      const trashedAt = z.iso.datetime({ offset: true }).parse(trashedAtInput);
+      const purgeAt = z.iso.datetime({ offset: true }).parse(purgeAtInput);
+      const lifecycleSortKey = trashPurgeSortKey(purgeAt, file.internalProjectId, file.fileId);
+      try {
+        const output = await options.client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { pk: file.pk, sk: file.sk },
+            UpdateExpression:
+              "SET #status = :trashed, trashedAt = :trashedAt, purgeAt = :purgeAt, gsi2pk = :lifecyclePk, gsi2sk = :lifecycleSk, updatedAt = :updatedAt, revision = revision + :one",
+            ConditionExpression:
+              "attribute_exists(pk) AND #status = :ready AND revision = :revision AND internalProjectId = :internal AND fileId = :file",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":trashed": "trashed",
+              ":ready": "ready",
+              ":trashedAt": trashedAt,
+              ":purgeAt": purgeAt,
+              ":lifecyclePk": TRASH_PURGE_INDEX_PARTITION,
+              ":lifecycleSk": lifecycleSortKey,
+              ":updatedAt": trashedAt,
+              ":one": 1n,
+              ":revision": file.revision,
+              ":internal": file.internalProjectId,
+              ":file": file.fileId,
+            },
+            ReturnValues: "ALL_NEW",
+          }),
+        );
+        return parseStoredFile(output.Attributes, file.internalProjectId);
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        const existing = await get(file.internalProjectId, file.fileId);
+        if (existing?.status === "trashed" && existing.purgeStartedAt === undefined)
+          return existing;
+        throw new FileStateConflictError();
+      }
+    },
+
+    async restore(fileInput, nowInput) {
+      const file = parseFileItem(fileInput);
+      if (file.status === "ready") return file;
+      if (file.status !== "trashed" || file.purgeStartedAt !== undefined) {
+        throw new FileStateConflictError();
+      }
+      const now = z.iso.datetime({ offset: true }).parse(nowInput);
+      if (new Date(now).getTime() >= new Date(file.purgeAt!).getTime()) {
+        throw new FileStateConflictError();
+      }
+      try {
+        const output = await options.client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { pk: file.pk, sk: file.sk },
+            UpdateExpression:
+              "SET #status = :ready, updatedAt = :updatedAt, revision = revision + :one REMOVE gsi2pk, gsi2sk, trashedAt, purgeAt, purgeStartedAt, objectRemovedAt",
+            ConditionExpression:
+              "attribute_exists(pk) AND #status = :trashed AND revision = :revision AND internalProjectId = :internal AND fileId = :file AND purgeAt > :now AND attribute_not_exists(purgeStartedAt)",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":ready": "ready",
+              ":trashed": "trashed",
+              ":updatedAt": now,
+              ":one": 1n,
+              ":revision": file.revision,
+              ":internal": file.internalProjectId,
+              ":file": file.fileId,
+              ":now": now,
+            },
+            ReturnValues: "ALL_NEW",
+          }),
+        );
+        return parseStoredFile(output.Attributes, file.internalProjectId);
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        const existing = await get(file.internalProjectId, file.fileId);
+        if (existing?.status === "ready") return existing;
+        throw new FileStateConflictError();
+      }
+    },
+
+    async claimPermanentRemoval(fileInput, nowInput, force) {
+      const file = parseFileItem(fileInput);
+      if (file.status === "trashed" && file.purgeStartedAt !== undefined) return file;
+      if (
+        (file.status !== "ready" && file.status !== "trashed") ||
+        (!force && file.status !== "trashed")
+      ) {
+        throw new FileStateConflictError();
+      }
+      const now = z.iso.datetime({ offset: true }).parse(nowInput);
+      if (!force && new Date(file.purgeAt!).getTime() > new Date(now).getTime()) {
+        throw new FileStateConflictError();
+      }
+      const trashedAt = file.status === "trashed" ? file.trashedAt! : now;
+      const purgeAt = force ? now : file.purgeAt!;
+      const lifecycleSortKey = trashPurgeSortKey(purgeAt, file.internalProjectId, file.fileId);
+      const statusCondition = force
+        ? "(#status = :ready OR #status = :trashed)"
+        : "#status = :trashed AND purgeAt <= :now";
+      try {
+        const output = await options.client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { pk: file.pk, sk: file.sk },
+            UpdateExpression:
+              "SET #status = :trashed, trashedAt = :trashedAt, purgeAt = :purgeAt, purgeStartedAt = :now, gsi2pk = :lifecyclePk, gsi2sk = :lifecycleSk, updatedAt = :now, revision = revision + :one",
+            ConditionExpression: `attribute_exists(pk) AND ${statusCondition} AND revision = :revision AND internalProjectId = :internal AND fileId = :file AND attribute_not_exists(purgeStartedAt)`,
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ...(force ? { ":ready": "ready" } : {}),
+              ":trashed": "trashed",
+              ":trashedAt": trashedAt,
+              ":purgeAt": purgeAt,
+              ":now": now,
+              ":lifecyclePk": TRASH_PURGE_INDEX_PARTITION,
+              ":lifecycleSk": lifecycleSortKey,
+              ":one": 1n,
+              ":revision": file.revision,
+              ":internal": file.internalProjectId,
+              ":file": file.fileId,
+            },
+            ReturnValues: "ALL_NEW",
+          }),
+        );
+        return parseStoredFile(output.Attributes, file.internalProjectId);
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        const existing = await get(file.internalProjectId, file.fileId);
+        if (existing?.status === "trashed" && existing.purgeStartedAt !== undefined)
+          return existing;
+        throw new FileStateConflictError();
+      }
+    },
+
+    async recordObjectRemoved(fileInput, removedAtInput) {
+      const file = parseFileItem(fileInput);
+      if (file.status !== "trashed" || file.purgeStartedAt === undefined) {
+        throw new FileStateConflictError();
+      }
+      if (file.objectRemovedAt !== undefined) return file;
+      const removedAt = z.iso.datetime({ offset: true }).parse(removedAtInput);
+      if (new Date(removedAt).getTime() < new Date(file.purgeStartedAt).getTime()) {
+        throw new FileStateConflictError();
+      }
+      try {
+        const output = await options.client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { pk: file.pk, sk: file.sk },
+            UpdateExpression:
+              "SET objectRemovedAt = :removedAt, updatedAt = :removedAt, revision = revision + :one",
+            ConditionExpression:
+              "attribute_exists(pk) AND #status = :trashed AND revision = :revision AND purgeStartedAt = :purgeStartedAt AND attribute_not_exists(objectRemovedAt)",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":trashed": "trashed",
+              ":removedAt": removedAt,
+              ":purgeStartedAt": file.purgeStartedAt,
+              ":revision": file.revision,
+              ":one": 1n,
+            },
+            ReturnValues: "ALL_NEW",
+          }),
+        );
+        return parseStoredFile(output.Attributes, file.internalProjectId);
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        const existing = await get(file.internalProjectId, file.fileId);
+        if (existing?.status === "trashed" && existing.objectRemovedAt !== undefined) {
+          return existing;
+        }
+        throw new FileStateConflictError();
+      }
+    },
+
+    async finalizePermanentRemoval(fileInput, nowInput) {
+      const file = parseFileItem(fileInput);
+      if (
+        file.status !== "trashed" ||
+        file.purgeStartedAt === undefined ||
+        file.objectRemovedAt === undefined ||
+        file.completionEvidence === undefined
+      ) {
+        throw new FileStateConflictError();
+      }
+      const now = z.iso.datetime({ offset: true }).parse(nowInput);
+      const sizeBytes = file.completionEvidence.sizeBytes;
+      try {
+        await options.client.send(
+          new TransactWriteCommand({
+            ClientRequestToken: transactionToken("purged", `${file.fileId}:${file.purgeStartedAt}`),
+            TransactItems: [
+              {
+                Delete: {
+                  TableName: tableName,
+                  Key: { pk: file.pk, sk: file.sk },
+                  ConditionExpression:
+                    "attribute_exists(pk) AND #status = :trashed AND revision = :revision AND internalProjectId = :internal AND fileId = :file AND purgeStartedAt = :purgeStartedAt AND objectRemovedAt = :objectRemovedAt",
+                  ExpressionAttributeNames: { "#status": "status" },
+                  ExpressionAttributeValues: {
+                    ":trashed": "trashed",
+                    ":revision": file.revision,
+                    ":internal": file.internalProjectId,
+                    ":file": file.fileId,
+                    ":purgeStartedAt": file.purgeStartedAt,
+                    ":objectRemovedAt": file.objectRemovedAt,
+                  },
+                },
+              },
+              {
+                Update: {
+                  TableName: tableName,
+                  Key: { pk: file.pk, sk: QUOTA_SORT_KEY },
+                  UpdateExpression:
+                    "SET retainedBytes = retainedBytes - :size, accountedBytes = accountedBytes - :size, revision = revision + :one, updatedAt = :updatedAt",
+                  ConditionExpression:
+                    "attribute_exists(pk) AND itemType = :quotaType AND internalProjectId = :internal AND retainedBytes >= :size AND accountedBytes >= :size",
+                  ExpressionAttributeValues: {
+                    ":size": sizeBytes,
+                    ":one": 1n,
+                    ":updatedAt": now,
+                    ":quotaType": "file-quota",
+                    ":internal": file.internalProjectId,
+                  },
+                },
+              },
+            ],
+          }),
+        );
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        const existing = await get(file.internalProjectId, file.fileId);
+        if (!existing) return;
+        throw new FileStateConflictError();
+      }
+    },
+
+    async listDuePurge(dueThrough, limit, startKey) {
+      const through = z.iso.datetime({ offset: true }).parse(dueThrough);
+      const boundedLimit = z.number().int().min(1).max(100).parse(limit);
+      const output = await options.client.send(
+        new QueryCommand({
+          TableName: tableName,
+          IndexName: lifecycleIndexName,
+          KeyConditionExpression: "gsi2pk = :trash AND gsi2sk <= :through",
+          ExpressionAttributeValues: {
+            ":trash": TRASH_PURGE_INDEX_PARTITION,
             ":through": `${through}#\uffff`,
           },
           ScanIndexForward: true,

@@ -1,5 +1,7 @@
 import {
   CreateUploadRequestSchema,
+  DeleteFileQuerySchema,
+  DeleteFileResultSchema,
   DownloadAuthorizationSchema,
   FileListPayloadSchema,
   FileListQuerySchema,
@@ -18,6 +20,7 @@ import {
 import { createProjectAuthorization } from "../project-authentication/authorization.js";
 import type { ProjectAuthenticationService } from "../project-authentication/service.js";
 import type { DownloadService } from "./downloads.js";
+import type { FileLifecycleService } from "./lifecycle.js";
 import type { FileService } from "./service.js";
 
 const CreateUploadBoundaryRequestSchema = CreateUploadRequestSchema.extend({
@@ -81,6 +84,36 @@ export function createPublicDownloadHandler(service: DownloadService, logger?: S
   return createHttpRedirectHandler({
     schemas: { path: PublicFilePathSchema, response: z.url().startsWith("https://") },
     callback: ({ path }) => service.authorizePublic(path.publicProjectId, path.publicFileId),
+    ...(logger ? { logger } : {}),
+  });
+}
+
+export function createDeleteFileHandler(
+  service: FileLifecycleService,
+  authentication: ProjectAuthenticationService,
+  logger?: SafeLogger,
+) {
+  return createHttpHandler({
+    schemas: {
+      path: FilePathSchema,
+      query: DeleteFileQuerySchema,
+      response: DeleteFileResultSchema,
+    },
+    deriveAuthorization: createProjectAuthorization(authentication),
+    callback: ({ authorization, path, query }) => service.delete(authorization, path.fileId, query),
+    ...(logger ? { logger } : {}),
+  });
+}
+
+export function createRestoreFileHandler(
+  service: FileLifecycleService,
+  authentication: ProjectAuthenticationService,
+  logger?: SafeLogger,
+) {
+  return createHttpHandler({
+    schemas: { path: FilePathSchema, response: FileSchema },
+    deriveAuthorization: createProjectAuthorization(authentication),
+    callback: ({ authorization, path }) => service.restore(authorization, path.fileId),
     ...(logger ? { logger } : {}),
   });
 }

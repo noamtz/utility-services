@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   FILE_BUCKET_POLICY,
   FILE_LIFECYCLE_INDEX_NAME,
+  FILE_PURGE_BUCKET_ACTIONS,
+  FILE_PURGE_SCHEDULE,
+  FILE_PURGE_TABLE_ACTIONS,
+  FILE_PURGE_USAGE_ACTIONS,
   FILE_RECONCILIATION_SCHEDULE,
   FILE_ROUTES,
   FILE_TABLE_POLICY,
@@ -24,6 +28,7 @@ describe("file management infrastructure policy", () => {
     expect(MAX_RETAINED_STORAGE_BYTES).toBe(5n * 2n ** 30n);
     expect(UPLOAD_COMPLETION_GRACE_MINUTES).toBe(60);
     expect(FILE_RECONCILIATION_SCHEDULE).toBe("rate(5 minutes)");
+    expect(FILE_PURGE_SCHEDULE).toBe("rate(5 minutes)");
   });
 
   it("keeps the bucket private, without CORS, and enforces TLS", () => {
@@ -44,6 +49,8 @@ describe("file management infrastructure policy", () => {
       "GET /v1/files",
       "GET /v1/files/{fileId}",
       "POST /v1/files/{fileId}/downloads",
+      "DELETE /v1/files/{fileId}",
+      "POST /v1/files/{fileId}/restore",
       "GET /files/public/{publicProjectId}/{publicFileId}",
     ]);
     expect(FILE_ROUTES.map((route) => route.name)).toEqual([
@@ -51,6 +58,8 @@ describe("file management infrastructure policy", () => {
       "ListFilesRoute",
       "InspectFileRoute",
       "AuthorizeFileDownloadRoute",
+      "DeleteFileRoute",
+      "RestoreFileRoute",
       "PublicFileDownloadRoute",
     ]);
     expect(FILE_ROUTES[0]).toMatchObject({
@@ -63,17 +72,35 @@ describe("file management infrastructure policy", () => {
       fileTableActions: ["dynamodb:GetItem"],
       bucketActions: ["s3:GetObject"],
     });
-    const publicDownload = FILE_ROUTES[4];
+    const deletion = FILE_ROUTES[4];
+    expect(deletion).toMatchObject({
+      handler: "packages/backend/src/functions/files/delete-file.handler",
+      fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
+      bucketActions: ["s3:DeleteObject"],
+    });
+    expect(deletion?.usageTableActions).toContain("dynamodb:GetItem");
+    expect(deletion?.usageTableActions).toContain("dynamodb:TransactWriteItems");
+    const restore = FILE_ROUTES[5];
+    expect(restore).toMatchObject({
+      handler: "packages/backend/src/functions/files/restore-file.handler",
+      fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+      bucketActions: [],
+      usageTableActions: [],
+    });
+    const publicDownload = FILE_ROUTES[6];
     expect(publicDownload).toMatchObject({
       handler: "packages/backend/src/functions/files/public-download.handler",
       controlTableActions: [],
       fileTableActions: [],
       bucketActions: ["s3:GetObject"],
     });
-    expect(JSON.stringify([privateDownload, publicDownload])).not.toMatch(
+    expect(JSON.stringify([privateDownload, restore, publicDownload])).not.toMatch(
       /PutObject|DeleteObject|ListBucket|s3:\*|dynamodb:\*/u,
     );
     expect(JSON.stringify(FILE_ROUTES)).not.toMatch(/body|bytes|s3:\*|dynamodb:\*/u);
+    expect(FILE_PURGE_TABLE_ACTIONS).toContain("dynamodb:Query");
+    expect(FILE_PURGE_BUCKET_ACTIONS).toEqual(["s3:DeleteObject"]);
+    expect(FILE_PURGE_USAGE_ACTIONS).toContain("dynamodb:TransactWriteItems");
     expect(fileTableDeletionProtection(true)).toBe(true);
     expect(fileTableDeletionProtection(false)).toBe(false);
   });

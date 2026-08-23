@@ -163,7 +163,7 @@ export function createUploadCompletionService(options: {
       await options.objectStore.delete(file.objectKey);
       return file;
     }
-    if (file.status === "ready") {
+    if (file.status === "ready" || file.status === "trashed") {
       if (event && !completionMatchesEvent(file, event)) throw new ConflictingUploadEvidenceError();
       return file;
     }

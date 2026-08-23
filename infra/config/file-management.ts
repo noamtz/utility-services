@@ -4,11 +4,13 @@ export const FILE_TABLE_COMPONENT_NAME = "FileTable";
 export const FILE_BUCKET_COMPONENT_NAME = "FileBucket";
 export const FILE_COMPLETION_COMPONENT_NAME = "FileUploadCompletion";
 export const FILE_RECONCILIATION_COMPONENT_NAME = "FileUploadReconciliation";
+export const FILE_PURGE_COMPONENT_NAME = "FileTrashPurge";
 export const PUBLIC_FILE_INDEX_NAME = "PublicFiles";
 export const FILE_LIFECYCLE_INDEX_NAME = "FileLifecycle";
 export const MAX_RETAINED_STORAGE_BYTES = 5n * 2n ** 30n;
 export const UPLOAD_COMPLETION_GRACE_MINUTES = 60;
 export const FILE_RECONCILIATION_SCHEDULE = "rate(5 minutes)";
+export const FILE_PURGE_SCHEDULE = "rate(5 minutes)";
 export const FILE_OBJECT_PREFIX = "projects/";
 
 export { MAX_FILE_SIZE_BYTES };
@@ -59,6 +61,7 @@ export const FILE_ROUTES = [
     controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
     fileTableActions: ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
     bucketActions: ["s3:PutObject"],
+    usageTableActions: [],
   },
   {
     name: "ListFilesRoute",
@@ -67,6 +70,7 @@ export const FILE_ROUTES = [
     controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
     fileTableActions: [],
     bucketActions: [],
+    usageTableActions: [],
   },
   {
     name: "InspectFileRoute",
@@ -75,6 +79,7 @@ export const FILE_ROUTES = [
     controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
     fileTableActions: ["dynamodb:GetItem"],
     bucketActions: [],
+    usageTableActions: [],
   },
   {
     name: "AuthorizeFileDownloadRoute",
@@ -83,6 +88,31 @@ export const FILE_ROUTES = [
     controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
     fileTableActions: ["dynamodb:GetItem"],
     bucketActions: ["s3:GetObject"],
+    usageTableActions: [],
+  },
+  {
+    name: "DeleteFileRoute",
+    route: "DELETE /v1/files/{fileId}",
+    handler: "packages/backend/src/functions/files/delete-file.handler",
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
+    bucketActions: ["s3:DeleteObject"],
+    usageTableActions: [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+      "dynamodb:TransactWriteItems",
+    ],
+  },
+  {
+    name: "RestoreFileRoute",
+    route: "POST /v1/files/{fileId}/restore",
+    handler: "packages/backend/src/functions/files/restore-file.handler",
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+    bucketActions: [],
+    usageTableActions: [],
   },
   {
     name: "PublicFileDownloadRoute",
@@ -91,6 +121,7 @@ export const FILE_ROUTES = [
     controlTableActions: [],
     fileTableActions: [],
     bucketActions: ["s3:GetObject"],
+    usageTableActions: [],
   },
 ] as const;
 
@@ -108,6 +139,20 @@ export const FILE_COMPLETION_USAGE_ACTIONS = [
   "dynamodb:Query",
   "dynamodb:UpdateItem",
   "dynamodb:TransactGetItems",
+  "dynamodb:TransactWriteItems",
+] as const;
+export const FILE_PURGE_TABLE_ACTIONS = [
+  "dynamodb:GetItem",
+  "dynamodb:Query",
+  "dynamodb:UpdateItem",
+  "dynamodb:TransactWriteItems",
+] as const;
+export const FILE_PURGE_BUCKET_ACTIONS = ["s3:DeleteObject"] as const;
+export const FILE_PURGE_USAGE_ACTIONS = [
+  "dynamodb:GetItem",
+  "dynamodb:PutItem",
+  "dynamodb:Query",
+  "dynamodb:UpdateItem",
   "dynamodb:TransactWriteItems",
 ] as const;
 

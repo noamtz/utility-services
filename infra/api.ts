@@ -90,13 +90,22 @@ export function createApi(
         ...(route.bucketActions.length > 0
           ? [{ actions: [...route.bucketActions], resources: [fileObjectArn] }]
           : []),
+        ...(route.usageTableActions.length > 0
+          ? [{ actions: [...route.usageTableActions], resources: [usagePricing.table.arn] }]
+          : []),
+      ];
+      const links = [
+        control.table,
+        files.table,
+        ...(route.bucketActions.length > 0 ? [files.bucket] : []),
+        ...(route.usageTableActions.length > 0 ? [usagePricing.table] : []),
       ];
       api.route(
         route.route,
         {
           handler: route.handler,
           runtime: "nodejs24.x",
-          link: [control.table, files.table, files.bucket],
+          link: links,
           ...(permissions.length > 0 ? { permissions } : {}),
           transform: { function: { tracingConfig: { mode: "Active" } } },
         },

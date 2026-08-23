@@ -4,6 +4,7 @@ import {
   FILE_BUCKET_COMPONENT_NAME,
   FILE_COMPLETION_COMPONENT_NAME,
   FILE_LIFECYCLE_INDEX_NAME,
+  FILE_PURGE_COMPONENT_NAME,
   FILE_RECONCILIATION_COMPONENT_NAME,
   FILE_TABLE_COMPONENT_NAME,
   PUBLIC_FILE_INDEX_NAME,
@@ -87,11 +88,28 @@ describe("file management resources", () => {
       events: ["s3:ObjectCreated:Put"],
       filterPrefix: "projects/",
     });
-    expect(cronCalls).toHaveLength(1);
+    expect(cronCalls).toHaveLength(2);
     expect(cronCalls[0]).toMatchObject({
       name: FILE_RECONCILIATION_COMPONENT_NAME,
       args: { schedule: "rate(5 minutes)" },
     });
+    expect(cronCalls[1]).toMatchObject({
+      name: FILE_PURGE_COMPONENT_NAME,
+      args: {
+        schedule: "rate(5 minutes)",
+      },
+    });
+    const purgeFunction = cronCalls[1]?.args["function"] as {
+      handler: string;
+      permissions: Array<{ actions: string[] }>;
+    };
+    expect(purgeFunction.handler).toBe(
+      "packages/backend/src/functions/files/purge-trashed-files.handler",
+    );
+    const purgePermissions = purgeFunction.permissions;
+    expect(purgePermissions.flatMap((permission) => permission.actions)).toEqual(
+      expect.arrayContaining(["dynamodb:Query", "dynamodb:TransactWriteItems", "s3:DeleteObject"]),
+    );
     expect(JSON.stringify({ notification, cronCalls })).not.toMatch(/s3:\*|dynamodb:\*/u);
     expect(resources.table).toBeInstanceOf(Dynamo);
     expect(resources.bucket).toBeInstanceOf(Bucket);

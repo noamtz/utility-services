@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   CreateUploadRequestSchema,
+  DeleteFileQuerySchema,
+  DeleteFileResultSchema,
   DownloadAuthorizationSchema,
   FileListQuerySchema,
   FileSchema,
@@ -80,6 +82,54 @@ describe("file contracts", () => {
     expect(FileSchema.safeParse({ ...privateFile, internalProjectId: "private" }).success).toBe(
       false,
     );
+  });
+
+  it("exposes lifecycle timestamps only for trashed files", () => {
+    const trashed = {
+      ...privateFile,
+      status: "trashed",
+      trashedAt: timestamp,
+      purgeAt: "2026-09-06T08:00:00.000Z",
+    } as const;
+    expect(FileSchema.parse(trashed)).toEqual(trashed);
+    expect(FileSchema.safeParse({ ...trashed, purgeAt: timestamp }).success).toBe(true);
+    expect(FileSchema.safeParse({ ...trashed, purgeAt: "2026-08-23T07:59:59.999Z" }).success).toBe(
+      false,
+    );
+    expect(FileSchema.safeParse({ ...trashed, purgeAt: undefined }).success).toBe(false);
+    expect(
+      FileSchema.safeParse({ ...privateFile, trashedAt: timestamp, purgeAt: trashed.purgeAt })
+        .success,
+    ).toBe(false);
+    expect(FileSchema.safeParse({ ...trashed, purgeStartedAt: timestamp }).success).toBe(false);
+    expect(FileSchema.safeParse({ ...trashed, objectRemovedAt: timestamp }).success).toBe(false);
+  });
+
+  it("parses explicit force confirmation and strict deletion results", () => {
+    expect(DeleteFileQuerySchema.parse({})).toEqual({ force: false });
+    expect(DeleteFileQuerySchema.parse({ force: "false" })).toEqual({ force: false });
+    expect(DeleteFileQuerySchema.parse({ force: "true" })).toEqual({ force: true });
+    for (const force of ["TRUE", "1", "", true]) {
+      expect(DeleteFileQuerySchema.safeParse({ force }).success).toBe(false);
+    }
+
+    expect(
+      DeleteFileResultSchema.parse({
+        fileId: privateFile.fileId,
+        disposition: "trashed",
+        purgeAt: "2026-09-06T08:00:00.000Z",
+      }),
+    ).toMatchObject({ disposition: "trashed" });
+    expect(
+      DeleteFileResultSchema.parse({ fileId: privateFile.fileId, disposition: "purged" }),
+    ).toMatchObject({ disposition: "purged" });
+    expect(
+      DeleteFileResultSchema.safeParse({
+        fileId: privateFile.fileId,
+        disposition: "purged",
+        purgeAt: timestamp,
+      }).success,
+    ).toBe(false);
   });
 
   it("accepts only an opaque HTTPS PUT authorization with exact required headers", () => {

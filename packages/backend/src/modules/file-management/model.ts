@@ -13,6 +13,8 @@ import { z } from "zod";
 export const FILE_SORT_PREFIX = "FILE#" as const;
 export const QUOTA_SORT_KEY = "QUOTA" as const;
 export const PENDING_UPLOAD_INDEX_PARTITION = "UPLOAD#PENDING" as const;
+export const TRASH_PURGE_INDEX_PARTITION = "TRASH#PENDING_PURGE" as const;
+export const TRASH_RETENTION_MILLISECONDS = 14 * 24 * 60 * 60 * 1_000;
 export const FILE_STORAGE_QUOTA_BYTES = 5n * 2n ** 30n;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
@@ -41,7 +43,7 @@ export const FileItemSchema = z
     sk: z.string().startsWith(FILE_SORT_PREFIX),
     gsi1pk: z.string().startsWith("PUBLIC_PROJECT#").optional(),
     gsi1sk: z.string().startsWith("PUBLIC_FILE#").optional(),
-    gsi2pk: z.literal(PENDING_UPLOAD_INDEX_PARTITION).optional(),
+    gsi2pk: z.enum([PENDING_UPLOAD_INDEX_PARTITION, TRASH_PURGE_INDEX_PARTITION]).optional(),
     gsi2sk: z.string().optional(),
     itemType: z.literal("file"),
     internalProjectId: z.uuid(),
@@ -53,7 +55,7 @@ export const FileItemSchema = z
     mediaType: FileMediaTypeSchema,
     sizeBytes: PositiveBytesSchema,
     visibility: FileVisibilitySchema,
-    status: z.enum(["pending", "ready", "failed"]),
+    status: z.enum(["pending", "ready", "failed", "trashed"]),
     uploadExpiresAt: TimestampSchema,
     failureEligibleAt: TimestampSchema,
     completionEvidence: CompletionEvidenceSchema.optional(),
@@ -61,6 +63,10 @@ export const FileItemSchema = z
     cleanupRequired: z.boolean().optional(),
     readyAt: TimestampSchema.optional(),
     failedAt: TimestampSchema.optional(),
+    trashedAt: TimestampSchema.optional(),
+    purgeAt: TimestampSchema.optional(),
+    purgeStartedAt: TimestampSchema.optional(),
+    objectRemovedAt: TimestampSchema.optional(),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
     revision: DynamoIntegerSchema,
@@ -127,6 +133,14 @@ export function pendingUploadSortKey(
   return `${TimestampSchema.parse(failureEligibleAt)}#${z.uuid().parse(internalProjectId)}#${FileIdSchema.parse(fileId)}`;
 }
 
+export function trashPurgeSortKey(
+  purgeAt: string,
+  internalProjectId: string,
+  fileId: string,
+): string {
+  return `${TimestampSchema.parse(purgeAt)}#${z.uuid().parse(internalProjectId)}#${FileIdSchema.parse(fileId)}`;
+}
+
 function assertPublicKeys(item: FileItem): void {
   const hasAll =
     item.publicFileId !== undefined && item.gsi1pk !== undefined && item.gsi1sk !== undefined;
@@ -165,29 +179,74 @@ export function parseFileItem(input: unknown): FileItem {
         pendingUploadSortKey(item.failureEligibleAt, item.internalProjectId, item.fileId) ||
       item.readyAt !== undefined ||
       item.failedAt !== undefined ||
+      item.trashedAt !== undefined ||
+      item.purgeAt !== undefined ||
+      item.purgeStartedAt !== undefined ||
+      item.objectRemovedAt !== undefined ||
       (item.failureCode === undefined) !== (item.cleanupRequired === undefined)
     ) {
       throw new Error("Pending file state is inconsistent");
     }
-  } else if (item.gsi2pk !== undefined || item.gsi2sk !== undefined) {
-    throw new Error("Terminal file remains in the pending index");
   } else if (item.status === "ready") {
+    if (
+      item.gsi2pk !== undefined ||
+      item.gsi2sk !== undefined ||
+      item.completionEvidence === undefined ||
+      item.readyAt !== item.completionEvidence.completedAt ||
+      item.failedAt !== undefined ||
+      item.failureCode !== undefined ||
+      item.cleanupRequired !== undefined ||
+      item.trashedAt !== undefined ||
+      item.purgeAt !== undefined ||
+      item.purgeStartedAt !== undefined ||
+      item.objectRemovedAt !== undefined
+    ) {
+      throw new Error("Ready file state is inconsistent");
+    }
+  } else if (item.status === "failed") {
+    if (
+      item.gsi2pk !== undefined ||
+      item.gsi2sk !== undefined ||
+      item.failedAt === undefined ||
+      item.failureCode === undefined ||
+      item.cleanupRequired !== false ||
+      item.readyAt !== undefined ||
+      item.trashedAt !== undefined ||
+      item.purgeAt !== undefined ||
+      item.purgeStartedAt !== undefined ||
+      item.objectRemovedAt !== undefined
+    ) {
+      throw new Error("Failed file state is inconsistent");
+    }
+  } else {
+    const trashedAt = item.trashedAt ? new Date(item.trashedAt).getTime() : Number.NaN;
+    const purgeAt = item.purgeAt ? new Date(item.purgeAt).getTime() : Number.NaN;
+    const purgeStartedAt = item.purgeStartedAt
+      ? new Date(item.purgeStartedAt).getTime()
+      : undefined;
+    const objectRemovedAt = item.objectRemovedAt
+      ? new Date(item.objectRemovedAt).getTime()
+      : undefined;
     if (
       item.completionEvidence === undefined ||
       item.readyAt !== item.completionEvidence.completedAt ||
       item.failedAt !== undefined ||
       item.failureCode !== undefined ||
-      item.cleanupRequired !== undefined
+      item.cleanupRequired !== undefined ||
+      item.trashedAt === undefined ||
+      item.purgeAt === undefined ||
+      item.gsi2pk !== TRASH_PURGE_INDEX_PARTITION ||
+      item.gsi2sk !== trashPurgeSortKey(item.purgeAt, item.internalProjectId, item.fileId) ||
+      !Number.isFinite(trashedAt) ||
+      !Number.isFinite(purgeAt) ||
+      purgeAt < trashedAt ||
+      (purgeStartedAt === undefined && purgeAt - trashedAt !== TRASH_RETENTION_MILLISECONDS) ||
+      (purgeStartedAt !== undefined && purgeStartedAt < purgeAt) ||
+      (objectRemovedAt !== undefined &&
+        (purgeStartedAt === undefined || objectRemovedAt < purgeStartedAt))
     ) {
-      throw new Error("Ready file state is inconsistent");
+      throw new Error("Trashed file state is inconsistent");
     }
-  } else if (
-    item.failedAt === undefined ||
-    item.failureCode === undefined ||
-    item.cleanupRequired !== false ||
-    item.readyAt !== undefined
-  ) {
-    throw new Error("Failed file state is inconsistent");
   }
   return Object.freeze(item);
 }

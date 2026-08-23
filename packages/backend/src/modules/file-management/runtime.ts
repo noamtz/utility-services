@@ -12,11 +12,14 @@ import { createDownloadService } from "./downloads.js";
 import {
   createAuthorizeDownloadHandler,
   createAuthorizeUploadHandler,
+  createDeleteFileHandler,
   createInspectFileHandler,
   createListFilesHandler,
   createPublicDownloadHandler,
+  createRestoreFileHandler,
 } from "./handlers.js";
-import { createS3ObjectStore } from "./object-store.js";
+import { createFileLifecycleService, type LifecycleUsageService } from "./lifecycle.js";
+import { createS3ObjectStore, type ObjectStore } from "./object-store.js";
 import { createS3DownloadPresigner, createS3UploadPresigner } from "./presigning.js";
 import { createDynamoFileRepository, FILE_DOCUMENT_CLIENT_OPTIONS } from "./repository.js";
 import { createFileService } from "./service.js";
@@ -79,6 +82,39 @@ export function createFileWorkerRuntime(options: {
   return Object.freeze({ repository, objectStore, usage, bucketName });
 }
 
+export function createFileLifecycleRuntime(options: {
+  readonly controlTableName: string;
+  readonly fileTableName: string;
+  readonly objectStore: ObjectStore;
+  readonly usage: LifecycleUsageService;
+}) {
+  const controlTableName = z.string().trim().min(1).parse(options.controlTableName);
+  const fileTableName = z.string().trim().min(1).parse(options.fileTableName);
+  const controlClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+    marshallOptions: { removeUndefinedValues: true },
+  });
+  const fileClient = DynamoDBDocumentClient.from(
+    new DynamoDBClient({}),
+    FILE_DOCUMENT_CLIENT_OPTIONS,
+  );
+  const authentication = createProjectAuthenticationRuntime({
+    tableName: controlTableName,
+    documentClient: controlClient,
+  });
+  const repository = createDynamoFileRepository({
+    client: fileClient,
+    tableName: fileTableName,
+    publicIndexName: "PublicFiles",
+    lifecycleIndexName: "FileLifecycle",
+  });
+  const lifecycle = createFileLifecycleService({
+    repository,
+    objectStore: options.objectStore,
+    usage: options.usage,
+  });
+  return Object.freeze({ authentication, repository, lifecycle });
+}
+
 let apiRuntime: ReturnType<typeof createFileApiRuntime> | undefined;
 
 export function getFileApiRuntime() {
@@ -101,6 +137,23 @@ export function getFileWorkerRuntime() {
   return workerRuntime;
 }
 
+let lifecycleRuntime: ReturnType<typeof createFileLifecycleRuntime> | undefined;
+
+export function getFileLifecycleRuntime() {
+  lifecycleRuntime ??= createFileLifecycleRuntime({
+    controlTableName: Resource.ControlTable.name,
+    fileTableName: Resource.FileTable.name,
+    objectStore: {
+      head: (objectKey) => getFileWorkerRuntime().objectStore.head(objectKey),
+      delete: (objectKey) => getFileWorkerRuntime().objectStore.delete(objectKey),
+    },
+    usage: {
+      closeStorage: (input) => getFileWorkerRuntime().usage.closeStorage(input),
+    },
+  });
+  return lifecycleRuntime;
+}
+
 export function getFileHandlers() {
   const composed = getFileApiRuntime();
   return Object.freeze({
@@ -117,5 +170,13 @@ export function getFileHandlers() {
       safeLogger,
     ),
     publicDownload: createPublicDownloadHandler(composed.downloads, safeLogger),
+  });
+}
+
+export function getFileLifecycleHandlers() {
+  const composed = getFileLifecycleRuntime();
+  return Object.freeze({
+    deleteFile: createDeleteFileHandler(composed.lifecycle, composed.authentication, safeLogger),
+    restoreFile: createRestoreFileHandler(composed.lifecycle, composed.authentication, safeLogger),
   });
 }
