@@ -108,7 +108,12 @@ describe("file management resources", () => {
     );
     const purgePermissions = purgeFunction.permissions;
     expect(purgePermissions.flatMap((permission) => permission.actions)).toEqual(
-      expect.arrayContaining(["dynamodb:Query", "dynamodb:TransactWriteItems", "s3:DeleteObject"]),
+      expect.arrayContaining([
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:TransactWriteItems",
+        "s3:DeleteObject",
+      ]),
     );
     expect(JSON.stringify({ notification, cronCalls })).not.toMatch(/s3:\*|dynamodb:\*/u);
     expect(resources.table).toBeInstanceOf(Dynamo);

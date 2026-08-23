@@ -95,7 +95,12 @@ export const FILE_ROUTES = [
     route: "DELETE /v1/files/{fileId}",
     handler: "packages/backend/src/functions/files/delete-file.handler",
     controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
-    fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
+    fileTableActions: [
+      "dynamodb:DeleteItem",
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:TransactWriteItems",
+    ],
     bucketActions: ["s3:DeleteObject"],
     usageTableActions: [
       "dynamodb:GetItem",
@@ -142,6 +147,7 @@ export const FILE_COMPLETION_USAGE_ACTIONS = [
   "dynamodb:TransactWriteItems",
 ] as const;
 export const FILE_PURGE_TABLE_ACTIONS = [
+  "dynamodb:DeleteItem",
   "dynamodb:GetItem",
   "dynamodb:Query",
   "dynamodb:UpdateItem",

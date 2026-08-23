@@ -75,7 +75,12 @@ describe("file management infrastructure policy", () => {
     const deletion = FILE_ROUTES[4];
     expect(deletion).toMatchObject({
       handler: "packages/backend/src/functions/files/delete-file.handler",
-      fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
+      fileTableActions: [
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems",
+      ],
       bucketActions: ["s3:DeleteObject"],
     });
     expect(deletion?.usageTableActions).toContain("dynamodb:GetItem");
@@ -98,6 +103,7 @@ describe("file management infrastructure policy", () => {
       /PutObject|DeleteObject|ListBucket|s3:\*|dynamodb:\*/u,
     );
     expect(JSON.stringify(FILE_ROUTES)).not.toMatch(/body|bytes|s3:\*|dynamodb:\*/u);
+    expect(FILE_PURGE_TABLE_ACTIONS).toContain("dynamodb:DeleteItem");
     expect(FILE_PURGE_TABLE_ACTIONS).toContain("dynamodb:Query");
     expect(FILE_PURGE_BUCKET_ACTIONS).toEqual(["s3:DeleteObject"]);
     expect(FILE_PURGE_USAGE_ACTIONS).toContain("dynamodb:TransactWriteItems");
