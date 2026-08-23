@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/require-await -- inspected Vitest and AWS command test doubles */
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { describe, expect, it, vi } from "vitest";
 
-import { createS3UploadPresigner } from "./presigning.js";
+import { createS3DownloadPresigner, createS3UploadPresigner } from "./presigning.js";
 
 const objectKey = "projects/11111111-1111-4111-8111-111111111111/files/fil_0123456789abcdefghijkl";
 
@@ -80,4 +80,74 @@ describe("S3 upload presigner", () => {
       }),
     ).rejects.toThrow(/required signed header/u);
   });
+});
+
+describe("S3 download presigner", () => {
+  it.each([60, 300, 3_600])("signs an exact GET with a %d second lifetime", async (expiresIn) => {
+    const sign = vi
+      .fn()
+      .mockResolvedValue("https://bucket.s3.il-central-1.amazonaws.com/key?X-Amz-Expires=300");
+    const presigner = createS3DownloadPresigner({
+      client: {} as S3Client,
+      bucketName: "private-bucket",
+      sign,
+    });
+
+    await expect(
+      presigner.authorizeGet({ objectKey, expiresInSeconds: expiresIn }),
+    ).resolves.toEqual({
+      url: "https://bucket.s3.il-central-1.amazonaws.com/key?X-Amz-Expires=300",
+    });
+    const command = sign.mock.calls[0]?.[1];
+    expect(command).toBeInstanceOf(GetObjectCommand);
+    expect((command as GetObjectCommand).input).toEqual({
+      Bucket: "private-bucket",
+      Key: objectKey,
+    });
+    expect((command as GetObjectCommand).input).not.toHaveProperty("Range");
+    expect((command as GetObjectCommand).input).not.toHaveProperty("ResponseContentDisposition");
+    expect(sign.mock.calls[0]?.[2]).toEqual({ expiresIn });
+  });
+
+  it("proves the installed signer uses the requested expiry without fixing Range", async () => {
+    const client = new S3Client({
+      region: "il-central-1",
+      credentials: { accessKeyId: "AKIAEXAMPLE", secretAccessKey: "synthetic-secret" },
+    });
+    const result = await createS3DownloadPresigner({
+      client,
+      bucketName: "private-bucket",
+    }).authorizeGet({ objectKey, expiresInSeconds: 300 });
+
+    const url = new URL(result.url);
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("300");
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
+    client.destroy();
+  });
+
+  it.each([
+    { objectKey: "caller/key", expiresInSeconds: 300 },
+    { objectKey, expiresInSeconds: 59 },
+    { objectKey, expiresInSeconds: 3_601 },
+    { objectKey, expiresInSeconds: 300.5 },
+  ])("rejects invalid download input %#", async (input) => {
+    const presigner = createS3DownloadPresigner({
+      client: {} as S3Client,
+      bucketName: "private-bucket",
+      sign: vi.fn().mockResolvedValue("https://bucket.example.com/key"),
+    });
+    await expect(presigner.authorizeGet(input)).rejects.toThrow();
+  });
+
+  it.each(["http://bucket.example.com/key", "not-a-url"])(
+    "rejects an unsafe signer result: %s",
+    async (url) => {
+      const presigner = createS3DownloadPresigner({
+        client: {} as S3Client,
+        bucketName: "private-bucket",
+        sign: vi.fn().mockResolvedValue(url),
+      });
+      await expect(presigner.authorizeGet({ objectKey, expiresInSeconds: 300 })).rejects.toThrow();
+    },
+  );
 });

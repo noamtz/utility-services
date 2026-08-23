@@ -45,6 +45,9 @@ class MemoryRepository implements FileRepository {
       ? this.item
       : undefined;
   }
+  public async getPublic() {
+    return undefined;
+  }
   public async list(_input: ListFilesInput) {
     void _input;
     return { items: [this.item] };

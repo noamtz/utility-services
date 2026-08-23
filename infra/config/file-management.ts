@@ -76,6 +76,22 @@ export const FILE_ROUTES = [
     fileTableActions: ["dynamodb:GetItem"],
     bucketActions: [],
   },
+  {
+    name: "AuthorizeFileDownloadRoute",
+    route: "POST /v1/files/{fileId}/downloads",
+    handler: "packages/backend/src/functions/files/authorize-download.handler",
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    fileTableActions: ["dynamodb:GetItem"],
+    bucketActions: ["s3:GetObject"],
+  },
+  {
+    name: "PublicFileDownloadRoute",
+    route: "GET /files/public/{publicProjectId}/{publicFileId}",
+    handler: "packages/backend/src/functions/files/public-download.handler",
+    controlTableActions: [],
+    fileTableActions: [],
+    bucketActions: ["s3:GetObject"],
+  },
 ] as const;
 
 export const FILE_COMPLETION_TABLE_ACTIONS = [

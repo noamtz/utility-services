@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   CreateUploadRequestSchema,
+  DownloadAuthorizationSchema,
   FileListQuerySchema,
   FileSchema,
   MAX_FILE_SIZE_BYTES,
+  PublicFilePathSchema,
   UploadAuthorizationSchema,
 } from "./contract.js";
 
@@ -117,6 +119,71 @@ describe("file contracts", () => {
       UploadAuthorizationSchema.safeParse({
         ...authorization,
         upload: { ...authorization.upload, bucket: "private-bucket" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts exact public file paths", () => {
+    const path = {
+      publicProjectId: "prj_0123456789abcdefghijkl",
+      publicFileId: "pfil_0123456789abcdefghijkl",
+    };
+    expect(PublicFilePathSchema.parse(path)).toEqual(path);
+    expect(PublicFilePathSchema.safeParse({ ...path, fileId: privateFile.fileId }).success).toBe(
+      false,
+    );
+    expect(
+      PublicFilePathSchema.safeParse({ ...path, publicProjectId: "prj_invalid" }).success,
+    ).toBe(false);
+    expect(PublicFilePathSchema.safeParse({ ...path, publicFileId: "pfil_invalid" }).success).toBe(
+      false,
+    );
+  });
+
+  it("accepts only an opaque HTTPS GET authorization with exact public metadata", () => {
+    const authorization = {
+      file: privateFile,
+      download: {
+        method: "GET",
+        url: "https://files.example.com/path?X-Amz-Signature=synthetic",
+        expiresAt: timestamp,
+      },
+    } as const;
+    expect(DownloadAuthorizationSchema.parse(authorization)).toEqual(authorization);
+    expect(
+      DownloadAuthorizationSchema.safeParse({
+        ...authorization,
+        download: { ...authorization.download, url: "http://files.example.com/path" },
+      }).success,
+    ).toBe(false);
+    expect(
+      DownloadAuthorizationSchema.safeParse({
+        ...authorization,
+        download: { ...authorization.download, method: "PUT" },
+      }).success,
+    ).toBe(false);
+    expect(
+      DownloadAuthorizationSchema.safeParse({
+        ...authorization,
+        download: { method: "GET", url: authorization.download.url },
+      }).success,
+    ).toBe(false);
+    expect(
+      DownloadAuthorizationSchema.safeParse({
+        ...authorization,
+        download: { ...authorization.download, objectKey: "projects/private/file" },
+      }).success,
+    ).toBe(false);
+    expect(
+      DownloadAuthorizationSchema.safeParse({ ...authorization, bucket: "private-bucket" }).success,
+    ).toBe(false);
+    expect(
+      DownloadAuthorizationSchema.safeParse({
+        ...authorization,
+        file: {
+          ...privateFile,
+          visibility: "public",
+        },
       }).success,
     ).toBe(false);
   });

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { createSuccessEnvelopeSchema } from "../http/envelope.js";
+import { PublicProjectIdSchema } from "../projects/contract.js";
 
 export const MAX_FILE_SIZE_BYTES = 100 * 2 ** 20;
 export const DEFAULT_FILE_LIST_LIMIT = 20;
@@ -50,6 +51,12 @@ export const FileListQuerySchema = z
   .strict();
 
 export const FilePathSchema = z.object({ fileId: FileIdSchema }).strict();
+export const PublicFilePathSchema = z
+  .object({
+    publicProjectId: PublicProjectIdSchema,
+    publicFileId: PublicFileIdSchema,
+  })
+  .strict();
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 
@@ -114,6 +121,21 @@ export const UploadAuthorizationSchema = z
   })
   .strict();
 
+export const DownloadTransferSchema = z
+  .object({
+    method: z.literal("GET"),
+    url: z.url().startsWith("https://"),
+    expiresAt: TimestampSchema,
+  })
+  .strict();
+
+export const DownloadAuthorizationSchema = z
+  .object({
+    file: FileSchema,
+    download: DownloadTransferSchema,
+  })
+  .strict();
+
 export const FileListPayloadSchema = z
   .object({
     items: z.array(FileSchema),
@@ -125,6 +147,9 @@ export const FileResponseSchema = createSuccessEnvelopeSchema(FileSchema);
 export const FileListResponseSchema = createSuccessEnvelopeSchema(FileListPayloadSchema);
 export const UploadAuthorizationResponseSchema =
   createSuccessEnvelopeSchema(UploadAuthorizationSchema);
+export const DownloadAuthorizationResponseSchema = createSuccessEnvelopeSchema(
+  DownloadAuthorizationSchema,
+);
 
 export type FileId = z.infer<typeof FileIdSchema>;
 export type PublicFileId = z.infer<typeof PublicFileIdSchema>;
@@ -134,6 +159,10 @@ export type File = z.infer<typeof FileSchema>;
 export type CreateUploadRequest = z.infer<typeof CreateUploadRequestSchema>;
 export type UploadRequiredHeaders = z.infer<typeof UploadRequiredHeadersSchema>;
 export type UploadAuthorization = z.infer<typeof UploadAuthorizationSchema>;
+export type DownloadTransfer = z.infer<typeof DownloadTransferSchema>;
+export type DownloadAuthorization = z.infer<typeof DownloadAuthorizationSchema>;
+export type DownloadAuthorizationResponse = z.infer<typeof DownloadAuthorizationResponseSchema>;
 export type FileListQuery = z.infer<typeof FileListQuerySchema>;
 export type FileListPayload = z.infer<typeof FileListPayloadSchema>;
 export type FilePath = z.infer<typeof FilePathSchema>;
+export type PublicFilePath = z.infer<typeof PublicFilePathSchema>;

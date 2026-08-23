@@ -43,7 +43,33 @@ describe("file management infrastructure policy", () => {
       "POST /v1/files/uploads",
       "GET /v1/files",
       "GET /v1/files/{fileId}",
+      "POST /v1/files/{fileId}/downloads",
+      "GET /files/public/{publicProjectId}/{publicFileId}",
     ]);
+    expect(FILE_ROUTES.map((route) => route.name)).toEqual([
+      "AuthorizeFileUploadRoute",
+      "ListFilesRoute",
+      "InspectFileRoute",
+      "AuthorizeFileDownloadRoute",
+      "PublicFileDownloadRoute",
+    ]);
+    const privateDownload = FILE_ROUTES[3];
+    expect(privateDownload).toMatchObject({
+      handler: "packages/backend/src/functions/files/authorize-download.handler",
+      controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+      fileTableActions: ["dynamodb:GetItem"],
+      bucketActions: ["s3:GetObject"],
+    });
+    const publicDownload = FILE_ROUTES[4];
+    expect(publicDownload).toMatchObject({
+      handler: "packages/backend/src/functions/files/public-download.handler",
+      controlTableActions: [],
+      fileTableActions: [],
+      bucketActions: ["s3:GetObject"],
+    });
+    expect(JSON.stringify([privateDownload, publicDownload])).not.toMatch(
+      /PutObject|DeleteObject|ListBucket|s3:\*|dynamodb:\*/u,
+    );
     expect(JSON.stringify(FILE_ROUTES)).not.toMatch(/body|bytes|s3:\*|dynamodb:\*/u);
     expect(fileTableDeletionProtection(true)).toBe(true);
     expect(fileTableDeletionProtection(false)).toBe(false);

@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { HttpError, createHttpHandler, type ParsedHttpRequest } from "./handler.js";
+import {
+  HttpError,
+  createHttpHandler,
+  createHttpRedirectHandler,
+  type ParsedHttpRequest,
+} from "./handler.js";
 
 function event(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -215,4 +220,97 @@ describe("createHttpHandler", () => {
     expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
     expect(requestId).not.toBe("caller-controlled");
   });
+});
+
+describe("createHttpRedirectHandler", () => {
+  const PathSchema = z.object({ publicFileId: z.string().min(1) }).strict();
+  const LocationSchema = z.url().startsWith("https://");
+
+  it("returns a fixed non-cacheable redirect with no response body", async () => {
+    const location = "https://files.example.com/path?X-Amz-Signature=synthetic";
+    const logger = { info: vi.fn(), error: vi.fn() };
+    const handler = createHttpRedirectHandler({
+      schemas: { path: PathSchema, response: LocationSchema },
+      callback: ({ path }) => `${location}&file=${path.publicFileId}`,
+      logger,
+    });
+
+    const response = await handler(
+      event({
+        requestContext: {
+          requestId: "public-request-1",
+          http: { method: "GET", path: "/files/public/project/file" },
+        },
+        pathParameters: { publicFileId: "public-file" },
+      }),
+    );
+
+    expect(response).toEqual({
+      statusCode: 302,
+      headers: {
+        location: `${location}&file=public-file`,
+        "cache-control": "no-store",
+        "x-request-id": "public-request-1",
+      },
+      body: "",
+    });
+    expect(logger.info).toHaveBeenCalledWith("http.request.started", {
+      requestId: "public-request-1",
+      method: "GET",
+      path: "/files/public/project/file",
+    });
+    expect(logger.info).toHaveBeenCalledWith("http.request.completed", {
+      requestId: "public-request-1",
+      statusCode: 302,
+    });
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain("X-Amz-Signature");
+  });
+
+  it("uses the shared validation and safe error envelopes", async () => {
+    const callback = vi.fn(() => "https://files.example.com/path");
+    const invalidPath = createHttpRedirectHandler({
+      schemas: { path: PathSchema, response: LocationSchema },
+      callback,
+    });
+    const pathResponse = await invalidPath(event({ pathParameters: {} }));
+
+    expect(pathResponse.statusCode).toBe(400);
+    expect(parsedBody(pathResponse)).toMatchObject({
+      error: { code: "VALIDATION_ERROR" },
+      requestId: "gateway-request-1",
+    });
+    expect(callback).not.toHaveBeenCalled();
+
+    const serviceFailure = createHttpRedirectHandler({
+      schemas: { response: LocationSchema },
+      callback: () => {
+        throw new HttpError(404, "FILE_NOT_FOUND", "File not found");
+      },
+    });
+    const notFound = await serviceFailure(event());
+    expect(notFound.statusCode).toBe(404);
+    expect(parsedBody(notFound)).toEqual({
+      error: { code: "FILE_NOT_FOUND", message: "File not found" },
+      requestId: "gateway-request-1",
+    });
+  });
+
+  it.each(["http://files.example.com/path", "not-a-url"])(
+    "fails closed for an invalid redirect location without logging it: %s",
+    async (location) => {
+      const logger = { info: vi.fn(), error: vi.fn() };
+      const handler = createHttpRedirectHandler({
+        schemas: { response: LocationSchema },
+        callback: () => location,
+        logger,
+      });
+
+      const response = await handler(event());
+
+      expect(response.statusCode).toBe(500);
+      expect(parsedBody(response)).toMatchObject({ error: { code: "INTERNAL_ERROR" } });
+      expect(JSON.stringify(logger.info.mock.calls)).not.toContain(location);
+      expect(JSON.stringify(logger.error.mock.calls)).not.toContain(location);
+    },
+  );
 });

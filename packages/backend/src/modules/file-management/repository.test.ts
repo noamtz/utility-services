@@ -14,6 +14,8 @@ const project = "11111111-1111-4111-8111-111111111111";
 const publicProject = "prj_0123456789abcdefghijkl";
 const timestamp = "2026-08-23T08:00:00.000Z";
 const FILE_LIFECYCLE_INDEX_NAME = "FileLifecycle";
+const PUBLIC_FILE_INDEX_NAME = "PublicFiles";
+const publicFileId = "pfil_0123456789abcdefghijkl";
 const MAX_RETAINED_STORAGE_BYTES = 5n * 2n ** 30n;
 
 function pending(fileId = "fil_0123456789abcdefghijkl"): FileItem {
@@ -31,6 +33,22 @@ function pending(fileId = "fil_0123456789abcdefghijkl"): FileItem {
   });
 }
 
+function publicPending(): FileItem {
+  return createPendingFile({
+    internalProjectId: project,
+    publicProjectId: publicProject,
+    fileId: "fil_0123456789abcdefghijkl",
+    publicFileId,
+    name: "file.txt",
+    mediaType: "text/plain",
+    sizeBytes: 12n,
+    visibility: "public",
+    uploadExpiresAt: "2026-08-23T08:15:00.000Z",
+    failureEligibleAt: "2026-08-23T09:15:00.000Z",
+    createdAt: timestamp,
+  });
+}
+
 function fixture() {
   const send = vi.fn();
   return {
@@ -38,6 +56,7 @@ function fixture() {
     repository: createDynamoFileRepository({
       client: { send } as never,
       tableName: "FileTable",
+      publicIndexName: PUBLIC_FILE_INDEX_NAME,
       lifecycleIndexName: FILE_LIFECYCLE_INDEX_NAME,
     }),
   };
@@ -110,6 +129,64 @@ describe("Dynamo file repository", () => {
       }),
     });
     await expect(other.repository.get(project, pending().fileId)).rejects.toBeInstanceOf(
+      CorruptFileRecordError,
+    );
+  });
+
+  it("queries the exact public project/file pair through the sparse index", async () => {
+    const { send, repository } = fixture();
+    send.mockResolvedValue({ Items: [publicPending()] });
+
+    await expect(repository.getPublic(publicProject, publicFileId)).resolves.toEqual(
+      publicPending(),
+    );
+    const command = send.mock.calls[0]?.[0] as { input: Record<string, unknown> };
+    expect(command.constructor.name).toBe("QueryCommand");
+    expect(command.input).toEqual({
+      TableName: "FileTable",
+      IndexName: PUBLIC_FILE_INDEX_NAME,
+      KeyConditionExpression: "gsi1pk = :project AND gsi1sk = :file",
+      ExpressionAttributeValues: {
+        ":project": `PUBLIC_PROJECT#${publicProject}`,
+        ":file": `PUBLIC_FILE#${publicFileId}`,
+      },
+      Limit: 2,
+    });
+    expect(command.input).not.toHaveProperty("ConsistentRead");
+    expect(JSON.stringify(command.input)).not.toContain("Scan");
+  });
+
+  it("returns missing public pairs and rejects duplicate public index records", async () => {
+    const missing = fixture();
+    missing.send.mockResolvedValue({ Items: [] });
+    await expect(
+      missing.repository.getPublic(publicProject, publicFileId),
+    ).resolves.toBeUndefined();
+
+    const duplicate = fixture();
+    duplicate.send.mockResolvedValue({ Items: [publicPending(), publicPending()] });
+    await expect(
+      duplicate.repository.getPublic(publicProject, publicFileId),
+    ).rejects.toBeInstanceOf(CorruptFileRecordError);
+
+    const malformedItems = fixture();
+    malformedItems.send.mockResolvedValue({ Items: { unexpected: true } });
+    await expect(
+      malformedItems.repository.getPublic(publicProject, publicFileId),
+    ).rejects.toBeInstanceOf(CorruptFileRecordError);
+  });
+
+  it.each([
+    ["malformed", { ...publicPending(), objectKey: "caller/key" }],
+    ["private", pending()],
+    ["wrong project", { ...publicPending(), publicProjectId: "prj_abcdefghijkl0123456789" }],
+    ["wrong file", { ...publicPending(), publicFileId: "pfil_abcdefghijkl0123456789" }],
+    ["wrong partition key", { ...publicPending(), gsi1pk: "PUBLIC_PROJECT#prj_wrong" }],
+    ["wrong sort key", { ...publicPending(), gsi1sk: "PUBLIC_FILE#pfil_wrong" }],
+  ])("rejects a %s public index record", async (_name, item) => {
+    const { send, repository } = fixture();
+    send.mockResolvedValue({ Items: [item] });
+    await expect(repository.getPublic(publicProject, publicFileId)).rejects.toBeInstanceOf(
       CorruptFileRecordError,
     );
   });

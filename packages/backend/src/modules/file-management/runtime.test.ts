@@ -36,6 +36,9 @@ describe("file management runtime", () => {
     });
     expect(api.authentication.authenticate).toBeTypeOf("function");
     expect(api.service.authorizeUpload).toBeTypeOf("function");
+    expect(api.downloads.authorizePrivate).toBeTypeOf("function");
+    expect(api.downloads.authorizePublic).toBeTypeOf("function");
+    expect(api.projects.inspect).toBeTypeOf("function");
     expect("usage" in api).toBe(false);
     expect(worker.objectStore.head).toBeTypeOf("function");
     expect(worker.usage.recordUsage).toBeTypeOf("function");
@@ -51,6 +54,8 @@ describe("file management runtime", () => {
   it("does not read the worker-only usage link while composing API handlers", () => {
     expect(linkedResourceReads.usagePricingTable).toBe(0);
     expect(getFileHandlers().authorizeUpload).toBeTypeOf("function");
+    expect(getFileHandlers().authorizeDownload).toBeTypeOf("function");
+    expect(getFileHandlers().publicDownload).toBeTypeOf("function");
     expect(linkedResourceReads.usagePricingTable).toBe(0);
     expect(getFileWorkerRuntime().usage.recordUsage).toBeTypeOf("function");
     expect(linkedResourceReads.usagePricingTable).toBe(1);

@@ -20,6 +20,8 @@ import {
   fileProjectPartitionKey,
   fileSortKey,
   parseFileItem,
+  publicFilePartitionKey,
+  publicFileSortKey,
   type CompletionEvidence,
   type FileItem,
 } from "./model.js";
@@ -42,6 +44,7 @@ export interface DuePendingResult {
 
 export interface FileRepository {
   get(internalProjectId: string, fileId: string): Promise<FileItem | undefined>;
+  getPublic(publicProjectId: string, publicFileId: string): Promise<FileItem | undefined>;
   list(input: ListFilesInput): Promise<ListFilesResult>;
   reservePending(file: FileItem, quotaLimitBytes: bigint): Promise<void>;
   claimCompletion(file: FileItem, evidence: CompletionEvidence, now: string): Promise<FileItem>;
@@ -133,6 +136,29 @@ function parseStoredFile(input: unknown, internalProjectId: string): FileItem {
   }
 }
 
+function parsePublicStoredFile(
+  input: unknown,
+  publicProjectId: string,
+  publicFileId: string,
+): FileItem {
+  try {
+    const item = parseFileItem(input);
+    if (
+      item.visibility !== "public" ||
+      item.publicProjectId !== publicProjectId ||
+      item.publicFileId !== publicFileId ||
+      item.gsi1pk !== publicFilePartitionKey(publicProjectId) ||
+      item.gsi1sk !== publicFileSortKey(publicFileId)
+    ) {
+      throw new CorruptFileRecordError();
+    }
+    return item;
+  } catch (error) {
+    if (error instanceof CorruptFileRecordError) throw error;
+    throw new CorruptFileRecordError();
+  }
+}
+
 function completionMatches(
   left: CompletionEvidence | undefined,
   right: CompletionEvidence,
@@ -155,9 +181,11 @@ function transactionToken(operation: "reserve" | "ready" | "failed", input: stri
 export function createDynamoFileRepository(options: {
   readonly client: FileDocumentClient;
   readonly tableName: string;
+  readonly publicIndexName: string;
   readonly lifecycleIndexName: string;
 }): FileRepository {
   const tableName = z.string().trim().min(1).parse(options.tableName);
+  const publicIndexName = z.string().trim().min(1).parse(options.publicIndexName);
   const lifecycleIndexName = z.string().trim().min(1).parse(options.lifecycleIndexName);
 
   async function get(internalProjectId: string, fileId: string): Promise<FileItem | undefined> {
@@ -173,6 +201,30 @@ export function createDynamoFileRepository(options: {
 
   return {
     get,
+
+    async getPublic(publicProjectId, publicFileId) {
+      const output = await options.client.send(
+        new QueryCommand({
+          TableName: tableName,
+          IndexName: publicIndexName,
+          KeyConditionExpression: "gsi1pk = :project AND gsi1sk = :file",
+          ExpressionAttributeValues: {
+            ":project": publicFilePartitionKey(publicProjectId),
+            ":file": publicFileSortKey(publicFileId),
+          },
+          Limit: 2,
+        }),
+      );
+      let items: unknown[];
+      try {
+        items = z.array(z.unknown()).parse(output.Items ?? []);
+      } catch {
+        throw new CorruptFileRecordError();
+      }
+      if (items.length === 0) return undefined;
+      if (items.length !== 1) throw new CorruptFileRecordError();
+      return parsePublicStoredFile(items[0], publicProjectId, publicFileId);
+    },
 
     async list(input) {
       const internalProjectId = z.uuid().parse(input.internalProjectId);
