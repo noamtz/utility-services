@@ -69,4 +69,22 @@ describe("redactSensitiveValues", () => {
       }),
     ).toEqual({ presignedUrl: "[REDACTED]", upload_url: "[REDACTED]" });
   });
+
+  it("redacts credential-specific aliases across case and punctuation variants", () => {
+    expect(
+      redactSensitiveValues({
+        apiKey: "one-time-value",
+        PROJECT_API_KEY: "full-project-key",
+        "secret-hash": "stored-digest",
+        Credential: "opaque-credential",
+        nested: { AUTHORIZATION: "Bearer private-material" },
+      }),
+    ).toEqual({
+      apiKey: "[REDACTED]",
+      PROJECT_API_KEY: "[REDACTED]",
+      "secret-hash": "[REDACTED]",
+      Credential: "[REDACTED]",
+      nested: { AUTHORIZATION: "[REDACTED]" },
+    });
+  });
 });

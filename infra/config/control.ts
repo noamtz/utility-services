@@ -49,6 +49,30 @@ export const CONTROL_ROUTES = [
     handler: "packages/backend/src/functions/control/inspect-project.handler",
     additionalTableActions: [],
   },
+  {
+    name: "IssueProjectApiKeyRoute",
+    route: "POST /v1/control/projects/{projectId}/api-keys",
+    handler: "packages/backend/src/functions/control/issue-project-api-key.handler",
+    additionalTableActions: ["dynamodb:ConditionCheckItem", "dynamodb:GetItem", "dynamodb:PutItem"],
+  },
+  {
+    name: "ListProjectApiKeysRoute",
+    route: "GET /v1/control/projects/{projectId}/api-keys",
+    handler: "packages/backend/src/functions/control/list-project-api-keys.handler",
+    additionalTableActions: ["dynamodb:GetItem"],
+  },
+  {
+    name: "RevokeProjectApiKeyRoute",
+    route: "DELETE /v1/control/projects/{projectId}/api-keys/{keyId}",
+    handler: "packages/backend/src/functions/control/revoke-project-api-key.handler",
+    additionalTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+  },
+  {
+    name: "ReplaceProjectApiKeyRoute",
+    route: "POST /v1/control/projects/{projectId}/api-keys/{keyId}/replace",
+    handler: "packages/backend/src/functions/control/replace-project-api-key.handler",
+    additionalTableActions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+  },
 ] as const;
 
 export const DASHBOARD_CONTROL_POLICY = {

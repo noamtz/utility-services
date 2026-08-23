@@ -2,10 +2,11 @@
 
 Reusable Utility Services is a modular, language-agnostic utility platform. The first MVP utility
 will provide invite-only File Management through a React dashboard and `/v1` REST API. The current
-implementation includes the TypeScript/SST foundation plus RUS-02 owner identity and project
-control: an invite-only Cognito boundary, owner-scoped project create/list/inspect operations, and
-an authenticated dashboard. Project credentials, file behavior, and usage metering belong to later
-tickets.
+implementation includes the TypeScript/SST foundation, RUS-02 owner identity and project control,
+and RUS-03 project credentials: an invite-only Cognito boundary, owner-scoped project and API-key
+lifecycle operations, an authenticated dashboard, and reusable project-bearer authentication that
+derives trusted internal context. The dashboard key-management/integration experience remains
+RUS-09, and File Management routes do not consume the new context until RUS-05.
 
 The [Product Requirements](https://github.com/noamtz/utility-services/wiki/Product-Requirements-Epic),
 [Architecture](https://github.com/noamtz/utility-services/wiki/Architecture), and
@@ -16,10 +17,10 @@ GitHub wiki are canonical.
 
 ```text
 apps/dashboard                 React/Vite invite-only auth and project-control UI
-packages/contracts             Browser/Node-compatible HTTP and project Zod contracts
+packages/contracts             Browser/Node-compatible HTTP, project, credential, and auth contracts
 packages/backend/src/core      Universal Lambda HTTP and observability foundations
 packages/backend/src/functions Thin deployed function entry points
-packages/backend/src/modules   Cohesive bounded-context slices, currently identity-control
+packages/backend/src/modules   Identity/control and project-authentication bounded-context slices
 infra                          SST identity, control table, API, and dashboard composition
 tests/integration              Behavior crossing packages or slices
 tests/e2e                      Future assembled user journeys
@@ -98,10 +99,12 @@ npm run infra:deploy -- --stage dev-noam
 
 The provider installation regenerates `.sst/platform` locally from pinned `sst@4.17.1` and
 `@pulumi/aws@7.43.0`; generated SST files are intentionally ignored. A successful non-production
-`infra:diff` is the infrastructure-composition gate and never substitutes for a deployment. RUS-02
-adds one invite-only user pool and secretless client, one owner-control table, three JWT-protected
-project routes, and a no-cache same-origin `v1/control/*` dashboard behavior; `/v1/health` remains
-public.
+`infra:diff` is the infrastructure-composition gate and never substitutes for a deployment. The
+owner control plane uses one invite-only user pool and secretless client, one control table, seven
+JWT-protected project and credential routes, and a no-cache same-origin `v1/control/*` dashboard
+behavior; `/v1/health` remains public. Project API keys are server-side bearer secrets, are shown
+only by successful issue/replace responses, and must never be placed in browser code, URLs, logs,
+repositories, or examples.
 
 ## Codex project setup
 

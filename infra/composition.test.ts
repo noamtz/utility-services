@@ -20,7 +20,7 @@ function output<T>(value: T): SstOutput<T> {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SST composition contracts", () => {
-  it("keeps health public and defines three separate control routes", () => {
+  it("keeps health public and defines seven separate control routes", () => {
     expect(API_COMPONENT_NAME).toBe("ServiceApi");
     expect(API_CORS).toBe(false);
     expect(HEALTH_ROUTE).toEqual({
@@ -31,7 +31,7 @@ describe("SST composition contracts", () => {
       tracingMode: "Active",
     });
     expect(JSON.stringify(HEALTH_ROUTE)).not.toContain("*");
-    expect(CONTROL_ROUTES).toHaveLength(3);
+    expect(CONTROL_ROUTES).toHaveLength(7);
   });
 
   it("builds the dashboard from the real Vite workspace", () => {
