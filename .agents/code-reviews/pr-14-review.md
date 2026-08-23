@@ -60,12 +60,13 @@ None.
 | Check | Result |
 |---|---|
 | `npm run check` | Pass — format, lint, type-check, coverage tests, and production dashboard build |
-| Vitest coverage run | Pass — 29 files, 165 tests; 87.93% statements, 84.03% branches, 88.54% functions, 89.29% lines |
+| Vitest coverage run | Pass after remediation — 29 files, 170 tests; 88.66% statements, 85.91% branches, 89.39% functions, 89.91% lines |
 | `python tooling/validate_codex_layer.py` | Pass — 31 skills, 6 custom agents |
 | `uv run --script tooling/mcp/codebase_search.py --self-test` | Pass |
 | `git diff --check origin/main...HEAD` | Note — only intentional Markdown hard-break whitespace in the implementation report |
-| SST install and `dev-rus02` infrastructure preview | Not rerun in review; implementation report records both as pass under the required principal |
-| Live Cognito/API Gateway/CloudFront validation | Not run — still requires separately authorized deployment and user creation |
+| SST `dev-rus02` preview and deployment | Pass under the required principal after CloudFront policy/method hardening |
+| Live API Gateway/CloudFront smoke validation | Pass — health and dashboard return 200; protected control route without a token returns 401 directly and through CloudFront |
+| Live invited-user validation | Not run — no Cognito users or credentials were created |
 
 ## What is done well
 
@@ -84,4 +85,5 @@ Approve PR #14 for human review and merge consideration. Track both medium findi
 - `apps/dashboard/src/projects/ProjectView.tsx:40` — fixed overlapping list-request handling with request generations and per-cursor in-flight tracking; regression coverage now exercises stale response completion and repeated load-more activation.
 - `packages/backend/src/modules/identity-control/projects/model.ts:76` — fixed canonical Dynamo metadata key validation and reused it for list/inspect reads; regression coverage now rejects valid-format but inconsistent partition and owner-index keys.
 - `packages/backend/src/modules/identity-control/projects/repository.ts:56` — deferred precise non-conditional transaction cancellation handling to [GitHub issue #15](https://github.com/noamtz/utility-services/issues/15).
-- `.agents/plans/rus-02-invite-only-owner-project-control.md:603` — live AWS validation remains a manual post-deployment gate.
+- `infra/dashboard.ts:23` — deployment hardening now separates the disabled cache policy from the narrow origin request policy; CloudFront's required seven-method behavior remains bounded by the three explicit API Gateway routes.
+- `.agents/plans/rus-02-invite-only-owner-project-control.md:603` — unauthenticated live AWS boundaries pass; disposable invited-user new-password and two-owner isolation validation remains a manual gate.

@@ -6,7 +6,7 @@
 
 ## Summary
 
-Implemented the RUS-02 identity/control vertical slice: invite-only Cognito composition, JWT-protected owner project routes, an owner-scoped DynamoDB model and repository, strict shared contracts, and an authenticated React project dashboard. Automated security coverage proves access-token claim enforcement, public-response secrecy, caller-override rejection, pagination, and indistinguishable missing/wrong-owner inspection. All local, Codex-layer, generated-provider, and authenticated preview gates pass under the repository's exact AWS account/principal guard.
+Implemented the RUS-02 identity/control vertical slice: invite-only Cognito composition, JWT-protected owner project routes, an owner-scoped DynamoDB model and repository, strict shared contracts, and an authenticated React project dashboard. Automated security coverage proves access-token claim enforcement, public-response secrecy, caller-override rejection, pagination, and indistinguishable missing/wrong-owner inspection. All local, Codex-layer, generated-provider, authenticated preview, deployment, and unauthenticated live-boundary gates pass under the repository's exact AWS account/principal guard.
 
 ## Tasks completed
 
@@ -30,7 +30,7 @@ Implemented the RUS-02 identity/control vertical slice: invite-only Cognito comp
 - Added infrastructure policy/composition tests for invite-only Cognito, secretless client, on-demand/protected data, route authorization, public health, and the narrow no-cache dashboard behavior.
 - Added 10 dashboard test files covering configuration, session restoration, sign-in, required-new-password, sign-out, API token injection, strict response parsing, project form bounds, pagination, selection, and public-only details.
 - Added an assembled two-owner integration test covering repeated creates, defaults, 1/60 lifetime edges, pagination, trusted-claim precedence, cross-owner inspection, malformed inputs/cursors, missing auth, ID-token rejection, and serialized secrecy.
-- Results: 29 test files and 165 tests pass. Coverage is 87.93% statements, 84.03% branches, 88.54% functions, and 89.29% lines.
+- Results after review remediation and deployment hardening: 29 test files and 170 tests pass. Coverage is 88.66% statements, 85.91% branches, 89.39% functions, and 89.91% lines.
 
 ## Validation results
 
@@ -47,20 +47,35 @@ Implemented the RUS-02 identity/control vertical slice: invite-only Cognito comp
 - `uv run --script tooling/mcp/codebase_search.py --self-test` — PASS
 - `npm run infra:install -- --stage dev-rus02` — PASS
 - `npm run infra:diff -- --stage dev-rus02` — PASS under `arn:aws:iam::162067902192:user/ntz-cli`; preview contains the invite-only pool, secretless non-OAuth client, PAY_PER_REQUEST control table, one JWT authorizer, three protected control-route components, public health route, and dashboard composition
-- Live Cognito/API Gateway/CloudFront checks — NOT RUN; deployment and user creation were outside this plan's authorization
+- `npm run infra:deploy -- --stage dev-rus02` — PASS under `arn:aws:iam::162067902192:user/ntz-cli`
+- Live API health and dashboard availability — PASS, both return HTTP 200
+- Live unauthenticated control-route checks — PASS, API Gateway and the CloudFront same-origin route both return HTTP 401
+- Live invited-user Cognito and two-owner isolation checks — NOT RUN; no users or credentials were created
 
 ## Deviations from the plan
 
 - The plan relied on ambient AWS authentication. The wrapper now pins the previously established `ntz-cli` profile, `il-central-1`, and Windows AWS CLI CA bundle, and verifies the exact account and principal before every networked SST operation. This prevents session-to-session context loss and wrong-account fallback.
 - SST's client component defaulted to hosted-UI OAuth flows and `https://example.com` callback metadata. The client transform now explicitly disables OAuth and removes callbacks/scopes, matching the plan's SRP-only, no-hosted-UI boundary.
 - A Windows `npm ci` cleanup hit repeated `EBUSY` locks. The stale pre-install `node_modules` tree was moved outside the repository to `C:\tmp\utility-services-node-modules-stale-20260823`, after which clean lockfile installation succeeded. Repository dependency state and validations use the newly installed tree.
-- No deployment, Cognito user creation, AWS bootstrap, or live manual validation was attempted, as required by the plan's authorization boundary.
+- Deployment and unauthenticated smoke validation were completed only after the owner explicitly expanded authorization. Cognito user creation and credential-backed live validation remain outside the granted scope.
 
 ## Issues encountered
 
 - The first preview used an expired unrelated `default` profile. Historical run evidence showed the correct profile also requires the AWS CLI CA bundle; applying that established configuration restored `ntz-cli` access and the wrapper now enforces it.
+- A fresh preview exposed an incorrect `$aws` runtime global; the composition now uses SST's generated `aws` provider global and has direct composition coverage.
+- The first two deployment attempts exposed CloudFront service constraints that preview did not reject: disabled caching cannot also forward values in the cache policy, and forwarding `POST` requires CloudFront's full seven-method set. The final design uses a zero-TTL cache policy, a narrow origin request policy, and only the three explicit API Gateway application routes.
 - The out-of-repository stale dependency directory remains because automated cleanup was blocked by command policy; it is not used by the workspace and may be removed manually after confirming no process needs it.
 
 ## Ready for the next step
 
-Run `$piv-commit` to create the atomic implementation commit. Live deployment and invited-user validation still require separate explicit authorization.
+PR #14 contains the implementation, review remediation, and deployment hardening. The remaining live acceptance step is separately authorized disposable invited-user validation of the new-password flow and two-owner isolation.
+
+## Deployment follow-up — 2026-08-23
+
+- Stage: `dev-rus02` in account `162067902192`, region `il-central-1`
+- API: `https://ua7h10a114.execute-api.il-central-1.amazonaws.com`
+- Dashboard: `https://d3pun221ouy8ce.cloudfront.net`
+- Public health: HTTP 200 with the expected safe health envelope
+- Dashboard root: HTTP 200
+- Protected project list without a token: HTTP 401 directly and through CloudFront
+- Production was not changed, and no Cognito users or credentials were created.
