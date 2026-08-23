@@ -4,8 +4,10 @@ import { TrustedProjectContextSchema } from "./project-context.js";
 
 const context = {
   internalProjectId: "11111111-1111-4111-8111-111111111111",
+  publicProjectId: "prj_0123456789abcdefghijkl",
   keyId: "key_0123456789abcdefghijkl",
   enabledUtilities: ["file-management"],
+  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
 } as const;
 
 describe("trusted project context", () => {
@@ -13,7 +15,7 @@ describe("trusted project context", () => {
     expect(TrustedProjectContextSchema.parse(context)).toEqual(context);
   });
 
-  it.each(["apiKey", "secretHash", "ownerId", "publicProjectId", "authorization", "bucket"])(
+  it.each(["apiKey", "secretHash", "ownerId", "authorization", "bucket"])(
     "rejects internal or caller material in %s",
     (field) => {
       expect(

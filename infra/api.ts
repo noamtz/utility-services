@@ -1,5 +1,6 @@
 import { AWS_REGION } from "./config/app.js";
 import { CONTROL_AUTHORIZER_NAME, CONTROL_ROUTES } from "./config/control.js";
+import { FILE_OBJECT_PREFIX, FILE_ROUTES } from "./config/file-management.js";
 
 export const API_COMPONENT_NAME = "ServiceApi";
 export const API_CORS = false;
@@ -17,7 +18,20 @@ interface ControlResources {
   table: sst.aws.Dynamo;
 }
 
-export function createApi(control: ControlResources) {
+interface UsageResources {
+  table: sst.aws.Dynamo;
+}
+
+interface FileResources {
+  table: sst.aws.Dynamo;
+  bucket: sst.aws.Bucket;
+}
+
+export function createApi(
+  control: ControlResources,
+  usagePricing?: UsageResources,
+  files?: FileResources,
+) {
   const api = new sst.aws.ApiGatewayV2(API_COMPONENT_NAME, { cors: API_CORS });
   api.route(
     HEALTH_ROUTE.route,
@@ -62,6 +76,33 @@ export function createApi(control: ControlResources) {
       },
       { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },
     );
+  }
+  if (usagePricing && files) {
+    const fileObjectArn = $interpolate`${files.bucket.arn}/${FILE_OBJECT_PREFIX}*`;
+    for (const route of FILE_ROUTES) {
+      const permissions = [
+        ...(route.controlTableActions.length > 0
+          ? [{ actions: [...route.controlTableActions], resources: [control.table.arn] }]
+          : []),
+        ...(route.fileTableActions.length > 0
+          ? [{ actions: [...route.fileTableActions], resources: [files.table.arn] }]
+          : []),
+        ...(route.bucketActions.length > 0
+          ? [{ actions: [...route.bucketActions], resources: [fileObjectArn] }]
+          : []),
+      ];
+      api.route(
+        route.route,
+        {
+          handler: route.handler,
+          runtime: "nodejs24.x",
+          link: [control.table, files.table, files.bucket],
+          ...(permissions.length > 0 ? { permissions } : {}),
+          transform: { function: { tracingConfig: { mode: "Active" } } },
+        },
+        { name: route.name },
+      );
+    }
   }
   return api;
 }

@@ -8,6 +8,9 @@ import {
   DASHBOARD_CONTROL_POLICY,
 } from "./config/control.js";
 import { DASHBOARD_COMPONENT_NAME, DASHBOARD_CONFIG, createDashboard } from "./dashboard.js";
+import { DYNAMO_LINK_BASELINE_ACTIONS } from "./dynamo-link.js";
+import { USAGE_PRICING_TABLE_POLICY } from "./config/usage-pricing.js";
+import { FILE_BUCKET_POLICY, FILE_ROUTES, FILE_TABLE_POLICY } from "./config/file-management.js";
 
 function output<T>(value: T): SstOutput<T> {
   return {
@@ -32,6 +35,29 @@ describe("SST composition contracts", () => {
     });
     expect(JSON.stringify(HEALTH_ROUTE)).not.toContain("*");
     expect(CONTROL_ROUTES).toHaveLength(7);
+  });
+
+  it("keeps usage pricing independent with the same query-only link baseline", () => {
+    expect(USAGE_PRICING_TABLE_POLICY.primaryIndex).toEqual({ hashKey: "pk", rangeKey: "sk" });
+    expect(USAGE_PRICING_TABLE_POLICY.globalIndexes).toEqual({});
+    expect(DYNAMO_LINK_BASELINE_ACTIONS).toEqual(["dynamodb:Query"]);
+    expect(JSON.stringify(DYNAMO_LINK_BASELINE_ACTIONS)).not.toMatch(/Put|Update|Get|Scan|\*/u);
+    expect(CONTROL_ROUTES).toHaveLength(7);
+  });
+
+  it("keeps file utility routes separate and storage private", () => {
+    expect(FILE_ROUTES).toHaveLength(3);
+    expect(FILE_ROUTES.map((route) => route.route)).toEqual([
+      "POST /v1/files/uploads",
+      "GET /v1/files",
+      "GET /v1/files/{fileId}",
+    ]);
+    expect(FILE_TABLE_POLICY.globalIndexes).toHaveProperty("PublicFiles");
+    expect(FILE_TABLE_POLICY.globalIndexes).toHaveProperty("FileLifecycle");
+    expect(FILE_BUCKET_POLICY.cors).toBe(false);
+    expect(JSON.stringify({ routes: FILE_ROUTES, bucket: FILE_BUCKET_POLICY })).not.toMatch(
+      /s3:\*|dynamodb:\*|allowOrigins/u,
+    );
   });
 
   it("builds the dashboard from the real Vite workspace", () => {

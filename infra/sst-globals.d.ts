@@ -43,6 +43,24 @@ declare namespace aws.cloudfront {
   }
 }
 
+declare namespace aws.dynamodb {
+  interface TableItemArgs {
+    tableName: SstOutput<string> | string;
+    hashKey: string;
+    rangeKey?: string;
+    item: string;
+  }
+
+  interface TableItemOptions {
+    retainOnDelete?: boolean;
+    ignoreChanges?: string[];
+  }
+
+  class TableItem {
+    public constructor(name: string, args: TableItemArgs, options?: TableItemOptions);
+  }
+}
+
 declare namespace sst {
   class Linkable {
     public static wrap<T>(
@@ -123,12 +141,60 @@ declare namespace sst {
         { hashKey: string; rangeKey?: string; projection?: "all" | "keys-only" | string[] }
       >;
       deletionProtection?: boolean;
+      ttl?: string;
     }
 
     class Dynamo {
       public constructor(name: string, args: DynamoArgs);
       public readonly name: SstOutput<string>;
       public readonly arn: SstOutput<string>;
+    }
+
+    interface BucketArgs {
+      cors?: false;
+      enforceHttps?: boolean;
+      policy?: Array<{
+        actions: readonly string[];
+        effect?: "allow" | "deny";
+        principals: "*";
+        conditions?: ReadonlyArray<{
+          test: string;
+          variable: string;
+          values: readonly string[];
+        }>;
+      }>;
+      transform?: {
+        bucket?: (args: { forceDestroy?: boolean }) => void;
+        publicAccessBlock?: (args: {
+          blockPublicAcls?: boolean;
+          blockPublicPolicy?: boolean;
+          ignorePublicAcls?: boolean;
+          restrictPublicBuckets?: boolean;
+        }) => void;
+      };
+    }
+
+    interface BucketNotificationArgs {
+      notifications: Array<{
+        name: string;
+        events: Array<"s3:ObjectCreated:Put">;
+        filterPrefix: string;
+        function: FunctionDefinition;
+      }>;
+    }
+
+    class Bucket {
+      public constructor(name: string, args?: BucketArgs);
+      public readonly name: SstOutput<string>;
+      public readonly arn: SstOutput<string>;
+      public notify(args: BucketNotificationArgs): unknown;
+    }
+
+    class Cron {
+      public constructor(
+        name: string,
+        args: { schedule: `rate(${string})` | `cron(${string})`; function: FunctionDefinition },
+      );
     }
 
     interface DistributionOrigin {
