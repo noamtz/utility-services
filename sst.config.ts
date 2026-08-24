@@ -22,12 +22,14 @@ export default $config({
       { createApi },
       { createControlResources },
       { createDashboard },
+      { createDownloadMeteringResources },
       { createFileManagementResources },
       { createUsagePricingResources },
     ] = await Promise.all([
       import("./infra/api.js"),
       import("./infra/control.js"),
       import("./infra/dashboard.js"),
+      import("./infra/download-metering.js"),
       import("./infra/file-management.js"),
       import("./infra/usage-pricing.js"),
     ]);
@@ -36,6 +38,11 @@ export default $config({
     const files = createFileManagementResources({
       production: $app.stage === "production",
       controlTable: control.table,
+      usageTable: usagePricing.table,
+    });
+    const downloadMetering = createDownloadMeteringResources({
+      production: $app.stage === "production",
+      fileBucket: files.bucket,
       usageTable: usagePricing.table,
     });
     const api = createApi(control, usagePricing, files);
@@ -52,6 +59,10 @@ export default $config({
       controlTableName: control.table.name,
       usagePricingTableName: usagePricing.table.name,
       fileTableName: files.table.name,
+      downloadMeteringProcessorName: downloadMetering.processor.name,
+      downloadMeteringLogBucketName: downloadMetering.logBucket.name,
+      downloadMeteringQueueUrl: downloadMetering.queue.url,
+      downloadMeteringDeadLetterQueueUrl: downloadMetering.deadLetterQueue.url,
     };
   },
 });

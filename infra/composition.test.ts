@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 import { API_COMPONENT_NAME, API_CORS, HEALTH_ROUTE } from "./api.js";
 import {
@@ -23,6 +24,25 @@ function output<T>(value: T): SstOutput<T> {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SST composition contracts", () => {
+  it("composes metering after the file bucket and exposes only safe operator identifiers", () => {
+    const source = readFileSync(new URL("../sst.config.ts", import.meta.url), "utf8");
+    const filesAt = source.indexOf("const files = createFileManagementResources");
+    const meteringAt = source.indexOf("const downloadMetering = createDownloadMeteringResources");
+    const apiAt = source.indexOf("const api = createApi");
+    expect(filesAt).toBeGreaterThan(-1);
+    expect(meteringAt).toBeGreaterThan(filesAt);
+    expect(apiAt).toBeGreaterThan(meteringAt);
+    expect(source).toContain("fileBucket: files.bucket");
+    expect(source).toContain("usageTable: usagePricing.table");
+    expect(source).toContain("downloadMeteringProcessorName: downloadMetering.processor.name");
+    expect(source).toContain("downloadMeteringLogBucketName: downloadMetering.logBucket.name");
+    expect(source).toContain("downloadMeteringQueueUrl: downloadMetering.queue.url");
+    expect(source).toContain(
+      "downloadMeteringDeadLetterQueueUrl: downloadMetering.deadLetterQueue.url",
+    );
+    expect(source).not.toMatch(/projectApiKey|presigned|objectKey|messageBody/u);
+  });
+
   it("keeps health public and defines seven separate control routes", () => {
     expect(API_COMPONENT_NAME).toBe("ServiceApi");
     expect(API_CORS).toBe(false);

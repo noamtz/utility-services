@@ -25,6 +25,7 @@
     "infra:install": "node tooling/run-sst.mjs install",
     "infra:diff": "node tooling/run-sst.mjs diff --json",
     "infra:deploy": "node tooling/run-sst.mjs deploy",
+    "acceptance:download-metering": "node tooling/acceptance/download-metering.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build"
   },
   "devDependencies": {

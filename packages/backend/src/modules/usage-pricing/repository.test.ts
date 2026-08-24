@@ -11,8 +11,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEDUPE_SORT_KEY,
+  DOWNLOAD_EVIDENCE_SORT_KEY,
+  DOWNLOAD_QUARANTINE_SORT_KEY,
   TOTAL_AGGREGATE_SORT_KEY,
   dedupePartitionKey,
+  downloadEvidencePartitionKey,
+  downloadMetricSourceDigest,
+  downloadQuarantinePartitionKey,
   inputFingerprint,
   ledgerExpiry,
   metricAggregateSortKey,
@@ -21,7 +26,9 @@ import {
   sourceDigest,
   usageEventSortKey,
   type DedupeItem,
+  type DownloadMeteringQuarantineItem,
   type MetricAggregateItem,
+  type ProcessedDownloadEvidenceItem,
   type StorageCheckpointItem,
   type TotalAggregateItem,
   type UsageEventItem,
@@ -153,6 +160,59 @@ function repository(client: StubClient) {
   });
 }
 
+const downloadEventId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const downloadEventDigestValue = "e".repeat(64);
+
+function downloadLedger(status: "observed-unpriced" | "priced" = "priced"): {
+  evidence: ProcessedDownloadEvidenceItem;
+  events: [UsageEventItem, UsageEventItem, UsageEventItem];
+} {
+  const evidence: ProcessedDownloadEvidenceItem = {
+    pk: downloadEvidencePartitionKey(downloadEventDigestValue),
+    sk: DOWNLOAD_EVIDENCE_SORT_KEY,
+    itemType: "processed-download-evidence",
+    eventDigest: downloadEventDigestValue,
+    fingerprint: "f".repeat(64),
+    internalProjectId: projectId,
+    fileDigest: "a".repeat(64),
+    occurredAt,
+    observedAt: occurredAt,
+    bytesTransferredOut: 42n,
+    pricingStatus: status,
+    expiresAt: retentionExpiry(occurredAt, 90),
+  };
+  const metrics = [
+    ["s3-download-requests", 1n],
+    ["s3-download-bytes-out", 42n],
+    ["cloudtrail-s3-data-events", 1n],
+  ] as const;
+  const version = priceVersion();
+  const events = metrics.map(([metric, quantityAtoms], index) => {
+    const source = downloadMetricSourceDigest(projectId, downloadEventId, metric);
+    const metricRate = version.rates.find((candidate) => candidate.metric === metric)!;
+    return {
+      pk: projectMonthPartitionKey(projectId, "2026-08"),
+      sk: usageEventSortKey(occurredAt, source),
+      itemType: "usage-event" as const,
+      internalProjectId: projectId,
+      period: "2026-08",
+      metric,
+      quantityAtoms,
+      occurredAt,
+      sourceKind: "cloudtrail-download",
+      sourceDigest: source,
+      inputFingerprint: String(index + 1).repeat(64),
+      priceVersionId: version.versionId,
+      priceEffectiveAt: version.effectiveAt,
+      rate: metricRate,
+      costAtoms: BigInt(index + 1),
+      createdAt: occurredAt,
+      expiresAt: ledgerExpiry(occurredAt),
+    };
+  }) as [UsageEventItem, UsageEventItem, UsageEventItem];
+  return { evidence, events };
+}
+
 function cancellation(reasons: string[]): Error {
   return Object.assign(new Error("cancelled"), {
     name: "TransactionCanceledException",
@@ -161,6 +221,84 @@ function cancellation(reasons: string[]): Error {
 }
 
 describe("usage pricing repository price and record paths", () => {
+  it("observes once and atomically prices all three download dimensions", async () => {
+    const observed = downloadLedger("observed-unpriced").evidence;
+    const observeClient = new StubClient([{}]);
+    await expect(
+      repository(observeClient).observeDownloadEvidence!(observed, occurredAt),
+    ).resolves.toMatchObject({ status: "observed" });
+    expect(observeClient.commands[0]).toBeInstanceOf(PutCommand);
+
+    const { evidence, events } = downloadLedger();
+    const client = new StubClient([{}, {}]);
+    await expect(
+      repository(client).recordDownloadEvent!(evidence, events, occurredAt),
+    ).resolves.toMatchObject({ status: "recorded" });
+    expect(client.commands[0]).toBeInstanceOf(GetCommand);
+    const transaction = client.commands[1] as TransactWriteCommand;
+    expect(transaction.input.TransactItems).toHaveLength(8);
+    expect(transaction.input.TransactItems?.slice(1, 4).every((item) => item.Put)).toBe(true);
+    expect(
+      transaction.input.TransactItems?.slice(4, 7).map((item) => {
+        const values = item.Update?.ExpressionAttributeValues as
+          Record<string, unknown> | undefined;
+        return values?.[":quantity"];
+      }),
+    ).toEqual([1n, 42n, 1n]);
+    expect(transaction.input.TransactItems?.[7]?.Update?.ExpressionAttributeValues?.[":cost"]).toBe(
+      6n,
+    );
+    expect(
+      JSON.stringify(transaction.input, (_key: string, value: unknown) =>
+        typeof value === "bigint" ? value.toString() : value,
+      ),
+    ).not.toMatch(/Scan|\*|aaaaaaaa-aaaa/u);
+  });
+
+  it("promotes observed evidence and classifies priced duplicates or divergence", async () => {
+    const observedLedger = downloadLedger("observed-unpriced");
+    const pricedLedger = downloadLedger();
+    const promotionClient = new StubClient([{ Item: observedLedger.evidence }, {}]);
+    await expect(
+      repository(promotionClient).recordDownloadEvent!(
+        pricedLedger.evidence,
+        pricedLedger.events,
+        occurredAt,
+      ),
+    ).resolves.toMatchObject({ status: "recorded" });
+    expect(
+      (promotionClient.commands[1] as TransactWriteCommand).input.TransactItems?.[0]?.Update
+        ?.ConditionExpression,
+    ).toContain("pricingStatus = :observed");
+
+    const duplicateClient = new StubClient([
+      { Item: pricedLedger.evidence },
+      {
+        Responses: [
+          { Item: pricedLedger.evidence },
+          ...pricedLedger.events.map((event) => ({ Item: event })),
+        ],
+      },
+    ]);
+    await expect(
+      repository(duplicateClient).recordDownloadEvent!(
+        pricedLedger.evidence,
+        pricedLedger.events,
+        occurredAt,
+      ),
+    ).resolves.toMatchObject({ status: "duplicate" });
+
+    const divergentClient = new StubClient([
+      { Item: { ...pricedLedger.evidence, fingerprint: "b".repeat(64) } },
+    ]);
+    await expect(
+      repository(divergentClient).recordDownloadEvent!(
+        pricedLedger.evidence,
+        pricedLedger.events,
+        occurredAt,
+      ),
+    ).rejects.toBeInstanceOf(UsageSourceConflictError);
+  });
   it("queries the effective immutable price strongly, descending, and bounded", async () => {
     const client = new StubClient([{ Items: [priceItem()] }]);
     await expect(repository(client).findEffectivePrice(occurredAt)).resolves.toMatchObject({
@@ -354,9 +492,69 @@ describe("usage pricing repository projection and operations paths", () => {
     await repo.putQuarantine(quarantine);
     expect(client.commands[0]).toBeInstanceOf(UpdateCommand);
     expect((client.commands[0] as UpdateCommand).input.ConditionExpression).toContain(
-      "lastMeteredAt <= :meteredAt",
+      "lastMeteredAt < :meteredAt",
+    );
+    expect((client.commands[0] as UpdateCommand).input.UpdateExpression).toContain(
+      "if_not_exists(incompleteSince, :complete)",
+    );
+    expect((client.commands[1] as UpdateCommand).input.ConditionExpression).toContain(
+      "incompleteSince = :complete",
     );
     expect(client.commands[2]).toBeInstanceOf(PutCommand);
     expect((client.commands[2] as PutCommand).input.Item).not.toHaveProperty("rawEvent");
+  });
+
+  it("treats older watermark updates as verified no-ops and deduplicates through TTL lag", async () => {
+    const watermark = {
+      pk: `PROJECT#${projectId}`,
+      sk: "WATERMARK#cloudtrail-download",
+      itemType: "usage-watermark",
+      internalProjectId: projectId,
+      sourceKind: "cloudtrail-download",
+      lastMeteredAt: occurredAt,
+      incompleteSince: "2026-08-10T00:00:00.000Z",
+    } as const;
+    const oldClient = new StubClient([
+      Object.assign(new Error("conditional"), { name: "ConditionalCheckFailedException" }),
+      { Item: watermark },
+    ]);
+    await expect(
+      repository(oldClient).advanceWatermark(
+        projectId,
+        "cloudtrail-download",
+        "2026-08-01T00:00:00.000Z",
+      ),
+    ).resolves.toBeUndefined();
+
+    const item: DownloadMeteringQuarantineItem = {
+      pk: downloadQuarantinePartitionKey("d".repeat(64)),
+      sk: DOWNLOAD_QUARANTINE_SORT_KEY,
+      itemType: "download-metering-quarantine",
+      evidenceHash: "d".repeat(64),
+      reasonCode: "missing-bytes",
+      sourceKind: "cloudtrail-download",
+      observedAt: occurredAt,
+      internalProjectId: projectId,
+      expiresAt: retentionExpiry(occurredAt, 90),
+    };
+    const duplicateClient = new StubClient([
+      Object.assign(new Error("conditional"), { name: "ConditionalCheckFailedException" }),
+      { Item: item },
+    ]);
+    await expect(
+      repository(duplicateClient).putDownloadQuarantine!(item, "2027-01-01T00:00:00.000Z"),
+    ).resolves.toEqual({ status: "duplicate" });
+
+    const expiredEvidence = downloadLedger("observed-unpriced").evidence;
+    const evidenceClient = new StubClient([
+      Object.assign(new Error("conditional"), { name: "ConditionalCheckFailedException" }),
+      { Item: expiredEvidence },
+    ]);
+    await expect(
+      repository(evidenceClient).observeDownloadEvidence!(
+        expiredEvidence,
+        "2027-01-01T00:00:00.000Z",
+      ),
+    ).resolves.toMatchObject({ status: "duplicate" });
   });
 });

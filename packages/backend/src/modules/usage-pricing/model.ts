@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  FileIdSchema,
   PriceRateSchema,
   PriceVersionSchema,
   UsageMetricSchema,
@@ -16,6 +17,9 @@ export const CHECKPOINT_SORT_KEY = "CHECKPOINT" as const;
 export const TOTAL_AGGREGATE_SORT_KEY = "AGGREGATE#TOTAL" as const;
 export const DEDUPE_RETENTION_DAYS = 90 as const;
 export const QUARANTINE_RETENTION_DAYS = 90 as const;
+export const DOWNLOAD_EVIDENCE_SORT_KEY = "EVIDENCE" as const;
+export const DOWNLOAD_QUARANTINE_SORT_KEY = "QUARANTINE" as const;
+export const CLOUDTRAIL_DOWNLOAD_SOURCE_KIND = "cloudtrail-download" as const;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -35,6 +39,7 @@ const DynamoIntegerSchema = z
   }, "DynamoDB integer exceeds 38 digits");
 const ExpirySchema = DynamoIntegerSchema.positive();
 const PriceVersionIdsSchema = z.set(IdentifierSchema);
+const CloudTrailEventIdSchema = z.uuid();
 
 export const PriceVersionItemSchema = PriceVersionSchema.extend({
   pk: z.literal(PRICE_PARTITION_KEY),
@@ -164,6 +169,37 @@ export const QuarantineItemSchema = z
   })
   .strict();
 
+export const ProcessedDownloadEvidenceItemSchema = z
+  .object({
+    pk: z.string().startsWith("DOWNLOAD#"),
+    sk: z.literal(DOWNLOAD_EVIDENCE_SORT_KEY),
+    itemType: z.literal("processed-download-evidence"),
+    eventDigest: DigestSchema,
+    fingerprint: DigestSchema,
+    internalProjectId: InternalProjectIdSchema,
+    fileDigest: DigestSchema,
+    occurredAt: TimestampSchema,
+    observedAt: TimestampSchema,
+    bytesTransferredOut: DynamoIntegerSchema,
+    pricingStatus: z.enum(["observed-unpriced", "priced"]),
+    expiresAt: ExpirySchema,
+  })
+  .strict();
+
+export const DownloadMeteringQuarantineItemSchema = z
+  .object({
+    pk: z.string().startsWith("METERING-QUARANTINE#"),
+    sk: z.literal(DOWNLOAD_QUARANTINE_SORT_KEY),
+    itemType: z.literal("download-metering-quarantine"),
+    evidenceHash: DigestSchema,
+    reasonCode: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u),
+    sourceKind: z.literal(CLOUDTRAIL_DOWNLOAD_SOURCE_KIND),
+    observedAt: TimestampSchema,
+    internalProjectId: InternalProjectIdSchema.optional(),
+    expiresAt: ExpirySchema,
+  })
+  .strict();
+
 export type PriceVersionItem = z.infer<typeof PriceVersionItemSchema>;
 export type UsageEventItem = z.infer<typeof UsageEventItemSchema>;
 export type MetricAggregateItem = z.infer<typeof MetricAggregateItemSchema>;
@@ -172,6 +208,8 @@ export type DedupeItem = z.infer<typeof DedupeItemSchema>;
 export type StorageCheckpointItem = z.infer<typeof StorageCheckpointItemSchema>;
 export type WatermarkItem = z.infer<typeof WatermarkItemSchema>;
 export type QuarantineItem = z.infer<typeof QuarantineItemSchema>;
+export type ProcessedDownloadEvidenceItem = z.infer<typeof ProcessedDownloadEvidenceItemSchema>;
+export type DownloadMeteringQuarantineItem = z.infer<typeof DownloadMeteringQuarantineItemSchema>;
 
 export function sha256(...parts: string[]): string {
   const hash = createHash("sha256");
@@ -213,6 +251,74 @@ export function sourceDigest(
     InternalProjectIdSchema.parse(internalProjectId),
     SourceKindSchema.parse(sourceKind),
     z.string().min(1).max(2048).parse(sourceId),
+  );
+}
+
+export function canonicalCloudTrailEventId(eventId: string): string {
+  return CloudTrailEventIdSchema.parse(eventId).toLowerCase();
+}
+
+export function downloadEventDigest(eventId: string): string {
+  return sha256("cloudtrail-event", canonicalCloudTrailEventId(eventId));
+}
+
+export function downloadEvidencePartitionKey(eventDigest: string): string {
+  return `DOWNLOAD#${DigestSchema.parse(eventDigest)}`;
+}
+
+export function downloadQuarantinePartitionKey(evidenceHash: string): string {
+  return `METERING-QUARANTINE#${DigestSchema.parse(evidenceHash)}`;
+}
+
+export function downloadFileDigest(internalProjectId: string, fileId: string): string {
+  return sha256(InternalProjectIdSchema.parse(internalProjectId), FileIdSchema.parse(fileId));
+}
+
+export function downloadEvidenceFingerprint(input: {
+  readonly eventId: string;
+  readonly internalProjectId: string;
+  readonly fileId: string;
+  readonly occurredAt: string;
+  readonly bytesTransferredOut: bigint;
+  readonly accountId: string;
+  readonly region: string;
+  readonly rawLogDigest: string;
+}): string {
+  return sha256(
+    downloadEventDigest(input.eventId),
+    InternalProjectIdSchema.parse(input.internalProjectId),
+    downloadFileDigest(input.internalProjectId, input.fileId),
+    TimestampSchema.parse(input.occurredAt),
+    assertDynamoInteger(input.bytesTransferredOut).toString(),
+    z
+      .string()
+      .regex(/^\d{12}$/u)
+      .parse(input.accountId),
+    z
+      .string()
+      .regex(/^[a-z]{2}(?:-gov)?-[a-z]+-\d+$/u)
+      .parse(input.region),
+    z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .parse(input.rawLogDigest),
+    "AwsApiCall",
+    "s3.amazonaws.com",
+    "GetObject",
+    "success",
+  );
+}
+
+export function downloadMetricSourceDigest(
+  internalProjectId: string,
+  eventId: string,
+  metric: string,
+): string {
+  return sha256(
+    InternalProjectIdSchema.parse(internalProjectId),
+    CLOUDTRAIL_DOWNLOAD_SOURCE_KIND,
+    canonicalCloudTrailEventId(eventId),
+    UsageMetricSchema.parse(metric),
   );
 }
 
@@ -341,5 +447,27 @@ export function parseQuarantineItem(input: unknown, now?: string): QuarantineIte
     item.sk !== quarantineSortKey(item.observedAt, item.quarantineId)
   )
     throw new Error("Quarantine keys are inconsistent");
+  return now && item.expiresAt <= epochSeconds(now) ? undefined : item;
+}
+
+export function parseProcessedDownloadEvidenceItem(
+  input: unknown,
+  now?: string,
+): ProcessedDownloadEvidenceItem | undefined {
+  const item = ProcessedDownloadEvidenceItemSchema.parse(input);
+  if (item.pk !== downloadEvidencePartitionKey(item.eventDigest)) {
+    throw new Error("Processed download evidence keys are inconsistent");
+  }
+  return now && item.expiresAt <= epochSeconds(now) ? undefined : item;
+}
+
+export function parseDownloadMeteringQuarantineItem(
+  input: unknown,
+  now?: string,
+): DownloadMeteringQuarantineItem | undefined {
+  const item = DownloadMeteringQuarantineItemSchema.parse(input);
+  if (item.pk !== downloadQuarantinePartitionKey(item.evidenceHash)) {
+    throw new Error("Download metering quarantine keys are inconsistent");
+  }
   return now && item.expiresAt <= epochSeconds(now) ? undefined : item;
 }

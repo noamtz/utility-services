@@ -3,13 +3,24 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEDUPE_SORT_KEY,
+  DOWNLOAD_EVIDENCE_SORT_KEY,
+  DOWNLOAD_QUARANTINE_SORT_KEY,
   PRICE_PARTITION_KEY,
   TOTAL_AGGREGATE_SORT_KEY,
+  canonicalCloudTrailEventId,
+  downloadEventDigest,
+  downloadEvidenceFingerprint,
+  downloadEvidencePartitionKey,
+  downloadFileDigest,
+  downloadMetricSourceDigest,
+  downloadQuarantinePartitionKey,
   inputFingerprint,
   ledgerExpiry,
   parseDedupeItem,
+  parseDownloadMeteringQuarantineItem,
   parseMetricAggregateItem,
   parsePriceVersionItem,
+  parseProcessedDownloadEvidenceItem,
   parseQuarantineItem,
   parseStorageCheckpointItem,
   parseTotalAggregateItem,
@@ -79,6 +90,116 @@ function event() {
 }
 
 describe("usage pricing persisted model", () => {
+  it("builds safe global download evidence and metric-specific identities", () => {
+    const eventId = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA";
+    const fileId = "fil_0123456789abcdefghijkl";
+    expect(canonicalCloudTrailEventId(eventId)).toBe(eventId.toLowerCase());
+    const eventDigest = downloadEventDigest(eventId);
+    expect(downloadEvidencePartitionKey(eventDigest)).toBe(`DOWNLOAD#${eventDigest}`);
+    expect(downloadMetricSourceDigest(projectId, eventId, "s3-download-requests")).not.toBe(
+      downloadMetricSourceDigest(projectId, eventId, "s3-download-bytes-out"),
+    );
+    expect(downloadFileDigest(projectId, fileId)).toHaveLength(64);
+    const fingerprint = downloadEvidenceFingerprint({
+      eventId,
+      internalProjectId: projectId,
+      fileId,
+      occurredAt,
+      bytesTransferredOut: 0n,
+      accountId: "162067902192",
+      region: "il-central-1",
+      rawLogDigest: "c".repeat(64),
+    });
+    expect(fingerprint).toBe(
+      downloadEvidenceFingerprint({
+        eventId: eventId.toLowerCase(),
+        internalProjectId: projectId,
+        fileId,
+        occurredAt,
+        bytesTransferredOut: 0n,
+        accountId: "162067902192",
+        region: "il-central-1",
+        rawLogDigest: "c".repeat(64),
+      }),
+    );
+    expect(
+      downloadEvidenceFingerprint({
+        eventId,
+        internalProjectId: projectId,
+        fileId,
+        occurredAt,
+        bytesTransferredOut: 1n,
+        accountId: "162067902192",
+        region: "il-central-1",
+        rawLogDigest: "c".repeat(64),
+      }),
+    ).not.toBe(fingerprint);
+  });
+
+  it("parses strict 90-day evidence and deterministic quarantine without raw identifiers", () => {
+    const eventId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const fileId = "fil_0123456789abcdefghijkl";
+    const eventDigest = downloadEventDigest(eventId);
+    const fingerprint = downloadEvidenceFingerprint({
+      eventId,
+      internalProjectId: projectId,
+      fileId,
+      occurredAt,
+      bytesTransferredOut: 2n ** 100n,
+      accountId: "162067902192",
+      region: "il-central-1",
+      rawLogDigest: "c".repeat(64),
+    });
+    const evidence = {
+      pk: downloadEvidencePartitionKey(eventDigest),
+      sk: DOWNLOAD_EVIDENCE_SORT_KEY,
+      itemType: "processed-download-evidence",
+      eventDigest,
+      fingerprint,
+      internalProjectId: projectId,
+      fileDigest: downloadFileDigest(projectId, fileId),
+      occurredAt,
+      observedAt: occurredAt,
+      bytesTransferredOut: 2n ** 100n,
+      pricingStatus: "observed-unpriced",
+      expiresAt: retentionExpiry(occurredAt, 90),
+    } as const;
+    expect(parseProcessedDownloadEvidenceItem(evidence, "2026-08-16T00:00:00.000Z")).toEqual(
+      evidence,
+    );
+    expect(
+      parseProcessedDownloadEvidenceItem(evidence, "2027-01-01T00:00:00.000Z"),
+    ).toBeUndefined();
+    expect(() =>
+      parseProcessedDownloadEvidenceItem({ ...evidence, objectKey: "secret" }),
+    ).toThrow();
+    expect(() =>
+      parseProcessedDownloadEvidenceItem({ ...evidence, bytesTransferredOut: -1n }),
+    ).toThrow();
+
+    const evidenceHash = "d".repeat(64);
+    const quarantine = {
+      pk: downloadQuarantinePartitionKey(evidenceHash),
+      sk: DOWNLOAD_QUARANTINE_SORT_KEY,
+      itemType: "download-metering-quarantine",
+      evidenceHash,
+      reasonCode: "missing-bytes",
+      sourceKind: "cloudtrail-download",
+      observedAt: occurredAt,
+      internalProjectId: projectId,
+      expiresAt: retentionExpiry(occurredAt, 90),
+    } as const;
+    expect(parseDownloadMeteringQuarantineItem(quarantine)).toEqual(quarantine);
+    expect(downloadQuarantinePartitionKey(evidenceHash)).toBe(
+      `METERING-QUARANTINE#${evidenceHash}`,
+    );
+    expect(
+      JSON.stringify({ evidence, quarantine }, (_key: string, value: unknown) =>
+        typeof value === "bigint" ? value.toString() : value,
+      ),
+    ).not.toMatch(/aaaaaaaa-aaaa|fil_012345|objectKey|bucket|arn:|url/u);
+  });
+
   it("derives bounded deterministic hashes without exposing raw source identifiers", () => {
     expect(digest).toHaveLength(64);
     expect(digest).toBe(sourceDigest(projectId, "s3-event", "raw/source/id?secret=no"));
