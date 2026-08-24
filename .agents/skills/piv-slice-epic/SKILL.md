@@ -68,14 +68,17 @@ For a GitHub-backed repository with Issues enabled:
   explicitly requires wiki-only tracking.
 - Keep the PRD, architecture, stable scope, and dependency graph in the repository wiki/docs. Add or update a
   linked overview page rather than duplicating mutable execution status there.
-- Put live readiness in Issue labels and live workflow state/execution wave in a linked GitHub Project.
+- Create native GitHub `blocked by` relationships for every dependency. Readiness is derived: an open Issue with
+  no open blockers is ready. Do not create `ready` or `queued` labels.
+- Put live workflow state and execution wave in a linked GitHub Project.
 - Add issues to an existing matching Project when one exists. If none exists, ask before creating one unless the
   user explicitly requested project-management setup or migration.
-- Link each Issue to the epic, architecture, overview, dependencies, and Project. Use checkboxes for acceptance
-  criteria and include per-ticket context, estimated touch points/size, readiness, wave, and the just-in-time
-  planning gate.
-- After creating the Issues, replace symbolic dependencies such as `TICKET-1` with direct Issue links and make
-  the overview link back to every Issue.
+- Link each Issue to the epic, architecture, overview, and Project. Use checkboxes for acceptance criteria and
+  include per-ticket context, estimated touch points/size, wave, and the just-in-time planning gate based on open
+  native blockers.
+- After creating the Issues, replace symbolic dependencies such as `TICKET-1` with direct Issue links, create the
+  matching native relationships (for example, `gh issue edit ISSUE --add-blocked-by BLOCKER`), and make the overview
+  link back to every Issue.
 
 Regardless of tracker, **every ticket carries its own context** — that's what lets a loop pick it up later
 without re-reading the whole epic:
@@ -102,7 +105,7 @@ without re-reading the whole epic:
 ## Output
 
 A ticket breakdown in the active tracker (or `docs/tickets/<epic-slug>.md` only when no tracker is available),
-with source links and a dependency overview. For GitHub, report the created Issue links, Project link, readiness
+with source links and a dependency overview. For GitHub, report the created Issue links, native dependency relationships, Project link, derived readiness
 state, and the first Issue eligible for planning. Each ticket then enters its own PIV loop — straight to
 `$piv-plan-implementation` if it's ready and well-scoped (it primes what it needs), or `$prime-codebase` first if
 it needs more codebase orientation. **Priming is optional**; the per-ticket context above is what makes that

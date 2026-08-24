@@ -13,10 +13,15 @@ description: Creates a comprehensive, context-rich implementation plan through d
 **free-form feature description**. Tell them apart and handle each:
 
 - **A ticket** (a key such as `ABC-123`, or an issue URL): **fetch it from the tracker before you plan** (Jira via
-  the Atlassian MCP, GitHub via `gh issue view`, etc.). ReVad its summary, acceptance criteria, and per-ticket
-  context. Then **follow its links up to the epic and the epic's linked architecture page** (Confluence via the
-  Atlassian MCP) and inherit those decisions (see "Inherit, don't re-decide" below). Never plan from the bare key;
-  the ticket body plus its epic and architecture are the real input.
+  the Atlassian MCP, GitHub via `gh issue view`, etc.). Read its summary, acceptance criteria, per-ticket context,
+  state, and dependency relationships. For GitHub, fetch `blockedBy` / `blocking` with `--json`; native issue
+  relationships are the readiness source. If any blocker is open, stop and report it. Closed blockers do not block
+  planning. Do not require or infer readiness from `ready` / `queued` labels. If a legacy ticket lists dependencies
+  only in prose, follow and verify those links, report the missing native relationships, and use their open/closed
+  state for this run. Do not mutate tracker state unless the user explicitly authorizes that external write. Then
+  **follow its links up to the epic and the epic's linked architecture page** (Confluence via the Atlassian MCP) and
+  inherit those decisions (see "Inherit, don't re-decide" below). Never plan from the bare key; the ticket body plus
+  its epic and architecture are the real input.
 - **A free-form description**: plan directly from it (greenfield or ad-hoc), asking clarifying questions as needed.
 
 ## Mission

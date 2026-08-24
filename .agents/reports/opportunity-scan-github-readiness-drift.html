@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Opportunity Scan — GitHub Readiness Drift</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #17211d;
+        --muted: #607068;
+        --paper: #f6f3ec;
+        --panel: #fffefb;
+        --line: #d9ded8;
+        --accent: #175f4a;
+        --accent-soft: #e8f4ef;
+        --warn: #9b5228;
+        --warn-soft: #fff3e9;
+        --danger: #8a3030;
+        --danger-soft: #fff0ef;
+        --blue: #315f8b;
+        --blue-soft: #edf4fb;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top right, #dfeee8 0, transparent 35rem),
+          linear-gradient(145deg, #edf2ed, var(--paper) 48%);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.6;
+      }
+      main { width: min(1080px, calc(100% - 2rem)); margin: 0 auto; padding: 4rem 0; }
+      header, section {
+        margin-bottom: 1.25rem;
+        padding: clamp(1.4rem, 4vw, 2.6rem);
+        border: 1px solid var(--line);
+        border-radius: 1.25rem;
+        background: rgb(255 254 251 / 92%);
+        box-shadow: 0 1rem 3rem rgb(32 52 44 / 8%);
+      }
+      h1, h2, h3 { margin-top: 0; line-height: 1.12; }
+      h1, h2 { font-family: Georgia, Cambria, serif; font-weight: 500; }
+      h1 { margin-bottom: 1rem; font-size: clamp(2.2rem, 6vw, 4.5rem); }
+      h2 { margin-bottom: 1rem; font-size: clamp(1.55rem, 4vw, 2.25rem); }
+      h3 { margin-bottom: .45rem; font-size: 1.05rem; }
+      p { max-width: 82ch; }
+      a { color: var(--blue); text-decoration-thickness: .08em; text-underline-offset: .15em; }
+      code { padding: .12rem .36rem; border-radius: .3rem; background: #edf1ed; font-size: .92em; }
+      .kicker {
+        margin: 0 0 .35rem;
+        color: var(--accent);
+        font-size: .78rem;
+        font-weight: 800;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+      .lede { max-width: 78ch; font-size: 1.08rem; color: #35443d; }
+      .verdict {
+        margin-top: 1.4rem;
+        padding: 1rem 1.15rem;
+        border-left: .35rem solid var(--danger);
+        background: var(--danger-soft);
+        font-weight: 650;
+      }
+      .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; margin-top: 1.4rem; }
+      .stat { padding: 1rem; border: 1px solid var(--line); border-radius: .85rem; background: #fff; }
+      .stat strong { display: block; color: var(--accent); font: 500 2rem/1 Georgia, serif; }
+      .stat span { color: var(--muted); font-size: .88rem; }
+      .table-wrap { overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; font-size: .93rem; }
+      th, td { padding: .72rem .65rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+      th { color: var(--muted); font-size: .76rem; letter-spacing: .06em; text-transform: uppercase; }
+      .pill { display: inline-block; padding: .15rem .5rem; border-radius: 99rem; font-size: .77rem; font-weight: 750; }
+      .queued { color: #7a421f; background: var(--warn-soft); }
+      .ready { color: #15533f; background: var(--accent-soft); }
+      .done { color: #294f74; background: var(--blue-soft); }
+      .chain { display: grid; grid-template-columns: repeat(5, 1fr); gap: .65rem; align-items: stretch; }
+      .chain article { position: relative; padding: 1rem; border: 1px solid var(--line); border-radius: .85rem; background: #fff; }
+      .chain article:not(:last-child)::after {
+        content: "→";
+        position: absolute;
+        top: 50%;
+        right: -.58rem;
+        z-index: 2;
+        width: 1.1rem;
+        color: var(--warn);
+        background: var(--paper);
+        text-align: center;
+        transform: translateY(-50%);
+      }
+      .chain p { margin-bottom: 0; color: var(--muted); font-size: .88rem; }
+      blockquote { margin: 1rem 0; padding: .8rem 1rem; border-left: .3rem solid var(--warn); background: var(--warn-soft); color: #50382b; }
+      .findings { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .finding { padding: 1.1rem; border: 1px solid var(--line); border-radius: .9rem; background: #fff; }
+      .finding p { margin-bottom: 0; color: var(--muted); }
+      .priority { display: grid; gap: 1rem; counter-reset: recommendation; }
+      .recommendation {
+        position: relative;
+        padding: 1.25rem 1.25rem 1.25rem 4.2rem;
+        border: 1px solid var(--line);
+        border-radius: .95rem;
+        background: #fff;
+        counter-increment: recommendation;
+      }
+      .recommendation::before {
+        content: counter(recommendation);
+        position: absolute;
+        top: 1.1rem;
+        left: 1.15rem;
+        display: grid;
+        place-items: center;
+        width: 2.2rem;
+        height: 2.2rem;
+        border-radius: 50%;
+        color: white;
+        background: var(--accent);
+        font-weight: 800;
+      }
+      .primitive { color: var(--accent); font-size: .76rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .recommendation ul { margin-bottom: 0; padding-left: 1.2rem; }
+      .state-model { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .state-model article { padding: 1.1rem; border: 1px solid var(--line); border-radius: .9rem; }
+      .chosen { border-color: #72a994 !important; background: var(--accent-soft); }
+      .avoid { border-color: #d9a081 !important; background: var(--warn-soft); }
+      .source-list { padding-left: 1.2rem; }
+      .source-list li { margin-bottom: .55rem; }
+      .footnote { color: var(--muted); font-size: .88rem; }
+      @media (max-width: 900px) {
+        .stats, .chain { grid-template-columns: 1fr 1fr; }
+        .chain article::after { display: none; }
+      }
+      @media (max-width: 660px) {
+        main { width: min(100% - 1rem, 1080px); padding: 1rem 0; }
+        .stats, .chain, .findings, .state-model { grid-template-columns: 1fr; }
+        .recommendation { padding-left: 1.25rem; padding-top: 4.15rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="kicker">Reactive opportunity scan · GitHub planning gate · 2026-08-24</p>
+        <h1>The tracker has no owner for “unblock the next ticket”</h1>
+        <p class="lede">
+          RUS-08 is not genuinely blocked. Its dependencies are closed and implemented, but its issue still says
+          <code>queued</code>. The failure repeats because readiness labels, Project status, native issue state,
+          prose dependencies, the Wiki, and <code>AGENTS.md</code> are maintained independently. GitHub closes the
+          finished ticket and marks its Project item Done; nothing recalculates the tickets that become ready next.
+        </p>
+        <div class="verdict">
+          Yes, the workflow is structurally incomplete. It relies on a manual transition that is neither assigned
+          to a person nor encoded in automation, while the planning gate treats the missing transition as authoritative.
+        </div>
+        <div class="stats">
+          <div class="stat"><strong>0</strong><span>native dependencies recorded on RUS-08</span></div>
+          <div class="stat"><strong>0</strong><span>repository GitHub Actions workflows</span></div>
+          <div class="stat"><strong>3</strong><span>earlier plans that recorded the same stale-label condition</span></div>
+          <div class="stat"><strong>7/7</strong><span>closed RUS tickets carried an obsolete readiness label</span></div>
+        </div>
+      </header>
+
+      <section>
+        <h2>What the live state said before remediation</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Ticket</th><th>Issue</th><th>Readiness label</th><th>Project status</th><th>Interpretation</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>RUS-01</td><td>Closed</td><td><span class="pill ready">ready</span></td><td><span class="pill done">Done</span></td><td>Closed item retains obsolete readiness metadata.</td></tr>
+              <tr><td>RUS-02</td><td>Closed</td><td><span class="pill queued">queued</span></td><td><span class="pill done">Done</span></td><td>Implemented without ever being transitioned to ready.</td></tr>
+              <tr><td>RUS-03</td><td>Closed</td><td><span class="pill ready">ready</span></td><td><span class="pill done">Done</span></td><td>Manual queued → ready transition occurred.</td></tr>
+              <tr><td>RUS-04</td><td>Closed</td><td><span class="pill ready">ready</span></td><td><span class="pill done">Done</span></td><td>Manual queued → ready transition occurred.</td></tr>
+              <tr><td>RUS-05</td><td>Closed</td><td><span class="pill queued">queued</span></td><td><span class="pill done">Done</span></td><td>Implemented while the workflow label remained stale.</td></tr>
+              <tr><td>RUS-06</td><td>Closed</td><td><span class="pill ready">ready</span></td><td><span class="pill done">Done</span></td><td>Manual queued → ready transition occurred.</td></tr>
+              <tr><td>RUS-07</td><td>Closed</td><td><span class="pill queued">queued</span></td><td><span class="pill done">Done</span></td><td>Implemented while the workflow label remained stale.</td></tr>
+              <tr><td>RUS-08</td><td>Open</td><td><span class="pill queued">queued</span></td><td>Todo</td><td>All declared dependencies are closed, but planning is label-gated.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="footnote">
+          Issue timeline events show that every queued/ready transition was performed manually by <code>noamtz</code>;
+          no automation actor appears. The obsolete labels were removed on 2026-08-24 after native dependencies were
+          backfilled. The Project's Done values match GitHub's default “closed issue → Done” workflow.
+        </p>
+      </section>
+
+      <section>
+        <h2>Why the failure repeats</h2>
+        <div class="chain">
+          <article><h3>Dependency lands</h3><p>A PR merges and its issue closes.</p></article>
+          <article><h3>Project updates</h3><p>GitHub's built-in workflow marks only that item Done.</p></article>
+          <article><h3>Nothing unlocks</h3><p>Downstream dependencies exist only in prose and a Wiki diagram.</p></article>
+          <article><h3>Label stays stale</h3><p>No workflow or PIV step changes queued to ready.</p></article>
+          <article><h3>Agent diverges</h3><p>One run overrides the label; another obeys the literal gate and stops.</p></article>
+        </div>
+        <blockquote>
+          RUS-03, RUS-05, and RUS-07 plans already documented stale <code>queued</code> labels and proceeded under an
+          inferred owner override. This RUS-08 run interpreted the same ticket wording strictly and stopped. Both
+          behaviors are understandable because the policy never defines how to reconcile a stale label with closed dependencies.
+        </blockquote>
+      </section>
+
+      <section>
+        <h2>The system gaps</h2>
+        <div class="findings">
+          <article class="finding">
+            <h3>Dependencies are descriptive, not executable</h3>
+            <p>
+              RUS-08's body lists RUS-04/05/06 under “Depends on,” but GitHub reports zero native
+              <code>blockedBy</code> relationships. Automation cannot safely infer readiness from a Mermaid graph or prose forever.
+            </p>
+          </article>
+          <article class="finding">
+            <h3>No transition owner exists</h3>
+            <p>
+              There is no <code>.github</code> workflow and no PIV phase responsible for updating readiness after merge.
+              Repository rules also correctly prevent an agent from making unrequested external writes, so drift is the expected result.
+            </p>
+          </article>
+          <article class="finding">
+            <h3>There are too many “current state” sources</h3>
+            <p>
+              Issue state, labels, Project Status, Wave, Wiki prose, <code>AGENTS.md</code>, plans, and code all carry
+              overlapping state. The Wiki still says only RUS-01 should be planned; <code>AGENTS.md</code> still says RUS-06+
+              is unimplemented, although RUS-06 and RUS-07 are merged.
+            </p>
+          </article>
+          <article class="finding">
+            <h3>The planning skill has no reconciliation rule</h3>
+            <p>
+              It fetches the ticket but does not define precedence between an explicit planning request, a readiness
+              label, native dependencies, closed dependency issues, and implementation present on <code>main</code>.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Recommended durable changes</h2>
+        <div class="priority">
+          <article class="recommendation">
+            <div class="primitive">GitHub issue model · primary fix</div>
+            <h3>Make native issue dependencies the only readiness source</h3>
+            <ul>
+              <li>Record the Wiki dependency graph using GitHub's native <strong>blocked by / blocking</strong> relationships.</li>
+              <li>Delete <code>queued</code> and <code>ready</code>; an open issue with no open blockers is ready by definition.</li>
+              <li>Let the existing built-in Project workflow continue setting closed items to Done.</li>
+              <li>Add a read-only audit only if future drift shows that native relationships are being omitted.</li>
+            </ul>
+          </article>
+
+          <article class="recommendation">
+            <div class="primitive">Skill · defense in depth</div>
+            <h3>Teach <code>piv-plan-implementation</code> to reconcile, not merely trust, readiness</h3>
+            <ul>
+              <li>Fetch <code>blockedBy</code> and issue state together.</li>
+              <li>If any blocker is open, stop.</li>
+              <li>If no blocker is open and the user explicitly invoked planning, proceed without a second readiness signal.</li>
+              <li>Never use code presence alone to override an open tracker dependency.</li>
+            </ul>
+          </article>
+
+          <article class="recommendation">
+            <div class="primitive">Rules / documentation</div>
+            <h3>Remove volatile delivery status from durable instructions</h3>
+            <ul>
+              <li>Keep architecture and stable dependency intent in the Wiki.</li>
+              <li>Use issue relationships plus the Project for live work state.</li>
+              <li>Delete statements such as “Only RUS-01 should be planned now” and enumerated “RUS-06+ remains unimplemented” claims, or generate them from tracker state.</li>
+              <li>State one precedence rule in <code>AGENTS.md</code>: native open blockers determine readiness; readiness labels do not exist.</li>
+            </ul>
+          </article>
+
+          <article class="recommendation">
+            <div class="primitive">Workflow handoff</div>
+            <h3>Close the loop at merge</h3>
+            <ul>
+              <li>Require ticket PRs to include <code>Fixes #N</code> so merge reliably closes the implemented issue.</li>
+              <li>Closing the issue automatically changes downstream derived readiness because the blocker is no longer open.</li>
+              <li>Manually close the linked issue when a PR was merged without the closing keyword.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Recommended state model</h2>
+        <div class="state-model">
+          <article class="chosen">
+            <h3>One fact, two derived views</h3>
+            <p><strong>Fact:</strong> native issue relationships and open/closed state.</p>
+            <p><strong>Readiness:</strong> derived on demand; no duplicate labels.</p>
+            <p><strong>Execution state:</strong> Project Todo/In Progress/Done, with GitHub's built-in close automation retained.</p>
+          </article>
+          <article class="avoid">
+            <h3>Stop maintaining parallel truth</h3>
+            <p>
+              Do not independently encode “what is ready now” in labels, issue prose, Wiki prose, Project fields,
+              and <code>AGENTS.md</code>. Every extra handwritten copy creates another required transition and another stale gate.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Why this primitive fits</h2>
+        <p>
+          This is a deterministic relationship model, so native GitHub issue dependencies are the best primary
+          primitive. No custom Action, AI subagent, MCP server, or probabilistic judgment is needed. The skill change
+          remains valuable for legacy prose-only dependencies. A shell hook is the wrong boundary: readiness changes
+          when a blocker closes, not during a particular local command.
+        </p>
+      </section>
+
+      <section>
+        <h2>Evidence and primary references</h2>
+        <ul class="source-list">
+          <li><a href="https://github.com/noamtz/utility-services/issues/8">RUS-08</a> — queued label, literal ready-only planning gate, prose dependencies.</li>
+          <li><a href="https://github.com/users/noamtz/projects/2">Utility Services MVP Project</a> — closed tickets are Done; RUS-08 remains Todo.</li>
+          <li><code>.agents/plans/rus-03-project-credential-lifecycle-authentication.md:657</code>, <code>rus-05-direct-upload-file-metadata-lifecycle.md:666</code>, and <code>rus-07-trash-restore-scheduled-purge-force-deletion.md:63</code> — repeated stale-label evidence.</li>
+          <li><code>.agents/reports/rus-05-direct-upload-file-metadata-lifecycle-report.md:50</code> and <code>rus-07-trash-restore-scheduled-purge-force-deletion-report.md:58</code> — implementation completed without tracker mutation.</li>
+          <li><a href="https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies">GitHub: Creating issue dependencies</a> — native blocked-by/blocking relationships and CLI/API access.</li>
+          <li><a href="https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-built-in-automations">GitHub: Using built-in Project automations</a> — closed issues default to Done, but downstream readiness is not covered.</li>
+          <li><a href="https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/automating-projects-using-actions">GitHub: Automating Projects with Actions</a> — custom automation boundary and Project authentication considerations.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>
