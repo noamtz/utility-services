@@ -115,7 +115,18 @@ describe("download metering acceptance harness policy", () => {
 
   it("fails with a bounded timeout when retained logs do not arrive", async () => {
     const fetch = vi.fn((url: string, init?: RequestInit) => {
-      if (init?.signal?.aborted) throw new Error("aborted");
+      if (init?.signal) {
+        return new Promise<{
+          ok: boolean;
+          status: number;
+          json: () => Promise<unknown>;
+          arrayBuffer: () => Promise<ArrayBuffer>;
+        }>((_resolve, reject) => {
+          init.signal!.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -189,12 +200,25 @@ describe("download metering acceptance execution", () => {
           status: 200,
           json: () =>
             Promise.resolve({
-              data: { downloadUrl: `https://download.example/${authorization}?secret=x` },
+              data: {
+                download: { url: `https://download.example/${authorization}?secret=x` },
+              },
             }),
           arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
         });
       }
-      if (init?.signal?.aborted) throw new Error("aborted");
+      if (init?.signal) {
+        return new Promise<{
+          ok: boolean;
+          status: number;
+          json: () => Promise<unknown>;
+          arrayBuffer: () => Promise<ArrayBuffer>;
+        }>((_resolve, reject) => {
+          init.signal!.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
+      }
       const expired = url.includes("/5?");
       return Promise.resolve({
         ok: !expired,

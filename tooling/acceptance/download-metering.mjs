@@ -163,7 +163,12 @@ function opaqueDownloadUrl(body) {
     root["data"] && typeof root["data"] === "object"
       ? /** @type {Record<string, unknown>} */ (root["data"])
       : {};
-  const candidate = data["downloadUrl"] ?? root["downloadUrl"] ?? data["url"] ?? root["url"];
+  const download =
+    data["download"] && typeof data["download"] === "object"
+      ? /** @type {Record<string, unknown>} */ (data["download"])
+      : {};
+  const candidate =
+    download["url"] ?? data["downloadUrl"] ?? root["downloadUrl"] ?? data["url"] ?? root["url"];
   if (typeof candidate !== "string" || !candidate.startsWith("https://")) {
     throw new Error("Download authorization response did not contain an opaque HTTPS URL");
   }
@@ -218,9 +223,11 @@ async function runTransferMatrix(config, dependencies) {
     ),
   });
   const controller = new AbortController();
+  const cancelledRequest = dependencies.fetch(await authorize(), { signal: controller.signal });
+  await dependencies.sleep(100);
   controller.abort();
   try {
-    await dependencies.fetch(await authorize(), { signal: controller.signal });
+    await cancelledRequest;
     results.push({ case: "cancelled", cancelled: false });
   } catch {
     results.push({ case: "cancelled", cancelled: true });
