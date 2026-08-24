@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CanonicalUnsignedDecimalSchema,
+  CurrentMonthlyUsageResponseSchema,
   MonthlyUsageProjectionSchema,
   PriceVersionSchema,
   USAGE_COST_EXCLUSIONS,
@@ -99,6 +100,9 @@ describe("usage pricing contracts", () => {
 
   it("returns the exact AWS-equivalent label, USD, exclusions, and freshness", () => {
     expect(MonthlyUsageProjectionSchema.parse(projection())).toEqual(projection());
+    expect(
+      CurrentMonthlyUsageResponseSchema.parse({ data: projection(), requestId: "request-1" }),
+    ).toEqual({ data: projection(), requestId: "request-1" });
   });
 
   it("rejects unsorted versions and every internal or AWS implementation field", () => {

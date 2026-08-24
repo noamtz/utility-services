@@ -1,6 +1,7 @@
 import { AWS_REGION } from "./config/app.js";
 import { CONTROL_AUTHORIZER_NAME, CONTROL_ROUTES } from "./config/control.js";
 import { FILE_OBJECT_PREFIX, FILE_ROUTES } from "./config/file-management.js";
+import { CURRENT_MONTH_USAGE_CONTROL_ROUTE } from "./config/usage-pricing.js";
 
 export const API_COMPONENT_NAME = "ServiceApi";
 export const API_CORS = false;
@@ -75,6 +76,21 @@ export function createApi(
         transform: { function: { tracingConfig: { mode: "Active" } } },
       },
       { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },
+    );
+  }
+  if (usagePricing) {
+    api.route(
+      CURRENT_MONTH_USAGE_CONTROL_ROUTE.route,
+      {
+        handler: CURRENT_MONTH_USAGE_CONTROL_ROUTE.handler,
+        runtime: "nodejs24.x",
+        link: [control.table, usagePricing.table],
+        transform: { function: { tracingConfig: { mode: "Active" } } },
+      },
+      {
+        name: CURRENT_MONTH_USAGE_CONTROL_ROUTE.name,
+        auth: { jwt: { authorizer: authorizer.id } },
+      },
     );
   }
   if (usagePricing && files) {

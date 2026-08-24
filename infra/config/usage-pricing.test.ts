@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { USAGE_METRICS } from "@utility-services/contracts";
 import {
+  CURRENT_MONTH_USAGE_CONTROL_ROUTE,
   PRICE_SERVICE_PAGE_CROSS_CHECKS,
   PRICE_VERSIONS,
   USAGE_PRICING_TABLE_LINK_ACTIONS,
@@ -14,6 +15,13 @@ import {
 } from "./usage-pricing.js";
 
 describe("usage pricing infrastructure policy", () => {
+  it("defines the owner-JWT current-month projection route", () => {
+    expect(CURRENT_MONTH_USAGE_CONTROL_ROUTE).toEqual({
+      name: "GetCurrentMonthUsageRoute",
+      route: "GET /v1/control/projects/{projectId}/usage/current-month",
+      handler: "packages/backend/src/functions/control/get-current-month-usage.handler",
+    });
+  });
   it("uses an independent on-demand PK/SK table with only the intended TTL and no indexes", () => {
     expect(USAGE_PRICING_TABLE_POLICY).toEqual({
       billingMode: "PAY_PER_REQUEST",

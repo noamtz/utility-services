@@ -189,9 +189,142 @@ h2 {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.project-experience {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+.experience-panel p {
+  line-height: 1.55;
+}
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.section-heading p {
+  margin: 0.4rem 0 0;
+}
+.button-row {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+.secondary-button {
+  color: #18523e;
+  background: #edf4f0;
+  border: 1px solid #80a393;
+}
+.quiet-button {
+  color: #315c4c;
+  background: transparent;
+}
+.danger-button {
+  background: #8d261f;
+}
+.secret-reveal {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 2px solid #d87c42;
+  border-radius: 0.75rem;
+  background: #fff8ef;
+}
+.secret-reveal code,
+.key-list code {
+  overflow-wrap: anywhere;
+}
+.key-list {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+.key-list li {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem;
+  border: 1px solid #d5ded8;
+  border-radius: 0.7rem;
+}
+.key-list li > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.status {
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: #e4ebe7;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+.status-active {
+  color: #17643f;
+  background: #dff4e7;
+}
+.usage-total {
+  margin: 1rem 0 0.35rem;
+  font-family: Georgia, serif;
+  font-size: 2.6rem;
+}
+.usage-total small {
+  font:
+    700 0.8rem Inter,
+    sans-serif;
+}
+.freshness {
+  display: inline-block;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.4rem;
+  background: #edf2ec;
+}
+.freshness-stale,
+.freshness-incomplete {
+  background: #fff0df;
+  color: #7a3c13;
+}
+.metric-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+.metric-grid div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.45rem;
+  border-bottom: 1px solid #e0e6e2;
+}
+.metric-grid dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.integration-guide {
+  grid-column: 1 / -1;
+}
+.code-sample {
+  margin-top: 1.25rem;
+}
+.code-sample h3 {
+  margin: 0;
+}
+pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: 0.7rem;
+  color: #e9f5ee;
+  background: #14251f;
+  line-height: 1.45;
+}
 
 @media (max-width: 58rem) {
   .project-workspace {
+    grid-template-columns: 1fr;
+  }
+  .project-experience {
     grid-template-columns: 1fr;
   }
   .dashboard-header {

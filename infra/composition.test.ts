@@ -147,6 +147,10 @@ describe("SST composition contracts", () => {
       userPoolClientId: output("0123456789abcdefghijklmnop"),
     });
 
+    expect((siteArgs as { environment: Record<string, unknown> }).environment).toHaveProperty(
+      "VITE_API_URL",
+    );
+
     expect(cachePolicyName).toBe(CONTROL_CACHE_POLICY_NAME);
     expect(cachePolicyArgs).toMatchObject({
       minTtl: 0,

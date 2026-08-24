@@ -9,6 +9,11 @@ import {
 export const USAGE_PRICING_TABLE_COMPONENT_NAME = "UsagePricingTable";
 export const USAGE_PRICING_TTL_ATTRIBUTE = "expiresAt";
 export const USAGE_PRICING_TABLE_LINK_ACTIONS = ["dynamodb:Query"] as const;
+export const CURRENT_MONTH_USAGE_CONTROL_ROUTE = {
+  name: "GetCurrentMonthUsageRoute",
+  route: "GET /v1/control/projects/{projectId}/usage/current-month",
+  handler: "packages/backend/src/functions/control/get-current-month-usage.handler",
+} as const;
 
 export const USAGE_PRICING_TABLE_POLICY = {
   billingMode: "PAY_PER_REQUEST",

@@ -52,6 +52,7 @@ export function createDashboard(resources: DashboardResources) {
     environment: {
       VITE_COGNITO_USER_POOL_ID: resources.userPoolId,
       VITE_COGNITO_USER_POOL_CLIENT_ID: resources.userPoolClientId,
+      VITE_API_URL: resources.apiUrl,
     },
     transform: {
       cdn(args) {

@@ -121,6 +121,7 @@ export {
 } from "./files/contract.js";
 export {
   CanonicalUnsignedDecimalSchema,
+  CurrentMonthlyUsageResponseSchema,
   MeteringFreshnessSchema,
   MonthlyUsageProjectionSchema,
   PriceRateSchema,
@@ -135,6 +136,7 @@ export {
   UsageMetricSchema,
   UsagePeriodSchema,
   type MeteringFreshness,
+  type CurrentMonthlyUsageResponse,
   type MonthlyUsageProjection,
   type PriceRate,
   type PriceSource,

@@ -26,6 +26,13 @@ export function ProjectDetails({ project }: { project?: Project | undefined }) {
           </div>
         </dl>
       )}
+      {project && (
+        <p className="field-note">
+          File Management is the project&apos;s enabled utility. Transfer lifetimes are fixed at
+          project creation within the 1–60 minute bounds (defaults: 15 upload, 5 download). Request
+          a fresh URL after expiry.
+        </p>
+      )}
     </section>
   );
 }
