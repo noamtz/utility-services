@@ -17,16 +17,26 @@ import {
 import type { PriceVersion } from "@utility-services/contracts";
 import { z } from "zod";
 
-import { USAGE_DOCUMENT_CLIENT_OPTIONS, assertDynamoInteger } from "./fixed-point.js";
+import {
+  USAGE_DOCUMENT_CLIENT_OPTIONS,
+  addDynamoIntegers,
+  assertDynamoInteger,
+} from "./fixed-point.js";
 import {
   CHECKPOINT_SORT_KEY,
   DEDUPE_SORT_KEY,
+  DOWNLOAD_EVIDENCE_SORT_KEY,
+  DOWNLOAD_QUARANTINE_SORT_KEY,
   PRICE_PARTITION_KEY,
   TOTAL_AGGREGATE_SORT_KEY,
+  downloadEvidencePartitionKey,
+  downloadQuarantinePartitionKey,
   metricAggregateSortKey,
   parseDedupeItem,
+  parseDownloadMeteringQuarantineItem,
   parseMetricAggregateItem,
   parsePriceVersionItem,
+  parseProcessedDownloadEvidenceItem,
   parseStorageCheckpointItem,
   parseTotalAggregateItem,
   parseUsageEventItem,
@@ -37,8 +47,10 @@ import {
   storagePartitionKey,
   watermarkSortKey,
   type DedupeItem,
+  type DownloadMeteringQuarantineItem,
   type MetricAggregateItem,
   type QuarantineItem,
+  type ProcessedDownloadEvidenceItem,
   type StorageCheckpointItem,
   type TotalAggregateItem,
   type UsageEventItem,
@@ -48,11 +60,34 @@ import {
 export type AggregateItem = MetricAggregateItem | TotalAggregateItem;
 export type RecordEventResult =
   { status: "recorded" } | { status: "duplicate"; event: UsageEventItem };
+export type ObserveDownloadEvidenceResult = {
+  readonly status: "observed" | "duplicate";
+  readonly evidence: ProcessedDownloadEvidenceItem;
+};
+export type RecordDownloadEventResult = {
+  readonly status: "recorded" | "duplicate";
+  readonly evidence: ProcessedDownloadEvidenceItem;
+  readonly events: readonly [UsageEventItem, UsageEventItem, UsageEventItem];
+};
+export type PutDownloadQuarantineResult = { readonly status: "recorded" | "duplicate" };
 
 export interface UsagePricingRepository {
   listPriceVersions(): Promise<PriceVersion[]>;
   findEffectivePrice(occurredAt: string): Promise<PriceVersion | undefined>;
   recordEvent(event: UsageEventItem, dedupe: DedupeItem, now: string): Promise<RecordEventResult>;
+  getDownloadEvidence?(
+    eventDigest: string,
+    now: string,
+  ): Promise<ProcessedDownloadEvidenceItem | undefined>;
+  observeDownloadEvidence?(
+    evidence: ProcessedDownloadEvidenceItem,
+    now: string,
+  ): Promise<ObserveDownloadEvidenceResult>;
+  recordDownloadEvent?(
+    evidence: ProcessedDownloadEvidenceItem,
+    events: readonly [UsageEventItem, UsageEventItem, UsageEventItem],
+    now: string,
+  ): Promise<RecordDownloadEventResult>;
   listEvents(internalProjectId: string, period: string): Promise<UsageEventItem[]>;
   getAggregates(internalProjectId: string, period: string): Promise<AggregateItem[]>;
   replaceAggregates(
@@ -73,6 +108,10 @@ export interface UsagePricingRepository {
     observedAt: string,
   ): Promise<void>;
   putQuarantine(item: QuarantineItem): Promise<void>;
+  putDownloadQuarantine?(
+    item: DownloadMeteringQuarantineItem,
+    now: string,
+  ): Promise<PutDownloadQuarantineResult>;
 }
 
 export interface UsageDocumentClient {
@@ -181,6 +220,26 @@ function parseAggregate(input: unknown): AggregateItem {
   }
 }
 
+function parseDownloadEvidence(input: unknown): ProcessedDownloadEvidenceItem {
+  try {
+    const item = parseProcessedDownloadEvidenceItem(input);
+    if (!item) throw new Error("Evidence unexpectedly expired without a reference time");
+    return item;
+  } catch {
+    throw new CorruptUsageRecordError();
+  }
+}
+
+function parseDownloadQuarantine(input: unknown): DownloadMeteringQuarantineItem {
+  try {
+    const item = parseDownloadMeteringQuarantineItem(input);
+    if (!item) throw new Error("Quarantine unexpectedly expired without a reference time");
+    return item;
+  } catch {
+    throw new CorruptUsageRecordError();
+  }
+}
+
 async function queryAll(
   client: UsageDocumentClient,
   input: ConstructorParameters<typeof QueryCommand>[0],
@@ -202,6 +261,10 @@ async function queryAll(
 
 function clientToken(event: UsageEventItem): string {
   return `usage-${event.inputFingerprint.slice(0, 30)}`;
+}
+
+function downloadClientToken(evidence: ProcessedDownloadEvidenceItem): string {
+  return `download-${evidence.fingerprint.slice(0, 27)}`;
 }
 
 export function createDynamoUsagePricingRepository(options: {
@@ -238,6 +301,98 @@ export function createDynamoUsagePricingRepository(options: {
     if (fingerprint !== undefined && fingerprint !== event.inputFingerprint)
       throw new UsageSourceConflictError();
     throw new UsageRepositoryConflictError();
+  }
+
+  async function getDownloadEvidenceRaw(
+    eventDigest: string,
+  ): Promise<ProcessedDownloadEvidenceItem | undefined> {
+    const output = await options.client.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { pk: downloadEvidencePartitionKey(eventDigest), sk: DOWNLOAD_EVIDENCE_SORT_KEY },
+        ConsistentRead: true,
+      }),
+    );
+    if (!output.Item) return undefined;
+    try {
+      return parseProcessedDownloadEvidenceItem(output.Item);
+    } catch {
+      throw new CorruptUsageRecordError();
+    }
+  }
+
+  async function getDownloadEvidence(
+    eventDigest: string,
+    now: string,
+  ): Promise<ProcessedDownloadEvidenceItem | undefined> {
+    const evidence = await getDownloadEvidenceRaw(eventDigest);
+    return evidence && evidence.expiresAt > Math.floor(new Date(now).getTime() / 1_000)
+      ? evidence
+      : undefined;
+  }
+
+  async function readExistingDownload(
+    evidence: ProcessedDownloadEvidenceItem,
+    events: readonly [UsageEventItem, UsageEventItem, UsageEventItem],
+  ): Promise<RecordDownloadEventResult> {
+    const output = await options.client.send(
+      new TransactGetCommand({
+        TransactItems: [
+          { Get: { TableName: tableName, Key: { pk: evidence.pk, sk: evidence.sk } } },
+          ...events.map((event) => ({
+            Get: { TableName: tableName, Key: { pk: event.pk, sk: event.sk } },
+          })),
+        ],
+      }),
+    );
+    const existingEvidenceRaw = output.Responses?.[0]?.Item;
+    const existingEventsRaw = output.Responses?.slice(1).map((response) => response.Item);
+    const existingEvidence = existingEvidenceRaw
+      ? parseDownloadEvidence(existingEvidenceRaw)
+      : undefined;
+    const existingEvents = existingEventsRaw?.map((item) => (item ? parseEvent(item) : undefined));
+    if (existingEvidence && existingEvidence.fingerprint !== evidence.fingerprint) {
+      throw new UsageSourceConflictError();
+    }
+    if (
+      existingEvents?.some(
+        (event, index) =>
+          event !== undefined && event.inputFingerprint !== events[index]?.inputFingerprint,
+      )
+    ) {
+      throw new UsageSourceConflictError();
+    }
+    if (
+      existingEvents?.length === events.length &&
+      existingEvents.every((event) => event !== undefined) &&
+      (!existingEvidence || existingEvidence.pricingStatus === "priced")
+    ) {
+      return {
+        status: "duplicate",
+        evidence: existingEvidence ?? evidence,
+        events: existingEvents as [UsageEventItem, UsageEventItem, UsageEventItem],
+      };
+    }
+    throw new UsageRepositoryConflictError();
+  }
+
+  async function readWatermark(
+    internalProjectId: string,
+    sourceKind: string,
+  ): Promise<WatermarkItem | undefined> {
+    const output = await options.client.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { pk: projectPartitionKey(internalProjectId), sk: watermarkSortKey(sourceKind) },
+        ConsistentRead: true,
+      }),
+    );
+    if (!output.Item) return undefined;
+    try {
+      return parseWatermarkItem(output.Item);
+    } catch {
+      throw new CorruptUsageRecordError();
+    }
   }
 
   return {
@@ -357,6 +512,161 @@ export function createDynamoUsagePricingRepository(options: {
           reasons?.some((reason) => reason.Code === "TransactionConflict")
         )
           throw new UsageRepositoryConflictError();
+        throw error;
+      }
+    },
+
+    getDownloadEvidence,
+
+    async observeDownloadEvidence(evidenceInput) {
+      const evidence = parseDownloadEvidence(evidenceInput);
+      if (evidence.pricingStatus !== "observed-unpriced") throw new CorruptUsageRecordError();
+      try {
+        await options.client.send(
+          new PutCommand({
+            TableName: tableName,
+            Item: evidence,
+            ConditionExpression: "attribute_not_exists(pk)",
+          }),
+        );
+        return { status: "observed", evidence };
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        // DynamoDB TTL deletion is asynchronous. A physically present matching root remains a
+        // duplicate even after its logical expiry, rather than becoming a transient conflict.
+        const existing = await getDownloadEvidenceRaw(evidence.eventDigest);
+        if (existing?.fingerprint === evidence.fingerprint) {
+          return { status: "duplicate", evidence: existing };
+        }
+        if (existing) throw new UsageSourceConflictError();
+        throw new UsageRepositoryConflictError();
+      }
+    },
+
+    async recordDownloadEvent(evidenceInput, eventsInput, now) {
+      const evidence = parseDownloadEvidence(evidenceInput);
+      const events = eventsInput.map(parseEvent) as [
+        UsageEventItem,
+        UsageEventItem,
+        UsageEventItem,
+      ];
+      const expectedMetrics = new Set([
+        "s3-download-requests",
+        "s3-download-bytes-out",
+        "cloudtrail-s3-data-events",
+      ]);
+      if (
+        evidence.pricingStatus !== "priced" ||
+        events.length !== 3 ||
+        new Set(events.map((event) => event.metric)).size !== 3 ||
+        events.some(
+          (event) =>
+            !expectedMetrics.has(event.metric) ||
+            event.internalProjectId !== evidence.internalProjectId ||
+            event.occurredAt !== evidence.occurredAt ||
+            event.pk !== projectMonthPartitionKey(evidence.internalProjectId, event.period),
+        )
+      ) {
+        throw new CorruptUsageRecordError();
+      }
+      const existing = await getDownloadEvidence(evidence.eventDigest, now);
+      if (existing?.fingerprint !== undefined && existing.fingerprint !== evidence.fingerprint) {
+        throw new UsageSourceConflictError();
+      }
+      if (existing?.pricingStatus === "priced") return readExistingDownload(evidence, events);
+
+      const rootAction = existing
+        ? {
+            Update: {
+              TableName: tableName,
+              Key: { pk: evidence.pk, sk: evidence.sk },
+              UpdateExpression: "SET pricingStatus = :priced",
+              ConditionExpression:
+                "itemType = :type AND fingerprint = :fingerprint AND pricingStatus = :observed",
+              ExpressionAttributeValues: {
+                ":priced": "priced",
+                ":observed": "observed-unpriced",
+                ":type": "processed-download-evidence",
+                ":fingerprint": evidence.fingerprint,
+              },
+            },
+          }
+        : {
+            Put: {
+              TableName: tableName,
+              Item: evidence,
+              ConditionExpression: "attribute_not_exists(pk)",
+            },
+          };
+      const totalCost = addDynamoIntegers(...events.map((event) => event.costAtoms));
+      try {
+        await options.client.send(
+          new TransactWriteCommand({
+            ClientRequestToken: downloadClientToken(evidence),
+            TransactItems: [
+              rootAction,
+              ...events.map((event) => ({
+                Put: {
+                  TableName: tableName,
+                  Item: event,
+                  ConditionExpression: "attribute_not_exists(pk)",
+                },
+              })),
+              ...events.map((event) => ({
+                Update: {
+                  TableName: tableName,
+                  Key: { pk: event.pk, sk: metricAggregateSortKey(event.metric) },
+                  UpdateExpression:
+                    "SET itemType = if_not_exists(itemType, :metricType), internalProjectId = if_not_exists(internalProjectId, :internal), #period = if_not_exists(#period, :period), metric = if_not_exists(metric, :metric) ADD quantityAtoms :quantity, costAtoms :cost, revision :one, priceVersionIds :versions",
+                  ConditionExpression:
+                    "attribute_not_exists(pk) OR (itemType = :metricType AND internalProjectId = :internal AND #period = :period AND metric = :metric)",
+                  ExpressionAttributeNames: { "#period": "period" },
+                  ExpressionAttributeValues: {
+                    ":metricType": "usage-aggregate-metric",
+                    ":internal": event.internalProjectId,
+                    ":period": event.period,
+                    ":metric": event.metric,
+                    ":one": 1n,
+                    ":quantity": event.quantityAtoms,
+                    ":cost": event.costAtoms,
+                    ":versions": new Set([event.priceVersionId]),
+                  },
+                },
+              })),
+              {
+                Update: {
+                  TableName: tableName,
+                  Key: { pk: events[0].pk, sk: TOTAL_AGGREGATE_SORT_KEY },
+                  UpdateExpression:
+                    "SET itemType = if_not_exists(itemType, :totalType), internalProjectId = if_not_exists(internalProjectId, :internal), #period = if_not_exists(#period, :period) ADD costAtoms :cost, revision :revision, priceVersionIds :versions",
+                  ConditionExpression:
+                    "attribute_not_exists(pk) OR (itemType = :totalType AND internalProjectId = :internal AND #period = :period)",
+                  ExpressionAttributeNames: { "#period": "period" },
+                  ExpressionAttributeValues: {
+                    ":totalType": "usage-aggregate-total",
+                    ":internal": evidence.internalProjectId,
+                    ":period": events[0].period,
+                    ":cost": totalCost,
+                    ":revision": 3n,
+                    ":versions": new Set(events.map((event) => event.priceVersionId)),
+                  },
+                },
+              },
+            ],
+          }),
+        );
+        return { status: "recorded", evidence, events };
+      } catch (error) {
+        const reasons = cancellationReasons(error);
+        if (reasons?.slice(0, 4).some((reason) => reason.Code === "ConditionalCheckFailed")) {
+          return readExistingDownload(evidence, events);
+        }
+        if (
+          isConditionalFailure(error) ||
+          reasons?.some((reason) => reason.Code === "TransactionConflict")
+        ) {
+          throw new UsageRepositoryConflictError();
+        }
         throw error;
       }
     },
@@ -497,39 +807,57 @@ export function createDynamoUsagePricingRepository(options: {
     },
 
     async advanceWatermark(internalProjectId, sourceKind, meteredAt) {
-      await options.client.send(
-        new UpdateCommand({
-          TableName: tableName,
-          Key: { pk: projectPartitionKey(internalProjectId), sk: watermarkSortKey(sourceKind) },
-          UpdateExpression:
-            "SET itemType = :type, internalProjectId = :internal, sourceKind = :source, lastMeteredAt = :meteredAt, incompleteSince = :complete",
-          ConditionExpression: "attribute_not_exists(lastMeteredAt) OR lastMeteredAt <= :meteredAt",
-          ExpressionAttributeValues: {
-            ":type": "usage-watermark",
-            ":internal": internalProjectId,
-            ":source": sourceKind,
-            ":meteredAt": meteredAt,
-            ":complete": null,
-          },
-        }),
-      );
+      try {
+        await options.client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { pk: projectPartitionKey(internalProjectId), sk: watermarkSortKey(sourceKind) },
+            UpdateExpression:
+              "SET itemType = :type, internalProjectId = :internal, sourceKind = :source, lastMeteredAt = :meteredAt, incompleteSince = if_not_exists(incompleteSince, :complete)",
+            ConditionExpression:
+              "attribute_not_exists(lastMeteredAt) OR lastMeteredAt < :meteredAt",
+            ExpressionAttributeValues: {
+              ":type": "usage-watermark",
+              ":internal": internalProjectId,
+              ":source": sourceKind,
+              ":meteredAt": meteredAt,
+              ":complete": null,
+            },
+          }),
+        );
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        const existing = await readWatermark(internalProjectId, sourceKind);
+        if (existing && existing.lastMeteredAt >= meteredAt) return;
+        throw new UsageRepositoryConflictError();
+      }
     },
 
     async markWatermarkIncomplete(internalProjectId, sourceKind, observedAt) {
-      await options.client.send(
-        new UpdateCommand({
-          TableName: tableName,
-          Key: { pk: projectPartitionKey(internalProjectId), sk: watermarkSortKey(sourceKind) },
-          UpdateExpression:
-            "SET itemType = :type, internalProjectId = :internal, sourceKind = :source, lastMeteredAt = if_not_exists(lastMeteredAt, :observed), incompleteSince = if_not_exists(incompleteSince, :observed)",
-          ExpressionAttributeValues: {
-            ":type": "usage-watermark",
-            ":internal": internalProjectId,
-            ":source": sourceKind,
-            ":observed": observedAt,
-          },
-        }),
-      );
+      try {
+        await options.client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { pk: projectPartitionKey(internalProjectId), sk: watermarkSortKey(sourceKind) },
+            UpdateExpression:
+              "SET itemType = :type, internalProjectId = :internal, sourceKind = :source, lastMeteredAt = if_not_exists(lastMeteredAt, :observed), incompleteSince = :observed",
+            ConditionExpression:
+              "attribute_not_exists(incompleteSince) OR incompleteSince = :complete OR :observed < incompleteSince",
+            ExpressionAttributeValues: {
+              ":type": "usage-watermark",
+              ":internal": internalProjectId,
+              ":source": sourceKind,
+              ":observed": observedAt,
+              ":complete": null,
+            },
+          }),
+        );
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        const existing = await readWatermark(internalProjectId, sourceKind);
+        if (existing?.incompleteSince && existing.incompleteSince <= observedAt) return;
+        throw new UsageRepositoryConflictError();
+      }
     },
 
     async putQuarantine(item) {
@@ -540,6 +868,44 @@ export function createDynamoUsagePricingRepository(options: {
           ConditionExpression: "attribute_not_exists(pk)",
         }),
       );
+    },
+
+    async putDownloadQuarantine(itemInput) {
+      const item = parseDownloadQuarantine(itemInput);
+      try {
+        await options.client.send(
+          new PutCommand({
+            TableName: tableName,
+            Item: item,
+            ConditionExpression: "attribute_not_exists(pk)",
+          }),
+        );
+        return { status: "recorded" };
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
+        const output = await options.client.send(
+          new GetCommand({
+            TableName: tableName,
+            Key: {
+              pk: downloadQuarantinePartitionKey(item.evidenceHash),
+              sk: DOWNLOAD_QUARANTINE_SORT_KEY,
+            },
+            ConsistentRead: true,
+          }),
+        );
+        if (!output.Item) throw new UsageRepositoryConflictError();
+        // Treat a matching physical record as a duplicate while DynamoDB TTL catches up.
+        const existing = parseDownloadMeteringQuarantineItem(output.Item);
+        if (!existing) throw new UsageRepositoryConflictError();
+        if (
+          existing.evidenceHash === item.evidenceHash &&
+          existing.reasonCode === item.reasonCode &&
+          existing.internalProjectId === item.internalProjectId
+        ) {
+          return { status: "duplicate" };
+        }
+        throw new UsageSourceConflictError();
+      }
     },
   };
 }

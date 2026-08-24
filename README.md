@@ -2,13 +2,12 @@
 
 Reusable Utility Services is a modular, language-agnostic utility platform. The first MVP utility
 will provide invite-only File Management through a React dashboard and `/v1` REST API. The current
-implementation includes the TypeScript/SST foundation, RUS-02 owner identity and project control,
-RUS-03 project credentials, and the RUS-04 usage/pricing bounded context: an invite-only Cognito
-boundary, owner-scoped project and API-key lifecycle operations, reusable project-bearer
-authentication, immutable versioned AWS list-price evidence, an append-only idempotent usage
-ledger, rebuildable monthly projections, storage checkpoints, and independent metering freshness.
-S3/CloudTrail ingestion, File Management routes, dashboard/API usage presentation, and deployment
-of RUS-04 remain later or separately authorized work.
+implementation includes the TypeScript/SST foundation, owner identity and project control, project
+credentials, direct File Management transfers, and the usage/pricing bounded context. Download
+metering now has a source-controlled, evidence-first CloudTrail ingestion and reconciliation path;
+its initial `evidence-only` gate intentionally records no download cost. A separately authorized
+non-production deployment and real transfer-semantics exercise remain required before any reviewed
+switch to priced download metering. Dashboard/API usage presentation remains later work.
 
 The [Product Requirements](https://github.com/noamtz/utility-services/wiki/Product-Requirements-Epic),
 [Architecture](https://github.com/noamtz/utility-services/wiki/Architecture), and
@@ -106,12 +105,51 @@ owner control plane uses one invite-only user pool and secretless client, one co
 JWT-protected project and credential routes, and a no-cache same-origin `v1/control/*` dashboard
 behavior; `/v1/health` remains public. Project API keys are server-side bearer secrets, are shown
 only by successful issue/replace responses, and must never be placed in browser code, URLs, logs,
-repositories, or examples. RUS-04 adds one independent on-demand usage/pricing table with PK/SK,
-TTL on retained evidence, and retained immutable price seed items; it adds no route, ingestion
-function, bucket, trail, or dashboard behavior. Its local tests cover fixed-point charging,
-idempotency, UTC price/month boundaries, projection rebuilds, storage retry semantics, quarantine,
-freshness, and project isolation. Infrastructure changes still require the preview and explicit
-authorization rules above.
+repositories, or examples. The independent usage/pricing table retains immutable price evidence,
+append-only usage events, rebuildable monthly projections, quarantine, and freshness state.
+Infrastructure changes still require the preview and explicit authorization rules above.
+
+## Download metering and reconciliation
+
+Successful direct S3 downloads are observed asynchronously. A narrow regional CloudTrail selector
+captures only in-scope `GetObject` data events. Compressed logs enter a separate private bucket,
+whose filtered notifications pass through an encrypted SQS queue and bounded processor; exhausted
+transient failures remain recoverable in a 14-day dead-letter queue. The processor validates each
+record independently, derives project/file identity from the canonical object key, validates actual
+transferred bytes, and stores deterministic evidence or quarantine without logging raw records,
+keys, URLs, or secrets.
+
+Raw CloudTrail logs and processed/quarantine evidence are retained for 90 days. Usage-ledger detail
+is retained for 14 months, while monthly aggregates remain indefinitely. Delivery is at least once
+and eventually consistent: exact retained log keys can be replayed idempotently, affected monthly
+projections are rebuilt from immutable events, and unresolved known-project quarantine keeps
+metering freshness incomplete.
+
+The source-controlled gate defaults to `evidence-only`; accepted download evidence is deduplicated
+but creates no priced ledger entries and does not advance priced freshness. Non-zero pricing is
+eligible only after an explicitly authorized non-production deployment passes the full, range,
+cancelled, repeated, expired-or-failed, and unused transfer matrix, exact-key replay, queue/DLQ, and
+deduplication checks. Failure leaves the gate unchanged and raises the documented CloudFront
+fallback for an owner decision. A pass still requires a separate reviewed source change, preview,
+and deployment authorization; the harness never flips the gate.
+
+The operator harness is dry-run by default and requires explicit non-production resource inputs.
+Supply the disposable server-side project key only through the environment when execution has been
+authorized:
+
+```powershell
+$env:DOWNLOAD_METERING_PROJECT_KEY = '<disposable-server-side-key>'
+npm run acceptance:download-metering -- --stage dev-rus02 --api-url <https-api-url> --file-id <file-id> --log-bucket <log-bucket> --processor-function <processor-function> --main-queue-url <https-main-queue-url> --dlq-url <https-dlq-url>
+```
+
+Add `--execute` only for the authorized transfer exercise. After inspecting and correcting a
+terminal failure, redrive additionally requires `--redrive --redrive-authorized --dlq-arn
+<dead-letter-queue-arn>`. The harness performs the exact AWS identity preflight and emits only a
+redacted, machine-readable decision summary.
+
+The eventual dashboard value is **AWS-equivalent usage cost**: published list-rate attribution for
+project activity, excluding free tiers, discounts, credits, taxes, and shared infrastructure. It is
+not an allocation of the AWS invoice.
 
 ## Codex project setup
 

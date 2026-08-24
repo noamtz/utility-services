@@ -20,11 +20,21 @@ import {
 } from "./fixed-point.js";
 import {
   CHECKPOINT_SORT_KEY,
+  CLOUDTRAIL_DOWNLOAD_SOURCE_KIND,
   DEDUPE_RETENTION_DAYS,
   DEDUPE_SORT_KEY,
+  DOWNLOAD_EVIDENCE_SORT_KEY,
+  DOWNLOAD_QUARANTINE_SORT_KEY,
   QUARANTINE_RETENTION_DAYS,
   TOTAL_AGGREGATE_SORT_KEY,
   dedupePartitionKey,
+  canonicalCloudTrailEventId,
+  downloadEventDigest,
+  downloadEvidenceFingerprint,
+  downloadEvidencePartitionKey,
+  downloadFileDigest,
+  downloadMetricSourceDigest,
+  downloadQuarantinePartitionKey,
   inputFingerprint,
   ledgerExpiry,
   metricAggregateSortKey,
@@ -39,7 +49,9 @@ import {
   usageEventSortKey,
   usagePeriod,
   type DedupeItem,
+  type DownloadMeteringQuarantineItem,
   type MetricAggregateItem,
+  type ProcessedDownloadEvidenceItem,
   type QuarantineItem,
   type StorageCheckpointItem,
   type TotalAggregateItem,
@@ -79,6 +91,25 @@ export interface RecordUsageResult {
   readonly costAtoms: bigint;
   readonly priceVersionId: string;
   readonly occurredAt: string;
+}
+
+export interface DownloadEvidenceInput {
+  readonly eventId: string;
+  readonly internalProjectId: string;
+  readonly fileId: string;
+  readonly occurredAt: string;
+  readonly bytesTransferredOut: bigint;
+  readonly accountId: string;
+  readonly region: string;
+  readonly rawLogDigest: string;
+}
+
+export interface DownloadEvidenceResult {
+  readonly status: "observed" | "recorded" | "duplicate";
+  readonly internalProjectId: string;
+  readonly period: string;
+  readonly occurredAt: string;
+  readonly bytesTransferredOut: bigint;
 }
 
 export interface FreshnessPolicy {
@@ -152,6 +183,49 @@ export function createUsagePricingService(options: {
     };
   }
 
+  function createDownloadEvidence(
+    input: DownloadEvidenceInput,
+    pricingStatus: "observed-unpriced" | "priced",
+  ): ProcessedDownloadEvidenceItem {
+    const eventId = canonicalCloudTrailEventId(input.eventId);
+    const internalProjectId = InternalProjectIdSchema.parse(input.internalProjectId);
+    const occurredAt = canonicalTimestamp(input.occurredAt);
+    const observedAt = canonicalTimestamp(now());
+    const eventDigest = downloadEventDigest(eventId);
+    return {
+      pk: downloadEvidencePartitionKey(eventDigest),
+      sk: DOWNLOAD_EVIDENCE_SORT_KEY,
+      itemType: "processed-download-evidence",
+      eventDigest,
+      fingerprint: downloadEvidenceFingerprint({
+        ...input,
+        eventId,
+        internalProjectId,
+        occurredAt,
+      }),
+      internalProjectId,
+      fileDigest: downloadFileDigest(internalProjectId, input.fileId),
+      occurredAt,
+      observedAt,
+      bytesTransferredOut: assertDynamoInteger(input.bytesTransferredOut),
+      pricingStatus,
+      expiresAt: retentionExpiry(observedAt, DEDUPE_RETENTION_DAYS),
+    };
+  }
+
+  function downloadResult(
+    status: DownloadEvidenceResult["status"],
+    evidence: ProcessedDownloadEvidenceItem,
+  ): DownloadEvidenceResult {
+    return Object.freeze({
+      status,
+      internalProjectId: evidence.internalProjectId,
+      period: usagePeriod(evidence.occurredAt),
+      occurredAt: evidence.occurredAt,
+      bytesTransferredOut: evidence.bytesTransferredOut,
+    });
+  }
+
   async function quarantine(input: {
     readonly reasonCode: string;
     readonly sourceKind: string;
@@ -190,7 +264,66 @@ export function createUsagePricingService(options: {
       );
   }
 
-  async function advanceWatermark(input: RecordUsageInput): Promise<void> {
+  async function quarantineDownloadEvidence(input: {
+    readonly reasonCode: string;
+    readonly evidenceHash: string;
+    readonly observedAt: string;
+    readonly internalProjectId?: string;
+  }): Promise<"recorded" | "duplicate"> {
+    const observedAt = canonicalTimestamp(input.observedAt);
+    const reasonCode = z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{0,63}$/u)
+      .parse(input.reasonCode);
+    const internalProjectId = input.internalProjectId
+      ? InternalProjectIdSchema.parse(input.internalProjectId)
+      : undefined;
+    const suppliedHash = z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .parse(input.evidenceHash);
+    const evidenceHash = sha256(
+      "download-quarantine",
+      reasonCode,
+      suppliedHash,
+      internalProjectId ?? "unknown-project",
+    );
+    const item: DownloadMeteringQuarantineItem = {
+      pk: downloadQuarantinePartitionKey(evidenceHash),
+      sk: DOWNLOAD_QUARANTINE_SORT_KEY,
+      itemType: "download-metering-quarantine",
+      evidenceHash,
+      reasonCode,
+      sourceKind: CLOUDTRAIL_DOWNLOAD_SOURCE_KIND,
+      observedAt,
+      ...(internalProjectId ? { internalProjectId } : {}),
+      expiresAt: retentionExpiry(observedAt, QUARANTINE_RETENTION_DAYS),
+    };
+    const putDownloadQuarantine = options.repository.putDownloadQuarantine?.bind(
+      options.repository,
+    );
+    if (!putDownloadQuarantine) throw new Error("Download metering repository is unavailable");
+    const result = await retry(
+      () => putDownloadQuarantine(item, observedAt),
+      (error) => error instanceof UsageRepositoryConflictError,
+    );
+    if (internalProjectId) {
+      await retry(
+        () =>
+          options.repository.markWatermarkIncomplete(
+            internalProjectId,
+            CLOUDTRAIL_DOWNLOAD_SOURCE_KIND,
+            observedAt,
+          ),
+        (error) => error instanceof UsageRepositoryConflictError,
+      );
+    }
+    return result.status;
+  }
+
+  async function advanceWatermark(
+    input: Pick<RecordUsageInput, "internalProjectId" | "sourceKind" | "occurredAt">,
+  ): Promise<void> {
     await retry(
       () =>
         options.repository.advanceWatermark(
@@ -274,6 +407,107 @@ export function createUsagePricingService(options: {
       priceVersionId: accepted.priceVersionId,
       occurredAt: accepted.occurredAt,
     });
+  }
+
+  async function observeDownloadEvidence(
+    rawInput: DownloadEvidenceInput,
+  ): Promise<DownloadEvidenceResult> {
+    const evidence = createDownloadEvidence(rawInput, "observed-unpriced");
+    const observe = options.repository.observeDownloadEvidence?.bind(options.repository);
+    if (!observe) throw new Error("Download metering repository is unavailable");
+    try {
+      const result = await retry(
+        () => observe(evidence, evidence.observedAt),
+        (error) => error instanceof UsageRepositoryConflictError,
+      );
+      return downloadResult(result.status, result.evidence);
+    } catch (error) {
+      if (error instanceof UsageSourceConflictError) {
+        await quarantineDownloadEvidence({
+          reasonCode: "divergent-download-evidence",
+          evidenceHash: evidence.fingerprint,
+          observedAt: evidence.observedAt,
+          internalProjectId: evidence.internalProjectId,
+        });
+      }
+      throw error;
+    }
+  }
+
+  async function recordDownloadEvidence(
+    rawInput: DownloadEvidenceInput,
+  ): Promise<DownloadEvidenceResult> {
+    const evidence = createDownloadEvidence(rawInput, "priced");
+    const eventId = canonicalCloudTrailEventId(rawInput.eventId);
+    const price = await options.repository.findEffectivePrice(evidence.occurredAt);
+    if (!price) throw new NoEffectivePriceVersionError();
+    const metricQuantities = [
+      ["s3-download-requests", 1n],
+      ["s3-download-bytes-out", evidence.bytesTransferredOut],
+      ["cloudtrail-s3-data-events", 1n],
+    ] as const;
+    const events = metricQuantities.map(([metric, quantityAtoms]) => {
+      const charge = calculateUsageCharge({
+        version: price,
+        metric,
+        quantityAtoms,
+        occurredAt: evidence.occurredAt,
+      });
+      const digest = downloadMetricSourceDigest(evidence.internalProjectId, eventId, metric);
+      const fingerprint = inputFingerprint({
+        internalProjectId: evidence.internalProjectId,
+        metric,
+        quantityAtoms,
+        sourceKind: CLOUDTRAIL_DOWNLOAD_SOURCE_KIND,
+        sourceId: `${eventId}:${metric}`,
+        occurredAt: evidence.occurredAt,
+      });
+      const period = usagePeriod(evidence.occurredAt);
+      const event: UsageEventItem = {
+        pk: projectMonthPartitionKey(evidence.internalProjectId, period),
+        sk: usageEventSortKey(evidence.occurredAt, digest),
+        itemType: "usage-event",
+        internalProjectId: evidence.internalProjectId,
+        period,
+        metric,
+        quantityAtoms,
+        occurredAt: evidence.occurredAt,
+        sourceKind: CLOUDTRAIL_DOWNLOAD_SOURCE_KIND,
+        sourceDigest: digest,
+        inputFingerprint: fingerprint,
+        priceVersionId: charge.priceVersionId,
+        priceEffectiveAt: charge.priceEffectiveAt,
+        rate: charge.rate,
+        costAtoms: charge.costAtoms,
+        createdAt: evidence.observedAt,
+        expiresAt: ledgerExpiry(evidence.occurredAt),
+      };
+      return event;
+    }) as [UsageEventItem, UsageEventItem, UsageEventItem];
+    const record = options.repository.recordDownloadEvent?.bind(options.repository);
+    if (!record) throw new Error("Download metering repository is unavailable");
+    try {
+      const result = await retry(
+        () => record(evidence, events, evidence.observedAt),
+        (error) => error instanceof UsageRepositoryConflictError,
+      );
+      await advanceWatermark({
+        internalProjectId: evidence.internalProjectId,
+        sourceKind: CLOUDTRAIL_DOWNLOAD_SOURCE_KIND,
+        occurredAt: evidence.occurredAt,
+      });
+      return downloadResult(result.status, result.evidence);
+    } catch (error) {
+      if (error instanceof UsageSourceConflictError) {
+        await quarantineDownloadEvidence({
+          reasonCode: "divergent-download-evidence",
+          evidenceHash: evidence.fingerprint,
+          observedAt: evidence.observedAt,
+          internalProjectId: evidence.internalProjectId,
+        });
+      }
+      throw error;
+    }
   }
 
   async function openStorage(input: {
@@ -518,6 +752,8 @@ export function createUsagePricingService(options: {
 
   return Object.freeze({
     recordUsage,
+    observeDownloadEvidence,
+    recordDownloadEvidence,
     openStorage,
     checkpointStorageThrough: (input: {
       internalProjectId: string;
@@ -534,5 +770,6 @@ export function createUsagePricingService(options: {
     getMonthlyProjection,
     rebuildMonthlyProjection,
     quarantine,
+    quarantineDownloadEvidence,
   });
 }

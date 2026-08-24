@@ -7,6 +7,105 @@ declare const $interpolate: (
   ...values: unknown[]
 ) => SstOutput<string>;
 
+declare const $app: { readonly stage: string };
+
+interface ComponentResourceOptions {
+  readonly dependsOn?: unknown[];
+  readonly parent?: unknown;
+}
+
+declare namespace aws.iam {
+  function getPolicyDocumentOutput(args: {
+    statements: Array<{
+      sid?: string;
+      effect?: "Allow" | "Deny";
+      actions: readonly string[];
+      resources: readonly (SstOutput<string> | string)[];
+      principals: Array<{ type: string; identifiers: readonly string[] }>;
+      conditions?: Array<{
+        test: string;
+        variable: string;
+        values: readonly (SstOutput<string> | string)[];
+      }>;
+    }>;
+  }): { json: SstOutput<string> };
+}
+
+declare namespace aws.s3 {
+  class BucketPolicy {
+    public constructor(
+      name: string,
+      args: { bucket: SstOutput<string> | string; policy: SstOutput<string> | string },
+      options?: ComponentResourceOptions,
+    );
+  }
+
+  class BucketNotification {
+    public constructor(
+      name: string,
+      args: {
+        bucket: SstOutput<string> | string;
+        queues: Array<{
+          id?: string;
+          events: string[];
+          filterPrefix?: string;
+          filterSuffix?: string;
+          queueArn: SstOutput<string> | string;
+        }>;
+      },
+      options?: ComponentResourceOptions,
+    );
+  }
+}
+
+declare namespace aws.sqs {
+  class QueuePolicy {
+    public constructor(
+      name: string,
+      args: { queueUrl: SstOutput<string> | string; policy: SstOutput<string> | string },
+      options?: ComponentResourceOptions,
+    );
+  }
+}
+
+declare namespace aws.cloudtrail {
+  class Trail {
+    public readonly arn: SstOutput<string>;
+    public constructor(
+      name: string,
+      args: {
+        name: string;
+        s3BucketName: SstOutput<string> | string;
+        advancedEventSelectors:
+          | SstOutput<
+              Array<{
+                name?: string;
+                fieldSelectors: ReadonlyArray<{
+                  field: string;
+                  equals?: readonly string[];
+                  startsWiths?: readonly string[];
+                }>;
+              }>
+            >
+          | Array<{
+              name?: string;
+              fieldSelectors: ReadonlyArray<{
+                field: string;
+                equals?: readonly string[];
+                startsWiths?: readonly string[];
+              }>;
+            }>;
+        enableLogFileValidation?: boolean;
+        enableLogging?: boolean;
+        includeGlobalServiceEvents?: boolean;
+        isMultiRegionTrail?: boolean;
+        isOrganizationTrail?: boolean;
+      },
+      options?: ComponentResourceOptions,
+    );
+  }
+}
+
 declare namespace aws.cloudfront {
   class CachePolicy {
     public constructor(
@@ -78,9 +177,22 @@ declare namespace sst {
     interface FunctionDefinition {
       handler: string;
       runtime: "nodejs24.x";
+      environment?: Record<string, string | SstOutput<string>>;
       link?: unknown[];
+      memory?: `${number} MB` | `${number} GB`;
       permissions?: Array<{ actions: string[]; resources: unknown[] }>;
+      timeout?: `${number} seconds` | `${number} minutes`;
       transform?: { function?: { tracingConfig?: { mode: "Active" | "PassThrough" } } };
+    }
+
+    class Function {
+      public constructor(
+        name: string,
+        args: FunctionDefinition,
+        options?: ComponentResourceOptions,
+      );
+      public readonly name: SstOutput<string>;
+      public readonly arn: SstOutput<string>;
     }
 
     interface RouteArgs {
@@ -153,10 +265,22 @@ declare namespace sst {
     interface BucketArgs {
       cors?: false;
       enforceHttps?: boolean;
+      lifecycle?: Array<{
+        id?: string;
+        prefix?: string;
+        enabled?: boolean;
+        expiresIn?: `${number} days`;
+      }>;
       policy?: Array<{
         actions: readonly string[];
         effect?: "allow" | "deny";
-        principals: "*";
+        principals:
+          | "*"
+          | Array<{
+              type: "aws" | "service" | "federated" | "canonical";
+              identifiers: readonly string[];
+            }>;
+        paths?: readonly string[];
         conditions?: ReadonlyArray<{
           test: string;
           variable: string;
@@ -179,7 +303,9 @@ declare namespace sst {
         name: string;
         events: Array<"s3:ObjectCreated:Put">;
         filterPrefix: string;
-        function: FunctionDefinition;
+        filterSuffix?: string;
+        function?: FunctionDefinition;
+        queue?: Queue | SstOutput<string> | string;
       }>;
     }
 
@@ -187,7 +313,35 @@ declare namespace sst {
       public constructor(name: string, args?: BucketArgs);
       public readonly name: SstOutput<string>;
       public readonly arn: SstOutput<string>;
+      public readonly nodes: { bucket: unknown };
       public notify(args: BucketNotificationArgs): unknown;
+    }
+
+    interface QueueArgs {
+      fifo?: boolean;
+      visibilityTimeout?: `${number} seconds` | `${number} minutes` | `${number} hours`;
+      dlq?: SstOutput<string> | string | { queue: SstOutput<string> | string; retry: number };
+      transform?: {
+        queue?: (args: {
+          messageRetentionSeconds?: number;
+          sqsManagedSseEnabled?: boolean;
+        }) => void;
+      };
+    }
+
+    interface QueueSubscriberArgs {
+      batch?: { size?: number; window?: `${number} seconds`; partialResponses?: boolean };
+    }
+
+    class Queue {
+      public constructor(name: string, args?: QueueArgs, options?: ComponentResourceOptions);
+      public readonly arn: SstOutput<string>;
+      public readonly url: SstOutput<string>;
+      public subscribe(
+        subscriber: SstOutput<string> | string | FunctionDefinition,
+        args?: QueueSubscriberArgs,
+        options?: ComponentResourceOptions,
+      ): unknown;
     }
 
     class Cron {

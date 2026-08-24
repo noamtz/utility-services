@@ -7,7 +7,9 @@ import {
   metricAggregateSortKey,
   TOTAL_AGGREGATE_SORT_KEY,
   type DedupeItem,
+  type DownloadMeteringQuarantineItem,
   type MetricAggregateItem,
+  type ProcessedDownloadEvidenceItem,
   type QuarantineItem,
   type StorageCheckpointItem,
   type TotalAggregateItem,
@@ -21,6 +23,7 @@ import {
   UsageSourceConflictError,
   type AggregateItem,
   type RecordEventResult,
+  type RecordDownloadEventResult,
   type UsagePricingRepository,
 } from "./repository.js";
 import { StorageEvidenceConflictError, createUsagePricingService } from "./service.js";
@@ -80,10 +83,13 @@ class MemoryRepository implements UsagePricingRepository {
   public readonly checkpoints = new Map<string, StorageCheckpointItem>();
   public readonly watermarks = new Map<string, WatermarkItem>();
   public readonly quarantines: QuarantineItem[] = [];
+  public readonly downloadEvidence = new Map<string, ProcessedDownloadEvidenceItem>();
+  public readonly downloadQuarantines = new Map<string, DownloadMeteringQuarantineItem>();
   public failWatermarkOnce = false;
   public failAfterRecordOnce = false;
   public projectionConflictOnce = false;
   public checkpointConflictOnce = false;
+  public downloadFailureOnce = false;
   public constructor(public readonly prices: PriceVersion[]) {}
 
   public async listPriceVersions() {
@@ -136,6 +142,73 @@ class MemoryRepository implements UsagePricingRepository {
       throw new Error("simulated crash after durable record");
     }
     return { status: "recorded" };
+  }
+  public async getDownloadEvidence(eventDigest: string) {
+    return this.downloadEvidence.get(eventDigest);
+  }
+  public async observeDownloadEvidence(evidence: ProcessedDownloadEvidenceItem) {
+    const existing = this.downloadEvidence.get(evidence.eventDigest);
+    if (existing && existing.fingerprint !== evidence.fingerprint)
+      throw new UsageSourceConflictError();
+    if (existing) return { status: "duplicate" as const, evidence: existing };
+    this.downloadEvidence.set(evidence.eventDigest, evidence);
+    return { status: "observed" as const, evidence };
+  }
+  public async recordDownloadEvent(
+    evidence: ProcessedDownloadEvidenceItem,
+    events: readonly [UsageEventItem, UsageEventItem, UsageEventItem],
+  ): Promise<RecordDownloadEventResult> {
+    if (this.downloadFailureOnce) {
+      this.downloadFailureOnce = false;
+      throw new Error("simulated atomic failure");
+    }
+    const existing = this.downloadEvidence.get(evidence.eventDigest);
+    if (existing && existing.fingerprint !== evidence.fingerprint)
+      throw new UsageSourceConflictError();
+    if (existing?.pricingStatus === "priced") {
+      return { status: "duplicate", evidence: existing, events };
+    }
+    for (const event of events) {
+      const existingEvent = this.events.get(`${event.pk}|${event.sk}`);
+      if (existingEvent && existingEvent.inputFingerprint !== event.inputFingerprint)
+        throw new UsageSourceConflictError();
+    }
+    this.downloadEvidence.set(evidence.eventDigest, evidence);
+    for (const event of events) {
+      const key = `${event.pk}|${event.sk}`;
+      if (this.events.has(key)) continue;
+      this.events.set(key, event);
+      const metricKey = `${event.pk}|${metricAggregateSortKey(event.metric)}`;
+      const previousMetric = this.aggregates.get(metricKey) as MetricAggregateItem | undefined;
+      this.aggregates.set(metricKey, {
+        pk: event.pk,
+        sk: metricAggregateSortKey(event.metric),
+        itemType: "usage-aggregate-metric",
+        internalProjectId: event.internalProjectId,
+        period: event.period,
+        metric: event.metric,
+        quantityAtoms: (previousMetric?.quantityAtoms ?? 0n) + event.quantityAtoms,
+        costAtoms: (previousMetric?.costAtoms ?? 0n) + event.costAtoms,
+        revision: (previousMetric?.revision ?? 0n) + 1n,
+        priceVersionIds: new Set([
+          ...(previousMetric?.priceVersionIds ?? []),
+          event.priceVersionId,
+        ]),
+      });
+      const totalKey = `${event.pk}|${TOTAL_AGGREGATE_SORT_KEY}`;
+      const previousTotal = this.aggregates.get(totalKey) as TotalAggregateItem | undefined;
+      this.aggregates.set(totalKey, {
+        pk: event.pk,
+        sk: TOTAL_AGGREGATE_SORT_KEY,
+        itemType: "usage-aggregate-total",
+        internalProjectId: event.internalProjectId,
+        period: event.period,
+        costAtoms: (previousTotal?.costAtoms ?? 0n) + event.costAtoms,
+        revision: (previousTotal?.revision ?? 0n) + 1n,
+        priceVersionIds: new Set([...(previousTotal?.priceVersionIds ?? []), event.priceVersionId]),
+      });
+    }
+    return { status: "recorded", evidence, events };
   }
   public async listEvents(internalProjectId: string, period: string) {
     return [...this.events.values()].filter(
@@ -190,7 +263,7 @@ class MemoryRepository implements UsagePricingRepository {
     }
     const key = `${internalProjectId}|${sourceKind}`;
     const existing = this.watermarks.get(key);
-    if (!existing || existing.lastMeteredAt <= meteredAt)
+    if (!existing || existing.lastMeteredAt < meteredAt)
       this.watermarks.set(key, {
         pk: `PROJECT#${internalProjectId}`,
         sk: `WATERMARK#${sourceKind}`,
@@ -198,7 +271,7 @@ class MemoryRepository implements UsagePricingRepository {
         internalProjectId,
         sourceKind,
         lastMeteredAt: meteredAt,
-        incompleteSince: null,
+        incompleteSince: existing?.incompleteSince ?? null,
       });
   }
   public async markWatermarkIncomplete(
@@ -221,6 +294,13 @@ class MemoryRepository implements UsagePricingRepository {
   public async putQuarantine(item: QuarantineItem) {
     this.quarantines.push(item);
   }
+  public async putDownloadQuarantine(item: DownloadMeteringQuarantineItem) {
+    const existing = this.downloadQuarantines.get(item.pk);
+    if (existing && existing.reasonCode !== item.reasonCode) throw new UsageSourceConflictError();
+    if (existing) return { status: "duplicate" as const };
+    this.downloadQuarantines.set(item.pk, item);
+    return { status: "recorded" as const };
+  }
 }
 
 function setup(
@@ -238,6 +318,68 @@ function setup(
 }
 
 describe("usage pricing service record policy", () => {
+  const downloadInput = {
+    eventId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    internalProjectId: projectA,
+    fileId: "fil_0123456789abcdefghijkl",
+    occurredAt: "2026-08-10T00:00:00.000Z",
+    bytesTransferredOut: 42n,
+    accountId: "162067902192",
+    region: "il-central-1",
+    rawLogDigest: "d".repeat(64),
+  } as const;
+
+  it("observes evidence without ledger, aggregates, or freshness and promotes once later", async () => {
+    const { repository, service } = setup();
+    await expect(service.observeDownloadEvidence(downloadInput)).resolves.toMatchObject({
+      status: "observed",
+      bytesTransferredOut: 42n,
+    });
+    expect(repository.events).toHaveLength(0);
+    expect(repository.aggregates).toHaveLength(0);
+    expect(repository.watermarks).toHaveLength(0);
+    await expect(service.recordDownloadEvidence(downloadInput)).resolves.toMatchObject({
+      status: "recorded",
+      occurredAt: downloadInput.occurredAt,
+    });
+    await expect(service.recordDownloadEvidence(downloadInput)).resolves.toMatchObject({
+      status: "duplicate",
+    });
+    expect(repository.events).toHaveLength(3);
+    expect(
+      [...repository.events.values()].map((event) => [event.metric, event.quantityAtoms]),
+    ).toEqual([
+      ["s3-download-requests", 1n],
+      ["s3-download-bytes-out", 42n],
+      ["cloudtrail-s3-data-events", 1n],
+    ]);
+    expect(
+      [...repository.events.values()].every(
+        (event) => event.occurredAt === downloadInput.occurredAt,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps the three download metrics atomic and preserves incomplete freshness", async () => {
+    const { repository, service } = setup();
+    repository.downloadFailureOnce = true;
+    await expect(service.recordDownloadEvidence(downloadInput)).rejects.toThrow(
+      "simulated atomic failure",
+    );
+    expect(repository.events).toHaveLength(0);
+    await service.quarantineDownloadEvidence({
+      reasonCode: "missing-bytes",
+      evidenceHash: "e".repeat(64),
+      observedAt: "2026-08-09T00:00:00.000Z",
+      internalProjectId: projectA,
+    });
+    await service.recordDownloadEvidence(downloadInput);
+    const watermark = repository.watermarks.get(`${projectA}|cloudtrail-download`);
+    expect(watermark?.lastMeteredAt).toBe(downloadInput.occurredAt);
+    expect(watermark?.incompleteSince).toBe("2026-08-09T00:00:00.000Z");
+    expect(repository.downloadQuarantines).toHaveLength(1);
+  });
+
   it("records once, no-ops exact duplicates, and isolates projects with the same source string", async () => {
     const { repository, service } = setup();
     const input = {
