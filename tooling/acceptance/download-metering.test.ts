@@ -172,7 +172,7 @@ describe("download metering acceptance harness policy", () => {
         "--dlq-arn",
         "arn:aws:sqs:il-central-1:162067902192:download-dlq",
       ],
-      { execFile, env: { DOWNLOAD_METERING_PROJECT_KEY: "project-secret" } },
+      { execFile, env: {} },
     );
     expect(result).toMatchObject({ decision: "redrive-started", taskHandlePresent: true });
     expect(execFile.mock.calls[1]?.[1]).toEqual([
@@ -208,15 +208,21 @@ describe("download metering acceptance execution", () => {
         });
       }
       if (init?.signal) {
-        return new Promise<{
+        return Promise.resolve<{
           ok: boolean;
           status: number;
           json: () => Promise<unknown>;
           arrayBuffer: () => Promise<ArrayBuffer>;
-        }>((_resolve, reject) => {
-          init.signal!.addEventListener("abort", () => reject(new Error("aborted")), {
-            once: true,
-          });
+        }>({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({}),
+          arrayBuffer: () =>
+            new Promise<ArrayBuffer>((_resolve, reject) => {
+              init.signal!.addEventListener("abort", () => reject(new Error("aborted")), {
+                once: true,
+              });
+            }),
         });
       }
       const expired = url.includes("/5?");

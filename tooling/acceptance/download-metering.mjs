@@ -102,7 +102,7 @@ export function parseHarnessConfig(argv, env = process.env) {
     dlqArn: values.get("--dlq-arn"),
     projectKey: env["DOWNLOAD_METERING_PROJECT_KEY"],
   };
-  if (execute && !config.projectKey) {
+  if (execute && !redrive && !config.projectKey) {
     throw new Error("DOWNLOAD_METERING_PROJECT_KEY is required only for execution");
   }
   if (redrive && (!execute || !config.redriveAuthorized || !config.dlqArn)) {
@@ -223,11 +223,13 @@ async function runTransferMatrix(config, dependencies) {
     ),
   });
   const controller = new AbortController();
-  const cancelledRequest = dependencies.fetch(await authorize(), { signal: controller.signal });
+  const cancelledTransfer = dependencies
+    .fetch(await authorize(), { signal: controller.signal })
+    .then(bytes);
   await dependencies.sleep(100);
   controller.abort();
   try {
-    await cancelledRequest;
+    await cancelledTransfer;
     results.push({ case: "cancelled", cancelled: false });
   } catch {
     results.push({ case: "cancelled", cancelled: true });
