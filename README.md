@@ -7,7 +7,8 @@ credentials, direct File Management transfers, and the usage/pricing bounded con
 metering now has a source-controlled, evidence-first CloudTrail ingestion and reconciliation path;
 its initial `evidence-only` gate intentionally records no download cost. A separately authorized
 non-production deployment and real transfer-semantics exercise remain required before any reviewed
-switch to priced download metering. Dashboard/API usage presentation remains later work.
+switch to priced download metering. The dashboard now includes project credential management,
+current-month usage presentation, and a copyable server-side File Management integration guide.
 
 The [Product Requirements](https://github.com/noamtz/utility-services/wiki/Product-Requirements-Epic),
 [Architecture](https://github.com/noamtz/utility-services/wiki/Architecture), and
@@ -36,6 +37,7 @@ start Vite:
 ```dotenv
 VITE_COGNITO_USER_POOL_ID=il-central-1_LocalPreview
 VITE_COGNITO_USER_POOL_CLIENT_ID=0123456789abcdefghijklmnop
+VITE_API_URL=https://api.example.com
 ```
 
 ```powershell
@@ -101,8 +103,8 @@ npm run infra:deploy -- --stage dev-noam
 The provider installation regenerates `.sst/platform` locally from pinned `sst@4.17.1` and
 `@pulumi/aws@7.43.0`; generated SST files are intentionally ignored. A successful non-production
 `infra:diff` is the infrastructure-composition gate and never substitutes for a deployment. The
-owner control plane uses one invite-only user pool and secretless client, one control table, seven
-JWT-protected project and credential routes, and a no-cache same-origin `v1/control/*` dashboard
+owner control plane uses one invite-only user pool and secretless client, one control table, eight
+JWT-protected project, credential, and usage routes, and a no-cache same-origin `v1/control/*` dashboard
 behavior; `/v1/health` remains public. Project API keys are server-side bearer secrets, are shown
 only by successful issue/replace responses, and must never be placed in browser code, URLs, logs,
 repositories, or examples. The independent usage/pricing table retains immutable price evidence,
@@ -150,6 +152,22 @@ redacted, machine-readable decision summary.
 The eventual dashboard value is **AWS-equivalent usage cost**: published list-rate attribution for
 project activity, excluding free tiers, discounts, credits, taxes, and shared infrastructure. It is
 not an allocation of the AWS invoice.
+
+## Dashboard integration boundary
+
+Cognito authenticates an invited owner to the dashboard, where the owner can see only owned
+projects, manage project API keys, and read the selected project's current-month usage. Project API
+keys authenticate the consuming application's server—not dashboard or end-client code—and establish
+the project boundary for authorization, quotas, and usage attribution. A newly issued key is shown
+once and should be moved immediately to the server's secret manager.
+
+The selected-project guide provides the canonical `curl` sequence. The application server requests
+upload and download authorizations from `/v1/files`, then gives clients only the complete opaque,
+temporary presigned URLs. File bytes transfer directly with S3 and never pass through the dashboard,
+API Gateway, or Lambda. Presigning authorizes S3 access but does not bypass browser CORS; browser
+cross-origin transfers require a separately approved bucket-origin policy. Current download
+metering remains evidence-only until its acceptance gate is passed, so the dashboard surfaces the
+projection's freshness state rather than implying that all evidence is already priced.
 
 ## Codex project setup
 

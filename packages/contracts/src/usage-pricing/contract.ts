@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { createSuccessEnvelopeSchema } from "../http/envelope.js";
+
 export const USAGE_METRICS = [
   "s3-storage-byte-milliseconds",
   "s3-upload-requests",
@@ -125,6 +127,10 @@ export const MonthlyUsageProjectionSchema = z
   })
   .strict();
 
+export const CurrentMonthlyUsageResponseSchema = createSuccessEnvelopeSchema(
+  MonthlyUsageProjectionSchema,
+);
+
 export type UsageMetric = z.infer<typeof UsageMetricSchema>;
 export type PriceRate = z.infer<typeof PriceRateSchema>;
 export type PriceSource = z.infer<typeof PriceSourceSchema>;
@@ -132,3 +138,4 @@ export type PriceVersion = z.infer<typeof PriceVersionSchema>;
 export type UsageMetricBreakdown = z.infer<typeof UsageMetricBreakdownSchema>;
 export type MeteringFreshness = z.infer<typeof MeteringFreshnessSchema>;
 export type MonthlyUsageProjection = z.infer<typeof MonthlyUsageProjectionSchema>;
+export type CurrentMonthlyUsageResponse = z.infer<typeof CurrentMonthlyUsageResponseSchema>;

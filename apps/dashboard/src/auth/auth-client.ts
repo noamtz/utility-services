@@ -9,6 +9,8 @@ import {
 
 import type { DashboardConfig } from "../config.js";
 
+type AuthConfig = Pick<DashboardConfig, "userPoolId" | "userPoolClientId">;
+
 export type AuthSignInState = "signed-in" | "new-password-required";
 
 export interface AuthClient {
@@ -45,7 +47,7 @@ const defaultDependencies: AuthDependencies = {
 
 let configuredKey: string | undefined;
 
-function configureOnce(config: DashboardConfig, dependencies: AuthDependencies) {
+function configureOnce(config: AuthConfig, dependencies: AuthDependencies) {
   const key = `${config.userPoolId}:${config.userPoolClientId}`;
   if (dependencies === defaultDependencies && configuredKey === key) return;
   dependencies.configure({
@@ -60,7 +62,7 @@ function configureOnce(config: DashboardConfig, dependencies: AuthDependencies) 
 }
 
 export function createAuthClient(
-  config: DashboardConfig,
+  config: AuthConfig,
   dependencies: AuthDependencies = defaultDependencies,
 ): AuthClient {
   configureOnce(config, dependencies);

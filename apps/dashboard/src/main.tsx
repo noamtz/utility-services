@@ -12,12 +12,13 @@ if (!root) {
   throw new Error("Dashboard root element is missing");
 }
 
-const authClient = createAuthClient(loadDashboardConfig());
+const config = loadDashboardConfig();
+const authClient = createAuthClient(config);
 
 createRoot(root).render(
   <StrictMode>
     <AuthProvider client={authClient}>
-      <App />
+      <App apiBaseUrl={config.apiBaseUrl} />
     </AuthProvider>
   </StrictMode>,
 );
