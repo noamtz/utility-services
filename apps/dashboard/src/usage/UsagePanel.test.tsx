@@ -69,6 +69,9 @@ describe("UsagePanel", () => {
     );
     expect(await screen.findByText("$0.01", { exact: false })).toBeVisible();
     expect(screen.getByText(/Metering: stale/)).toBeVisible();
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Download metering is in validation mode. Download requests, bytes, and costs are not included yet; refreshing will not add them until pricing is enabled after validation.",
+    );
     expect(screen.getByText(/Period 2026-08 UTC/)).toBeVisible();
     expect(screen.getByText(/not an allocated AWS invoice/i)).toBeVisible();
   });

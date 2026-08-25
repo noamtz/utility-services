@@ -81,3 +81,54 @@ Request changes. Fix the stale secret and usage races, add explicit credential c
   against `origin/main` passed.
 - Post-fix `npm run check` passed 91 test files / 532 tests. Coverage passed at 86.30% statements,
   80.02% branches, 91.64% functions, and 89.02% lines; the production dashboard build passed.
+
+## Final re-review after deployed human test
+
+**Recommendation: REQUEST CHANGES — one Medium UX blocker remains**
+
+### AGENT FIXES
+
+- **Medium — evidence-only download behavior is presented as an ordinary asynchronous delay**
+  (`apps/dashboard/src/usage/UsagePanel.tsx:70`). The panel renders only “Metering: not yet
+  metered.” In the deployed evidence-only mode, completed downloads remain excluded from download
+  requests, bytes, and cost until a separately authorized priced-mode release; waiting and refreshing
+  cannot make them appear. Add a prominent conditional notice such as “Download metering is in
+  validation mode; download requests, bytes, and costs are not included yet,” and cover it with a
+  dashboard regression test. The later priced-gate change must update or remove the notice.
+
+### HUMAN READS
+
+- **Usage truthfulness** (`apps/dashboard/src/usage/UsagePanel.tsx:70`): verify the final text clearly
+  distinguishes evidence-only validation from normal CloudTrail processing delay.
+- **Gate source of truth** (`infra/config/download-metering.ts:17`): verify the UI notice remains
+  accurate while `DOWNLOAD_PRICING_MODE` is `evidence-only`.
+- **Repository explanation** (`README.md:130`): keep the dashboard wording consistent with the
+  documented rule that observed evidence creates no priced ledger entries or freshness advance.
+
+### HUMAN TESTS
+
+- **Completed-download refresh** (`apps/dashboard/src/usage/UsagePanel.test.tsx:76`): after a real
+  download and dashboard refresh, verify the validation-mode notice explains why download metrics
+  remain zero and does not tell the owner merely to wait.
+
+### FYI
+
+- **Prior findings remain resolved** (`apps/dashboard/src/credentials/ApiKeyPanel.tsx:14`): the final
+  re-review confirmed stale key/usage isolation, confirmation flows, UTC-period display, and diff
+  safety; no other material findings remain.
+
+### Final validation
+
+- **Full gate passed** (`package.json:27`): `npm run check` passed 91 files / 532 tests with 86.30%
+  statements, 80.02% branches, 91.64% functions, and 89.02% lines; the production build passed.
+
+### Final resolution
+
+- **Evidence-only notice added** (`apps/dashboard/src/usage/UsagePanel.tsx:75`): the dashboard now
+  states prominently that download requests, bytes, and costs are excluded during validation and
+  that refreshing cannot add them before the separately authorized pricing-mode change.
+- **Regression coverage added** (`apps/dashboard/src/usage/UsagePanel.test.tsx:72`): the usage panel
+  test requires the complete validation-mode explanation.
+- **Targeted re-review passed** (`apps/dashboard/src/styles.css:290`): the notice is semantically and
+  visually distinct, exposes no sensitive implementation detail, and resolves the final Medium
+  finding. No material blockers remain; PR #22 is safe to merge after commit, push, and deployment.

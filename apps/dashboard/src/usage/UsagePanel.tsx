@@ -72,6 +72,11 @@ export function UsagePanel({ projectId, api }: { projectId: string; api: UsageAp
             {usage.freshness.lastMeteredAt &&
               ` · through ${new Date(usage.freshness.lastMeteredAt).toLocaleString()}`}
           </p>
+          <p className="metering-notice" role="note">
+            <strong>Download metering is in validation mode.</strong> Download requests, bytes, and
+            costs are not included yet; refreshing will not add them until pricing is enabled after
+            validation.
+          </p>
           <p className="field-note">
             Period {usage.period} UTC · Evaluated{" "}
             {new Date(usage.freshness.evaluatedAt).toLocaleString()} · Price versions:{" "}
