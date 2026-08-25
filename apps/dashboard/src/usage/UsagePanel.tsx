@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { MonthlyUsageProjection, UsageMetric } from "@utility-services/contracts";
 
@@ -17,20 +17,31 @@ export function UsagePanel({ projectId, api }: { projectId: string; api: UsageAp
   const [usage, setUsage] = useState<MonthlyUsageProjection>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const requestGeneration = useRef(0);
 
-  async function load() {
+  async function load(clearCurrent = false) {
+    const generation = ++requestGeneration.current;
     setLoading(true);
     setError(undefined);
+    if (clearCurrent) setUsage(undefined);
     try {
-      setUsage(await api.currentMonth(projectId));
+      const current = await api.currentMonth(projectId);
+      if (generation !== requestGeneration.current) return;
+      setUsage(current);
     } catch (failure) {
+      if (generation !== requestGeneration.current) return;
       setError(failure instanceof ControlApiError ? failure.message : "Usage could not be loaded.");
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) setLoading(false);
     }
   }
 
-  useEffect(() => void load(), [projectId, api]);
+  useEffect(() => {
+    void load(true);
+    return () => {
+      requestGeneration.current += 1;
+    };
+  }, [projectId, api]);
 
   return (
     <section className="panel experience-panel" aria-labelledby="usage-title">
@@ -62,7 +73,8 @@ export function UsagePanel({ projectId, api }: { projectId: string; api: UsageAp
               ` · through ${new Date(usage.freshness.lastMeteredAt).toLocaleString()}`}
           </p>
           <p className="field-note">
-            Evaluated {new Date(usage.freshness.evaluatedAt).toLocaleString()} · Price versions:{" "}
+            Period {usage.period} UTC · Evaluated{" "}
+            {new Date(usage.freshness.evaluatedAt).toLocaleString()} · Price versions:{" "}
             {usage.priceVersionIds.length > 0
               ? usage.priceVersionIds.join(", ")
               : "none applied yet"}

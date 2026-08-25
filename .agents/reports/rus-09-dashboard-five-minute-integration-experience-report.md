@@ -1,7 +1,9 @@
 # Implementation Report — RUS-09 dashboard and five-minute integration experience
 
-**Plan**: `.agents/plans/rus-09-dashboard-five-minute-integration-experience.md`  
-**Branch**: `feature/rus-09-dashboard-five-minute-integration`  
+**Plan**: `.agents/plans/rus-09-dashboard-five-minute-integration-experience.md`
+
+**Branch**: `feature/rus-09-dashboard-five-minute-integration`
+
 **Status**: COMPLETE
 
 ## Summary
@@ -43,7 +45,7 @@ only those temporary URLs to their clients.
   guide, and selected-project journey coverage for the dashboard.
 - Infrastructure descriptor/composition coverage for the JWT route, public API URL, and unchanged
   narrow control forwarding.
-- Full instrumented suite: **91 files, 528 tests passed**.
+- Full instrumented suite after review fixes: **91 files, 532 tests passed**.
 
 ## Validation results
 
@@ -51,9 +53,9 @@ only those temporary URLs to their clients.
 - `npm run lint` — passed with zero warnings.
 - `npm run typecheck` — passed.
 - Focused Node and dashboard suites — passed.
-- `npm test` — passed; the final instrumented all-project run passed 528/528 tests.
-- `npm run test:coverage` — passed: statements 86.35%, branches 80.08%, functions 91.59%, lines
-  89.01%.
+- `npm test` — passed; the final instrumented all-project run passed 532/532 tests.
+- `npm run test:coverage` — passed: statements 86.30%, branches 80.02%, functions 91.64%, lines
+  89.02%.
 - `npm run build` — passed; Vite transformed 710 modules.
 - `npm run check` — passed once end to end. A later repeat after a one-line runtime correction hit
   the existing `SignInForm` five-second instrumentation timeout; its immediate full coverage retry
@@ -64,6 +66,19 @@ only those temporary URLs to their clients.
   non-asset resource replacements or deletions. No deployment was run.
 - `python tooling/validate_codex_layer.py` and codebase-search self-test — passed.
 - `git diff --check` — passed.
+
+## Review finding resolution
+
+- Added project/request generation guards and project-keyed remounts so stale credential operations
+  cannot reveal plaintext or metadata after a project switch.
+- Added equivalent usage guards and clearing so out-of-order projections cannot be attributed to the
+  wrong selected project.
+- Added explicit cancel/confirm UI for revoke and replace, including the effect on server
+  integrations and already-issued presigned URLs.
+- Displayed the exact current usage period with explicit UTC wording.
+- Removed trailing whitespace from this report and the implementation plan so diff safety passes.
+- Added four delayed-response and confirmation regression tests; the post-fix full gate passed
+  91 files / 532 tests.
 
 ## Deviations from the plan
 

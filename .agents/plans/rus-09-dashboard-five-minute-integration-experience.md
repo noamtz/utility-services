@@ -43,9 +43,12 @@ Refactor the dashboard's authenticated request plumbing into a reusable control 
 
 ## Feature Metadata
 
-**Feature Type**: Enhancement / integration capability  
-**Estimated Complexity**: High  
-**Primary Systems Affected**: React/Vite dashboard, owner control API, identity/control usage view, usage/pricing query runtime, shared contracts, SST route/link composition, dashboard tests and documentation  
+**Feature Type**: Enhancement / integration capability
+
+**Estimated Complexity**: High
+
+**Primary Systems Affected**: React/Vite dashboard, owner control API, identity/control usage view, usage/pricing query runtime, shared contracts, SST route/link composition, dashboard tests and documentation
+
 **Dependencies**: React 19.2.8, Vite 8.2.1, Zod 4.4.3, Vitest 4.1.10, Testing Library, Cognito owner JWT authorizer, DynamoDB control and usage tables, existing RUS-03–RUS-08 contracts/services
 
 ## Related Work

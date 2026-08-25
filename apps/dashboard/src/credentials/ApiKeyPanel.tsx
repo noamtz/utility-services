@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ApiKeyMetadata, IssuedApiKey } from "@utility-services/contracts";
 
@@ -6,20 +6,29 @@ import { ControlApiError } from "../api/control-client.js";
 import { CopyButton } from "../shared/CopyButton.js";
 import type { CredentialApi } from "./api.js";
 
+interface PendingCredentialAction {
+  kind: "replace" | "revoke";
+  key: ApiKeyMetadata;
+}
+
 export function ApiKeyPanel({ projectId, api }: { projectId: string; api: CredentialApi }) {
   const [keys, setKeys] = useState<ApiKeyMetadata[]>([]);
   const [issued, setIssued] = useState<IssuedApiKey>();
   const [busy, setBusy] = useState(false);
   const [nextCursor, setNextCursor] = useState<string>();
   const [error, setError] = useState<string>();
+  const [pendingAction, setPendingAction] = useState<PendingCredentialAction>();
+  const requestGeneration = useRef(0);
 
-  async function load(cursor?: string) {
+  async function load(cursor?: string, generation = ++requestGeneration.current) {
     try {
       setError(undefined);
       const page = await api.list(projectId, cursor ? { cursor } : undefined);
+      if (generation !== requestGeneration.current) return;
       setKeys((current) => (cursor ? [...current, ...page.items] : page.items));
       setNextCursor(page.nextCursor);
     } catch (failure) {
+      if (generation !== requestGeneration.current) return;
       setError(
         failure instanceof ControlApiError ? failure.message : "API keys could not be loaded.",
       );
@@ -27,25 +36,50 @@ export function ApiKeyPanel({ projectId, api }: { projectId: string; api: Creden
   }
 
   useEffect(() => {
+    const generation = ++requestGeneration.current;
     setIssued(undefined);
     setKeys([]);
-    void load();
+    setNextCursor(undefined);
+    setError(undefined);
+    setPendingAction(undefined);
+    setBusy(false);
+    void load(undefined, generation);
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [projectId, api]);
 
   async function run(operation: () => Promise<IssuedApiKey | undefined>) {
+    const generation = ++requestGeneration.current;
     setBusy(true);
     setError(undefined);
     try {
       const result = await operation();
+      if (generation !== requestGeneration.current) return;
       if (result) setIssued(result);
-      await load();
+      await load(undefined, generation);
     } catch (failure) {
+      if (generation !== requestGeneration.current) return;
       setError(
         failure instanceof ControlApiError ? failure.message : "The API key request failed.",
       );
     } finally {
-      setBusy(false);
+      if (generation === requestGeneration.current) setBusy(false);
     }
+  }
+
+  function confirmPendingAction() {
+    const action = pendingAction;
+    if (!action) return;
+    setPendingAction(undefined);
+    if (action.kind === "replace") {
+      void run(() => api.replace(projectId, action.key.keyId));
+      return;
+    }
+    void run(async () => {
+      await api.revoke(projectId, action.key.keyId);
+      return undefined;
+    });
   }
 
   return (
@@ -77,6 +111,35 @@ export function ApiKeyPanel({ projectId, api }: { projectId: string; api: Creden
           </div>
         </div>
       )}
+      {pendingAction && (
+        <div
+          className="confirmation-panel"
+          role="alertdialog"
+          aria-labelledby="credential-confirmation-title"
+          aria-describedby="credential-confirmation-description"
+        >
+          <h3 id="credential-confirmation-title">
+            {pendingAction.kind === "replace" ? "Replace API key?" : "Revoke API key?"}
+          </h3>
+          <p id="credential-confirmation-description">
+            This immediately stops new authorizations with <code>{pendingAction.key.keyId}</code>{" "}
+            and can interrupt servers that still use it. Already-issued presigned URLs remain usable
+            only until their short expiry.
+          </p>
+          <div className="button-row">
+            <button
+              type="button"
+              className="quiet-button"
+              onClick={() => setPendingAction(undefined)}
+            >
+              Cancel
+            </button>
+            <button type="button" className="danger-button" onClick={confirmPendingAction}>
+              {pendingAction.kind === "replace" ? "Confirm replacement" : "Confirm revocation"}
+            </button>
+          </div>
+        </div>
+      )}
       {nextCursor && (
         <button
           type="button"
@@ -103,21 +166,16 @@ export function ApiKeyPanel({ projectId, api }: { projectId: string; api: Creden
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={busy}
-                    onClick={() => void run(() => api.replace(projectId, key.keyId))}
+                    disabled={busy || Boolean(pendingAction)}
+                    onClick={() => setPendingAction({ kind: "replace", key })}
                   >
                     Replace
                   </button>
                   <button
                     type="button"
                     className="danger-button"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await api.revoke(projectId, key.keyId);
-                        return undefined;
-                      })
-                    }
+                    disabled={busy || Boolean(pendingAction)}
+                    onClick={() => setPendingAction({ kind: "revoke", key })}
                   >
                     Revoke
                   </button>

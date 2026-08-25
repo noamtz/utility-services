@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CredentialApi } from "./api.js";
@@ -14,6 +14,21 @@ const issued = {
     updatedAt: "2026-08-24T10:00:00.000Z",
   },
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+function metadata(keyIdValue: string) {
+  return {
+    ...issued.metadata,
+    keyId: keyIdValue,
+  };
+}
 
 describe("ApiKeyPanel", () => {
   it("reveals a newly issued secret once, then lets the owner dismiss it", async () => {
@@ -43,11 +58,19 @@ describe("ApiKeyPanel", () => {
     };
     render(<ApiKeyPanel projectId="prj_0123456789abcdefghijkl" api={api} />);
     fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(keyId);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(replace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm replacement" }));
     await vi.waitFor(() =>
       expect(replace).toHaveBeenCalledWith("prj_0123456789abcdefghijkl", keyId),
     );
     await vi.waitFor(() => expect(screen.getByRole("button", { name: "Revoke" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(revoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm revocation" }));
     await vi.waitFor(() =>
       expect(revoke).toHaveBeenCalledWith("prj_0123456789abcdefghijkl", keyId),
     );
@@ -63,5 +86,73 @@ describe("ApiKeyPanel", () => {
     render(<ApiKeyPanel projectId="prj_0123456789abcdefghijkl" api={api} />);
     expect(await screen.findByText("revoked")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Replace" })).not.toBeInTheDocument();
+  });
+
+  it("does not reveal an issued secret after switching projects", async () => {
+    const pendingIssue = deferred<typeof issued>();
+    const api: CredentialApi = {
+      list: vi.fn().mockResolvedValue({ items: [] }),
+      issue: vi.fn().mockReturnValue(pendingIssue.promise),
+      revoke: vi.fn(),
+      replace: vi.fn(),
+    };
+    const { rerender } = render(<ApiKeyPanel projectId="prj_0123456789abcdefghijkl" api={api} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Create API key" }));
+    rerender(<ApiKeyPanel projectId="prj_bcdefghijklmnopqrstuvw" api={api} />);
+    await act(async () => {
+      pendingIssue.resolve(issued);
+      await pendingIssue.promise;
+    });
+    expect(screen.queryByText(issued.apiKey)).not.toBeInTheDocument();
+  });
+
+  it("does not reveal a replacement secret after switching projects", async () => {
+    const pendingReplacement = deferred<typeof issued>();
+    const api: CredentialApi = {
+      list: vi.fn().mockImplementation((projectId) =>
+        Promise.resolve({
+          items: projectId === "prj_0123456789abcdefghijkl" ? [issued.metadata] : [],
+        }),
+      ),
+      issue: vi.fn(),
+      revoke: vi.fn(),
+      replace: vi.fn().mockReturnValue(pendingReplacement.promise),
+    };
+    const { rerender } = render(<ApiKeyPanel projectId="prj_0123456789abcdefghijkl" api={api} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm replacement" }));
+    rerender(<ApiKeyPanel projectId="prj_bcdefghijklmnopqrstuvw" api={api} />);
+    await act(async () => {
+      pendingReplacement.resolve(issued);
+      await pendingReplacement.promise;
+    });
+    expect(screen.queryByText(issued.apiKey)).not.toBeInTheDocument();
+  });
+
+  it("ignores a stale key list after switching projects", async () => {
+    const pendingFirstList = deferred<{ items: Array<typeof issued.metadata> }>();
+    const firstKeyId = "key_aaaaaaaaaaaaaaaaaaaaaa";
+    const secondKeyId = "key_bbbbbbbbbbbbbbbbbbbbbb";
+    const api: CredentialApi = {
+      list: vi
+        .fn()
+        .mockImplementation((projectId) =>
+          projectId === "prj_0123456789abcdefghijkl"
+            ? pendingFirstList.promise
+            : Promise.resolve({ items: [metadata(secondKeyId)] }),
+        ),
+      issue: vi.fn(),
+      revoke: vi.fn(),
+      replace: vi.fn(),
+    };
+    const { rerender } = render(<ApiKeyPanel projectId="prj_0123456789abcdefghijkl" api={api} />);
+    rerender(<ApiKeyPanel projectId="prj_bcdefghijklmnopqrstuvw" api={api} />);
+    expect(await screen.findByText(secondKeyId)).toBeVisible();
+    await act(async () => {
+      pendingFirstList.resolve({ items: [metadata(firstKeyId)] });
+      await pendingFirstList.promise;
+    });
+    expect(screen.queryByText(firstKeyId)).not.toBeInTheDocument();
+    expect(screen.getByText(secondKeyId)).toBeVisible();
   });
 });

@@ -123,8 +123,16 @@ export function ProjectView({
       <ProjectDetails project={selectedProject} />
       {selectedProject && credentialApi && usageApi && apiBaseUrl && (
         <div className="project-experience">
-          <ApiKeyPanel projectId={selectedProject.projectId} api={credentialApi} />
-          <UsagePanel projectId={selectedProject.projectId} api={usageApi} />
+          <ApiKeyPanel
+            key={`api-keys-${selectedProject.projectId}`}
+            projectId={selectedProject.projectId}
+            api={credentialApi}
+          />
+          <UsagePanel
+            key={`usage-${selectedProject.projectId}`}
+            projectId={selectedProject.projectId}
+            api={usageApi}
+          />
           <IntegrationGuide project={selectedProject} apiBaseUrl={apiBaseUrl} />
         </div>
       )}
