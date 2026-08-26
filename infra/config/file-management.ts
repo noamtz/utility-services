@@ -14,6 +14,7 @@ export const UPLOAD_COMPLETION_GRACE_MINUTES = 60;
 export const FILE_RECONCILIATION_SCHEDULE = "rate(5 minutes)";
 export const FILE_PURGE_SCHEDULE = "rate(5 minutes)";
 export const FILE_OPERATIONS_RETRY_COUNT = 2 as const;
+export const FILE_OPERATIONS_MAXIMUM_EVENT_AGE_SECONDS = 3_600 as const;
 export const FILE_OPERATIONS_DLQ_RETENTION_DAYS = 14 as const;
 export const FILE_OBJECT_PREFIX = "projects/";
 

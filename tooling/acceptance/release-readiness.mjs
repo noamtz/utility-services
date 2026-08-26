@@ -12,6 +12,7 @@ import {
 import {
   RELEASE_ENVIRONMENT_KEYS,
   RELEASE_EXECUTION_MARKER,
+  RELEASE_EXPIRY_TIMEOUT_SECONDS,
   RELEASE_CASE_NAMES,
   requireAuthorizedReleaseEnvironment,
   validateBoundedSeconds,
@@ -106,7 +107,7 @@ export function parseReleaseArguments(argv) {
     expiryTimeoutSeconds: validateBoundedSeconds(
       values.get("--expiry-timeout-seconds"),
       "--expiry-timeout-seconds",
-      90,
+      RELEASE_EXPIRY_TIMEOUT_SECONDS,
     ),
     execute,
   });

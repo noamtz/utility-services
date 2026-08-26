@@ -398,7 +398,10 @@ declare namespace sst {
           transform?: {
             target?: (args: {
               deadLetterConfig?: { arn: SstOutput<string> | string };
-              retryPolicy?: { maximumRetryAttempts: number };
+              retryPolicy?: {
+                maximumEventAgeInSeconds: number;
+                maximumRetryAttempts: number;
+              };
             }) => void;
           };
         },

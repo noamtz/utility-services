@@ -17,10 +17,10 @@ function response(
   } as unknown as APIResponse;
 }
 
-function errorResponse(message: string): APIResponse {
+function errorResponse(message: string, requestId = "release-request"): APIResponse {
   return response(404, {
     error: { code: "FILE_NOT_FOUND", message },
-    requestId: "release-request",
+    requestId,
   });
 }
 
@@ -30,6 +30,13 @@ describe("deployed file journey evidence policy", () => {
       expectPublicError(errorResponse("The requested file was not found."), 404, [
         "FILE_NOT_FOUND",
       ]),
+    ).resolves.toBe("FILE_NOT_FOUND");
+    await expect(
+      expectPublicError(
+        errorResponse("The requested file was not found.", "11111111-1111-4111-8111-111111111111"),
+        404,
+        ["FILE_NOT_FOUND"],
+      ),
     ).resolves.toBe("FILE_NOT_FOUND");
 
     const forbiddenMessages = [

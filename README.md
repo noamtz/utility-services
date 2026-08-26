@@ -249,6 +249,10 @@ remain because project deletion is out of scope. A passing journey proves the as
 dashboard/API/direct-S3 path and activation time under five minutes; it does not prove the separate
 CloudTrail transfer matrix, production alert delivery, or two-human product experiment.
 
+The default expiry timeout is seven minutes. This covers the disposable project's one-minute
+upload capability plus the five-minute deletion safety skew; lowering it can make a valid
+`purge-pending` response outlive the acceptance bound.
+
 For the separately observed human experiment, start a monotonic timer when the one-time key is
 available and stop only after the first upload has completed and the downloaded bytes have been
 received. The canonical guide's curl calls can expose duration without exposing response material

@@ -487,35 +487,35 @@ Owner credential variables are loaded from a local secret source and are never i
 
 ## ACCEPTANCE CRITERIA
 
-- **AC1**: [ ] A guarded automated end-to-end journey covers invited sign-in, project creation, key issuance, direct upload, completion, list/inspect, private download, stable public access, trash, restore, force delete, and usage visibility against one explicitly authorized non-production stage.
-- **AC2**: [ ] Two independent owners/projects prove cross-owner, cross-project, guessed-ID, and private-through-public denial at every applicable boundary without existence or redirect leakage.
-- **AC3**: [ ] Combined local and authorized live evidence proves key replace/revoke, real URL expiry, file/storage quotas, project rate limit, duplicate async delivery, purge retry/idempotency, quarantine, replay/rebuild, and stale/incomplete usage presentation.
-- **AC4**: [ ] Every externally visible expected/unexpected error uses the shared envelope and evidence/log/artifact review finds no AWS internals, bucket/object keys, secrets, stack traces, internal identifiers, or full presigned URLs/query strings.
-- **AC5**: [ ] The rendered curl walkthrough remains clean/copyable/server-side-only, and observed activation from key availability through first successful upload/download is less than five minutes.
-- **AC6**: [ ] After separate authorization, the exact RUS-08 CloudTrail transfer matrix runs with disposable files; retained evidence, attribution, bytes, deduplication, quarantine, replay, queue/DLQ, and the `pass` or `remain-evidence-only` pricing decision are recorded safely.
-- **AC7**: [ ] Format, lint, typecheck, focused/full tests, >=80% global coverage, build, check, Playwright list/dry-run, synthesis/policy checks, security review, and authorized diff/deployed validations are recorded with clear local-versus-external status.
+- **AC1**: [x] A guarded automated end-to-end journey covers invited sign-in, project creation, key issuance, direct upload, completion, list/inspect, private download, stable public access, trash, restore, force delete, and usage visibility against one explicitly authorized non-production stage.
+- **AC2**: [x] Two independent owners/projects prove cross-owner, cross-project, guessed-ID, and private-through-public denial at every applicable boundary without existence or redirect leakage.
+- **AC3**: [x] Combined local and authorized live evidence proves key replace/revoke, real URL expiry, file/storage quotas, project rate limit, duplicate async delivery, purge retry/idempotency, quarantine, replay/rebuild, and stale/incomplete usage presentation.
+- **AC4**: [x] Every externally visible expected/unexpected error uses the shared envelope and evidence/log/artifact review finds no AWS internals, bucket/object keys, secrets, stack traces, internal identifiers, or full presigned URLs/query strings.
+- **AC5**: [x] The rendered curl walkthrough remains clean/copyable/server-side-only, and observed activation from key availability through first successful upload/download is less than five minutes.
+- **AC6**: [x] After separate authorization, the exact RUS-08 CloudTrail transfer matrix runs with disposable files; retained evidence, attribution, bytes, deduplication, quarantine, replay, queue/DLQ, and the `pass` or `remain-evidence-only` pricing decision are recorded safely.
+- **AC7**: [x] Format, lint, typecheck, focused/full tests, >=80% global coverage, build, check, Playwright list/dry-run, synthesis/policy checks, security review, and authorized diff/deployed validations are recorded with clear local-versus-external status.
 - **AC8**: [ ] Two actual invited users complete one real project each within three days; timing, trust failures, attribution usefulness, repeated work avoided, and follow-up product decisions are recorded on the canonical epic after explicit GitHub-write authorization.
-- [ ] No deferred product feature or production architecture change is added to make release proof easier.
-- [ ] No external action is performed without the exact owner authorization required at that phase.
+- [x] No deferred product feature or production architecture change is added to make release proof easier.
+- [x] No external action is performed without the exact owner authorization required at that phase.
 
 ---
 
 ## COMPLETION CHECKLIST
 
-- [ ] Native blockers/default branch/canonical Wiki decisions revalidated before implementation.
-- [ ] Playwright is exact-pinned, isolated from Vitest, and listable without network or secrets.
-- [ ] Release harness is dry-run by default, exact-identity/stage guarded, no-shell, zero-retry, and secret-safe.
-- [ ] Local release-matrix gaps have explicit owning-boundary tests.
-- [ ] Two-owner deployed spec covers the complete supported journey and denial matrix.
-- [ ] One-time secrets and signed URLs never enter browser code, argv, logs, errors, reports, traces, screenshots, video, storage state, or repository files.
-- [ ] Curl guide and five-minute timing semantics are verified.
-- [ ] All local validation commands pass; full coverage remains >=80% in every category.
-- [ ] Fresh diff is reviewed before any authorized deployment.
-- [ ] Authorized Playwright run is executed once and leaves only documented residue.
-- [ ] Authorized RUS-08 matrix produces a safe pricing-gate decision; no automatic gate flip occurs.
+- [x] Native blockers/default branch/canonical Wiki decisions revalidated before implementation.
+- [x] Playwright is exact-pinned, isolated from Vitest, and listable without network or secrets.
+- [x] Release harness is dry-run by default, exact-identity/stage guarded, no-shell, zero-retry, and secret-safe.
+- [x] Local release-matrix gaps have explicit owning-boundary tests.
+- [x] Two-owner deployed spec covers the complete supported journey and denial matrix.
+- [x] One-time secrets and signed URLs never enter browser code, argv, logs, errors, reports, traces, screenshots, video, storage state, or repository files.
+- [x] Curl guide and five-minute timing semantics are verified.
+- [x] All local validation commands pass; full coverage remains >=80% in every category.
+- [x] Fresh diff is reviewed before any authorized deployment.
+- [x] Authorized Playwright run is executed once and leaves only documented residue.
+- [x] Authorized RUS-08 matrix produces a safe pricing-gate decision; no automatic gate flip occurs.
 - [ ] Alert destination/path is resolved and verified before production release, or release remains explicitly blocked.
 - [ ] Human two-user/three-day experiment is completed and canonical Wiki/Issue evidence is owner-reviewed and published as `noamtz`.
-- [ ] Any production defect discovered by proof is fixed with focused regression coverage and an appended plan amendment.
+- [x] Any production defect discovered by proof is fixed with focused regression coverage and an appended plan amendment.
 
 ---
 
@@ -570,3 +570,13 @@ No lower layer is relabeled as proof of a higher one. In particular, local mocks
 - **2026-08-26 â€” stale project-inspection response discovered during release-matrix work.** The existing dashboard protected list and usage requests from stale responses but not project inspection. A slower response for an earlier selection could overwrite the ownerâ€™s latest selection and display the wrong project experience. The implementation now applies the same request-generation rule to project inspection (and invalidates pending inspections after project creation), with focused component regression coverage. This is a bounded production correctness fix required for trustworthy two-project release proof; it does not change public contracts or architecture.
 
 - **2026-08-26 â€” Vitest discovery command corrected during validation.** With the repository's installed Vitest 4 CLI, `vitest run --list` is not a supported option. Level 5 therefore uses the read-only equivalent `npm exec -- vitest list`; Playwright discovery remains `npm run test:e2e:list`. The rejected command and successful replacement are both retained in the implementation report.
+
+- **2026-08-26 — EventBridge scheduled-target retry age corrected during the authorized Task 9 deployment.** The first isolated-stage deployment partially created `dev-rus11-e2e` but AWS rejected both file-operation scheduled targets because their transformed retry policy set only `maximumRetryAttempts`; the provider serialized the omitted event age as `0`, below EventBridge's valid 60–86,400 second range. The infrastructure now sets a bounded one-hour `maximumEventAgeInSeconds` alongside the existing two retries and DLQ, with policy and synthesis regression coverage. A fresh recovery diff showed only remaining creates plus SST's local dashboard build-command replacement, and the same-stage deployment then completed successfully.
+
+- **2026-08-26 — First authorized deployed journey stopped at the invited-owner password challenge.** Both disposable owners were created with suppressed delivery and in-memory-only credentials, but the Playwright helper's substring label query for `New password` matched both the challenge region and its input under strict mode. The run stopped before sign-in completion, project/key/file creation, or a result sentinel, and was not retried. Read-only state confirmed both owners remained in `FORCE_CHANGE_PASSWORD`, the control/file tables remained empty, and the generated failure context contained no owner identifier, generated-password shape, or signed query before it was removed. The helper now scopes the exact input and submit button to the password region; a second deployed run requires fresh authorization and fresh disposable credentials.
+
+- **2026-08-26 — Public-error leak scan narrowed to caller-facing error fields.** The next authorized run reached the cross-project denial matrix and correctly received a shared 404 envelope, but the helper rejected the envelope's intentionally public UUID-shaped `requestId` as though it were a leaked internal entity identifier. The scan now applies to `error` fields only, while the envelope schema still validates `requestId`; a focused regression proves UUID request IDs remain allowed and UUIDs in public error messages remain forbidden.
+
+- **2026-08-26 — Release expiry bound aligned with safe force deletion.** A later run proved every case through real signed-URL expiry, then timed out waiting only 90 seconds for force deletion. The disposable project uses a one-minute upload capability, while physical deletion is intentionally deferred through that expiry plus a five-minute skew. The guarded default is now seven minutes in both launcher and child configuration, with a policy regression assertion and operator documentation. No production lifecycle behavior changed.
+
+- **2026-08-26 — Authorized automated release gates passed.** The corrected isolated-stage Playwright journey passed all 11 cases with a 5.338-second key-to-first-private-upload/download activation measurement and only documented project/quota residue. The separately authorized RUS-08 matrix then passed full (67,108,864 bytes), range (10 bytes), cancelled, repeated, expired-or-failed, and unused cases. Four retained CloudTrail log objects were replayed; 13 accepted events were all deduplicated, zero were quarantined, and both queues were empty. The result is `eligible-for-separate-reviewed-priced-deploy`; source and deployed pricing remain `evidence-only`. Production alert delivery and the real two-human/three-day experiment remain external blockers and are not relabeled as automated proof.
