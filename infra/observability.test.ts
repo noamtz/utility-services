@@ -67,6 +67,13 @@ describe("observability resources", () => {
     ]);
     expect(resources.subscriptionRequired).toBe(true);
     expect(alarmCalls).toHaveLength(20);
+    expect(
+      alarmCalls
+        .filter((call) => call.args["namespace"] === "UtilityServices")
+        .every(
+          (call) => (call.args["dimensions"] as Record<string, string>)["Stage"] === "production",
+        ),
+    ).toBe(true);
     expect(alarmCalls.every((call) => call.args["period"] === 300)).toBe(true);
     expect(
       alarmCalls.every(

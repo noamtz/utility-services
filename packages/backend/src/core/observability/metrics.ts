@@ -22,6 +22,24 @@ export const OperationalMetricNameSchema = z.enum([
 ]);
 
 const DimensionValueSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9-]{0,63}$/u);
+const StageDimensionSchema = z.string().trim().min(1).max(128);
+const SstAppResourceSchema = z
+  .object({
+    stage: StageDimensionSchema,
+  })
+  .passthrough();
+
+export function resolveMetricsStage(environment: NodeJS.ProcessEnv = process.env): string {
+  const explicitStage = environment["SST_STAGE"];
+  if (explicitStage !== undefined) return StageDimensionSchema.parse(explicitStage);
+
+  const appResource = environment["SST_RESOURCE_App"];
+  if (appResource !== undefined) {
+    return SstAppResourceSchema.parse(JSON.parse(appResource) as unknown).stage;
+  }
+
+  return "local";
+}
 
 export interface MetricsClient {
   addDimension(name: string, value: string): unknown;
@@ -46,10 +64,10 @@ interface PendingMetric {
 export function createInvocationMetrics(
   operationInput: string,
   client: MetricsClient = metrics,
-  stageInput = process.env["SST_STAGE"] ?? process.env["AWS_LAMBDA_FUNCTION_NAME"] ?? "local",
+  stageInput = resolveMetricsStage(),
 ): InvocationMetrics {
   const operation = DimensionValueSchema.parse(operationInput);
-  const stage = z.string().trim().min(1).max(128).parse(stageInput);
+  const stage = StageDimensionSchema.parse(stageInput);
   const pending: PendingMetric[] = [];
 
   function add(
