@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AWS_ACCESS_POLICY } from "./aws-access.mjs";
+import { AWS_ACCESS_POLICY, resolveTrustedAwsCliPath } from "./aws-access.mjs";
 import { parseOperatorInvocation, runOperator } from "./run-operator.mjs";
 
 const identity = JSON.stringify({
@@ -25,10 +25,11 @@ describe("operator wrapper", () => {
   });
 
   it("preflights identity and invokes pinned SST shell without a command shell", () => {
+    const awsCliPath = resolveTrustedAwsCliPath();
     const spawn = vi.fn((command: string, args?: readonly string[], options?: unknown) => {
       void args;
       void options;
-      return command === "aws" ? { status: 0, stdout: identity } : { status: 0 };
+      return command === awsCliPath ? { status: 0, stdout: identity } : { status: 0 };
     });
     expect(
       runOperator(

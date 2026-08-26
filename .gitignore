@@ -13,6 +13,12 @@ coverage/
 .tsbuild/
 *.tsbuildinfo
 .vite/
+playwright/.auth/
+playwright-report/
+test-results/
+blob-report/
+*.trace.zip
+*.webm
 
 # SST provider and generated application output
 .sst/

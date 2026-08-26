@@ -40,6 +40,7 @@ export function ProjectView({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   const listGeneration = useRef(0);
+  const inspectGeneration = useRef(0);
   const inFlightListRequests = useRef(new Map<string, number>());
 
   const handleFailure = useCallback(
@@ -90,6 +91,7 @@ export function ProjectView({
     setError(undefined);
     try {
       const created = await api.create(input);
+      inspectGeneration.current += 1;
       setSelectedProject(created);
       await loadProjects(undefined, { supersede: true });
     } catch (failure) {
@@ -100,11 +102,13 @@ export function ProjectView({
   }
 
   async function select(projectId: string) {
+    const generation = ++inspectGeneration.current;
     setError(undefined);
     try {
-      setSelectedProject(await api.inspect(projectId));
+      const inspected = await api.inspect(projectId);
+      if (generation === inspectGeneration.current) setSelectedProject(inspected);
     } catch (failure) {
-      await handleFailure(failure);
+      if (generation === inspectGeneration.current) await handleFailure(failure);
     }
   }
 

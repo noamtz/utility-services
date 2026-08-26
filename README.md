@@ -25,7 +25,7 @@ packages/backend/src/functions Thin deployed function entry points
 packages/backend/src/modules   Identity/control, project-authentication, and usage/pricing slices
 infra                          SST identity/control, independent usage table/seeds, API, and dashboard
 tests/integration              Behavior crossing packages or slices
-tests/e2e                      Future assembled user journeys
+tests/e2e                      Guarded deployed release-readiness journey and support helpers
 ```
 
 ## Local quick start
@@ -198,6 +198,68 @@ redacted, machine-readable decision summary.
 The eventual dashboard value is **AWS-equivalent usage cost**: published list-rate attribution for
 project activity, excluding free tiers, discounts, credits, taxes, and shared infrastructure. It is
 not an allocation of the AWS invoice.
+
+## Release-readiness acceptance
+
+The RUS-11 Playwright journey is separate from Vitest and targets only an explicitly authorized,
+already-deployed non-production stage. Test discovery is local and performs no network request:
+
+```powershell
+npm exec -- playwright install chromium
+npm run test:e2e:list
+```
+
+The operator harness is also dry-run by default. It validates the stage and HTTPS origins, reports
+the intended cases, and neither checks AWS identity nor launches a browser without `--execute`:
+
+```powershell
+npm run acceptance:release -- --stage dev-rus11-e2e --dashboard-url https://dashboard.example.com --api-url https://api.example.com
+```
+
+Execute mode additionally requires the ignored `.sst/outputs.json` produced by the successful
+deployment of that exact stage. Its `stage`, `dashboardUrl`, and `apiUrl` values must exactly match
+the confirmed command; a stale stage or manually mistyped endpoint is rejected before AWS
+preflight or browser startup. Never copy this generated output into source control or substitute
+another stage's endpoints.
+
+Live execution is destructive test work and requires separate owner authorization, a deployed
+stage with no concurrent run, and two distinct invited Cognito owners. Put credentials only in the
+following process environment variables; never add their values to argv, repository files, issue
+comments, screenshots, traces, or reports:
+
+```powershell
+$env:RUS_RELEASE_OWNER_A_EMAIL = '<owner-a-email>'
+$env:RUS_RELEASE_OWNER_A_PASSWORD = '<owner-a-password>'
+$env:RUS_RELEASE_OWNER_B_EMAIL = '<owner-b-email>'
+$env:RUS_RELEASE_OWNER_B_PASSWORD = '<owner-b-password>'
+
+npm run acceptance:release -- --stage dev-rus11-e2e --dashboard-url https://dashboard.example.com --api-url https://api.example.com --execute --confirm-stage dev-rus11-e2e
+```
+
+For an owner's first Cognito login, set the matching optional
+`RUS_RELEASE_OWNER_A_NEW_PASSWORD` or `RUS_RELEASE_OWNER_B_NEW_PASSWORD`; doing so changes that
+account's password. The harness verifies the exact approved AWS identity through the trusted
+absolute AWS CLI path using an environment that contains no owner credentials. Only the validated
+Playwright child receives those credentials. The journey disables retries and all Playwright
+screenshots/video/traces, keeps API keys and presigned URLs in memory only, and emits a
+bounded secret-free result containing only the decision, sanitized stage, timestamp, activation
+seconds, case names/status counts, project-residue flag, and pending external gate names. It
+waits until disposable files are purged or absent and revokes issued keys, but project records
+remain because project deletion is out of scope. A passing journey proves the assembled
+dashboard/API/direct-S3 path and activation time under five minutes; it does not prove the separate
+CloudTrail transfer matrix, production alert delivery, or two-human product experiment.
+
+For the separately observed human experiment, start a monotonic timer when the one-time key is
+available and stop only after the first upload has completed and the downloaded bytes have been
+received. The canonical guide's curl calls can expose duration without exposing response material
+by adding `--output <local-disposable-path> --write-out 'time_total=%{time_total}\n'`; never paste
+the command after substituting a real key or signed URL. The combined activation interval, not only
+curl's transfer duration, must remain under five minutes.
+
+The acceptance runner and deployed Playwright spec are intentionally outside the global Vitest
+coverage denominator, matching the existing download-metering acceptance executable. Their guard,
+redaction, result-validation, and failure behavior are covered by deterministic Vitest policy
+tests; the application and infrastructure coverage threshold remains 80% in every category.
 
 ## Dashboard integration boundary
 

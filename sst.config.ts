@@ -93,6 +93,7 @@ export default $config({
       ],
     });
     return {
+      stage: $app.stage,
       apiUrl: api.url,
       dashboardUrl: dashboard.url,
       ownerUserPoolId: control.userPool.id,

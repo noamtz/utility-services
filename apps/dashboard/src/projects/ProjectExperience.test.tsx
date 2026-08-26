@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -39,7 +39,7 @@ describe("selected project experience", () => {
         evaluatedAt: "2026-08-24T10:00:00.000Z",
       },
     });
-    render(
+    const { container } = render(
       <ProjectView
         api={{
           list: vi.fn().mockResolvedValue({ items: [project] }),
@@ -60,5 +60,9 @@ describe("selected project experience", () => {
     ).toBeVisible();
     expect(listKeys).toHaveBeenCalledWith(project.projectId, undefined);
     expect(currentMonth).toHaveBeenCalledWith(project.projectId);
+    expect(screen.getAllByText(project.projectId)).toHaveLength(2);
+    const projectDetails = container.querySelector<HTMLElement>("section.project-details");
+    expect(projectDetails).not.toBeNull();
+    expect(within(projectDetails!).getByText(project.projectId)).toBeVisible();
   });
 });

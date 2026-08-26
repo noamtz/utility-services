@@ -3,8 +3,15 @@ export const AWS_ACCESS_POLICY = Object.freeze({
   principalArn: "arn:aws:iam::162067902192:user/ntz-cli",
   profile: "ntz-cli",
   region: "il-central-1",
+  windowsCliPath: "C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe",
+  posixCliPath: "/usr/bin/aws",
   windowsCaBundle: "C:\\Program Files\\Amazon\\AWSCLIV2\\awscli\\botocore\\cacert.pem",
 });
+
+/** @param {NodeJS.Platform} platform */
+export function resolveTrustedAwsCliPath(platform = process.platform) {
+  return platform === "win32" ? AWS_ACCESS_POLICY.windowsCliPath : AWS_ACCESS_POLICY.posixCliPath;
+}
 
 /** @param {NodeJS.ProcessEnv} environment @param {NodeJS.Platform} platform */
 export function createAwsEnvironment(environment = process.env, platform = process.platform) {
@@ -25,10 +32,16 @@ export function createAwsEnvironment(environment = process.env, platform = proce
  * @param {(command: string, args: string[], options: import("node:child_process").SpawnSyncOptions) => { error?: Error, status: number | null, stdout?: string | Buffer }} spawn
  * @param {NodeJS.ProcessEnv} environment
  * @param {string} cwd
+ * @param {string} awsCliPath
  */
-export function verifyAwsIdentity(spawn, environment, cwd) {
+export function verifyAwsIdentity(
+  spawn,
+  environment,
+  cwd,
+  awsCliPath = resolveTrustedAwsCliPath(),
+) {
   const result = spawn(
-    "aws",
+    awsCliPath,
     [
       "sts",
       "get-caller-identity",
