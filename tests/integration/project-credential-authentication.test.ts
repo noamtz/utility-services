@@ -16,6 +16,7 @@ import {
 import { generateProjectApiKey } from "../../packages/backend/src/modules/identity-control/credentials/credential.js";
 import {
   assertCredentialRecordsMatch,
+  withCredentialOperationalStatus,
   withReplacedStatus,
   withRevokedStatus,
   type ApiKeyLookupItem,
@@ -49,6 +50,7 @@ function project(
     publicProjectId,
     ownerId,
     name: "Credential integration project",
+    status: "active",
     enabledUtilities: ["file-management"],
     fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
     createdAt: timestamp,
@@ -199,6 +201,30 @@ class MemoryCredentialRepository implements CredentialRepository {
     this.lookups.set(metadata.keyId, structuredClone(nextLookup));
     this.metadata.set(newKey, structuredClone(newMetadata));
     this.lookups.set(newLookup.keyId, structuredClone(newLookup));
+    return Promise.resolve(structuredClone(nextMetadata));
+  }
+
+  public setOperationalStatus(
+    metadata: ProjectApiKeyMetadataItem,
+    expectedStatus: "active" | "suspended",
+    nextStatus: "active" | "suspended",
+    changedAt: string,
+  ) {
+    const metadataKey = this.metadataKey(metadata.publicProjectId, metadata.keyId);
+    const currentMetadata = this.metadata.get(metadataKey);
+    const currentLookup = this.lookups.get(metadata.keyId);
+    if (
+      !currentMetadata ||
+      !currentLookup ||
+      currentMetadata.status !== expectedStatus ||
+      currentLookup.status !== expectedStatus
+    ) {
+      throw new CredentialStateConflictError();
+    }
+    const nextMetadata = withCredentialOperationalStatus(currentMetadata, nextStatus, changedAt);
+    const nextLookup = withCredentialOperationalStatus(currentLookup, nextStatus, changedAt);
+    this.metadata.set(metadataKey, structuredClone(nextMetadata));
+    this.lookups.set(metadata.keyId, structuredClone(nextLookup));
     return Promise.resolve(structuredClone(nextMetadata));
   }
 

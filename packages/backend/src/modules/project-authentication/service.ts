@@ -17,6 +17,7 @@ import {
   CorruptCredentialRecordError,
   type CredentialRepository,
 } from "../identity-control/credentials/repository.js";
+import type { ProjectRequestLimiter } from "./rate-limit/service.js";
 
 export interface ProjectAuthenticationService {
   authenticate(credential: ParsedProjectApiKey): Promise<TrustedProjectContext>;
@@ -25,6 +26,7 @@ export interface ProjectAuthenticationService {
 export interface ProjectAuthenticationDependencies {
   readonly repository: CredentialRepository;
   readonly compareDigests?: DigestComparator;
+  readonly limiter?: ProjectRequestLimiter;
 }
 
 export function unauthorized(): HttpError {
@@ -79,6 +81,7 @@ export function createProjectAuthenticationService(
         snapshot.metadata.keyId !== credential.keyId ||
         snapshot.lookup.publicProjectId !== snapshot.project.publicProjectId ||
         snapshot.lookup.internalProjectId !== snapshot.project.internalProjectId ||
+        snapshot.project.status !== "active" ||
         !snapshot.project.enabledUtilities.includes(FILE_MANAGEMENT_UTILITY)
       ) {
         throw unauthorized();
@@ -92,6 +95,7 @@ export function createProjectAuthenticationService(
         fileManagement: snapshot.project.fileManagement,
       });
       if (!result.success) throw unauthorized();
+      await dependencies.limiter?.admit(result.data.internalProjectId);
       return Object.freeze(result.data);
     },
   };

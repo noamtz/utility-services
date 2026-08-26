@@ -10,6 +10,7 @@ import { z } from "zod";
 
 export const API_KEY_LOOKUP_SORT_KEY = "LOOKUP" as const;
 export const API_KEY_SORT_PREFIX = "API_KEY#" as const;
+export const CredentialOperationalStatusSchema = z.enum(["active", "suspended"]);
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 const SecretHashSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
@@ -76,6 +77,7 @@ export const ApiKeyLookupItemSchema = z
 
 export type ProjectApiKeyMetadataItem = z.infer<typeof ProjectApiKeyMetadataItemSchema>;
 export type ApiKeyLookupItem = z.infer<typeof ApiKeyLookupItemSchema>;
+export type CredentialOperationalStatus = z.infer<typeof CredentialOperationalStatusSchema>;
 
 export function projectApiKeySortKey(keyId: string): string {
   return `${API_KEY_SORT_PREFIX}${ApiKeyIdSchema.parse(keyId)}`;
@@ -190,5 +192,18 @@ export function withReplacedStatus<T extends ProjectApiKeyMetadataItem | ApiKeyL
     updatedAt: timestamp,
     replacedAt: timestamp,
     replacementKeyId: ApiKeyIdSchema.parse(replacementKeyId),
+  };
+}
+
+export function withCredentialOperationalStatus<
+  T extends ProjectApiKeyMetadataItem | ApiKeyLookupItem,
+>(item: T, status: CredentialOperationalStatus, timestamp: string): T {
+  if (item.status !== "active" && item.status !== "suspended") {
+    throw new Error("Terminal credential state cannot be changed");
+  }
+  return {
+    ...item,
+    status: CredentialOperationalStatusSchema.parse(status),
+    updatedAt: TimestampSchema.parse(timestamp),
   };
 }

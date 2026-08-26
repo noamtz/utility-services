@@ -8,6 +8,7 @@ import {
   USAGE_PRICING_TABLE_LINK_ACTIONS,
   USAGE_PRICING_TABLE_POLICY,
   USAGE_PRICING_TTL_ATTRIBUTE,
+  USAGE_WATERMARK_INDEX_NAME,
   pricingVersionSortKey,
   toPriceSeedItem,
   usagePricingTableDeletionProtection,
@@ -22,13 +23,19 @@ describe("usage pricing infrastructure policy", () => {
       handler: "packages/backend/src/functions/control/get-current-month-usage.handler",
     });
   });
-  it("uses an independent on-demand PK/SK table with only the intended TTL and no indexes", () => {
+  it("uses an independent on-demand PK/SK table with TTL and a sparse freshness index", () => {
     expect(USAGE_PRICING_TABLE_POLICY).toEqual({
       billingMode: "PAY_PER_REQUEST",
-      fields: { pk: "string", sk: "string" },
+      fields: { pk: "string", sk: "string", gsi1pk: "string", gsi1sk: "string" },
       primaryIndex: { hashKey: "pk", rangeKey: "sk" },
       ttl: USAGE_PRICING_TTL_ATTRIBUTE,
-      globalIndexes: {},
+      globalIndexes: {
+        [USAGE_WATERMARK_INDEX_NAME]: {
+          hashKey: "gsi1pk",
+          rangeKey: "gsi1sk",
+          projection: "all",
+        },
+      },
     });
     expect(USAGE_PRICING_TABLE_LINK_ACTIONS).toEqual(["dynamodb:Query"]);
     expect(JSON.stringify(USAGE_PRICING_TABLE_LINK_ACTIONS)).not.toMatch(/Scan|\*/u);

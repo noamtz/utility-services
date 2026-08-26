@@ -2,6 +2,8 @@ import { Logger } from "@aws-lambda-powertools/logger";
 import { Metrics } from "@aws-lambda-powertools/metrics";
 import { Tracer } from "@aws-lambda-powertools/tracer";
 
+import { redactSensitiveValues } from "./redact.js";
+
 export const SERVICE_NAME = "utility-services";
 
 export const logger = new Logger({ serviceName: SERVICE_NAME });
@@ -17,14 +19,14 @@ export const metrics = new Metrics({
 export const safeLogger = {
   info(message: string, attributes?: Record<string, unknown>): void {
     if (attributes) {
-      logger.info(message, attributes);
+      logger.info(message, redactSensitiveValues(attributes) as Record<string, unknown>);
     } else {
       logger.info(message);
     }
   },
   error(message: string, attributes?: Record<string, unknown>): void {
     if (attributes) {
-      logger.error(message, attributes);
+      logger.error(message, redactSensitiveValues(attributes) as Record<string, unknown>);
     } else {
       logger.error(message);
     }

@@ -164,6 +164,10 @@ class IntegrationRepository implements UsagePricingRepository {
   public async listWatermarks(project: string) {
     return [...this.watermarks.values()].filter((item) => item.internalProjectId === project);
   }
+
+  public async listWatermarksBefore() {
+    return { items: [] };
+  }
   public async advanceWatermark(project: string, source: string, at: string) {
     const key = `${project}|${source}`;
     const existing = this.watermarks.get(key);

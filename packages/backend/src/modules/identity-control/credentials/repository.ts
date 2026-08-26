@@ -28,9 +28,11 @@ import {
   parseApiKeyLookupItem,
   parseProjectApiKeyMetadataItem,
   projectApiKeySortKey,
+  withCredentialOperationalStatus,
   withReplacedStatus,
   withRevokedStatus,
   type ApiKeyLookupItem,
+  type CredentialOperationalStatus,
   type ProjectApiKeyMetadataItem,
 } from "./model.js";
 
@@ -76,6 +78,12 @@ export interface CredentialRepository {
     metadata: ProjectApiKeyMetadataItem,
     newMetadata: ProjectApiKeyMetadataItem,
     newLookup: ApiKeyLookupItem,
+    timestamp: string,
+  ): Promise<ProjectApiKeyMetadataItem>;
+  setOperationalStatus(
+    metadata: ProjectApiKeyMetadataItem,
+    expectedStatus: CredentialOperationalStatus,
+    nextStatus: CredentialOperationalStatus,
     timestamp: string,
   ): Promise<ProjectApiKeyMetadataItem>;
 }
@@ -168,6 +176,22 @@ function updateStatusExpression(status: "revoked" | "replaced") {
     return "SET #status = :next, updatedAt = :updatedAt, revokedAt = :updatedAt";
   }
   return "SET #status = :next, updatedAt = :updatedAt, replacedAt = :updatedAt, replacementKeyId = :replacementKeyId";
+}
+
+function operationalStatusValues(
+  metadata: ProjectApiKeyMetadataItem,
+  expectedStatus: CredentialOperationalStatus,
+  nextStatus: CredentialOperationalStatus,
+  timestamp: string,
+) {
+  return {
+    ":expected": expectedStatus,
+    ":next": nextStatus,
+    ":updatedAt": z.iso.datetime({ offset: true }).parse(timestamp),
+    ":internal": metadata.internalProjectId,
+    ":project": metadata.publicProjectId,
+    ":keyId": metadata.keyId,
+  };
 }
 
 export function createDynamoCredentialRepository(options: {
@@ -523,6 +547,55 @@ export function createDynamoCredentialRepository(options: {
         ) {
           throw new CredentialCollisionError();
         }
+        if (isConditionalFailure(error)) throw new CredentialStateConflictError();
+        throw error;
+      }
+    },
+
+    async setOperationalStatus(metadata, expectedStatus, nextStatus, timestamp) {
+      if (
+        metadata.status !== expectedStatus ||
+        (expectedStatus !== "active" && expectedStatus !== "suspended") ||
+        (nextStatus !== "active" && nextStatus !== "suspended")
+      ) {
+        throw new CredentialStateConflictError();
+      }
+      const updated = withCredentialOperationalStatus(metadata, nextStatus, timestamp);
+      const values = operationalStatusValues(metadata, expectedStatus, nextStatus, timestamp);
+      const condition =
+        "#status = :expected AND internalProjectId = :internal AND publicProjectId = :project AND keyId = :keyId";
+      try {
+        await options.client.send(
+          new TransactWriteCommand({
+            TransactItems: [
+              {
+                Update: {
+                  TableName: tableName,
+                  Key: { pk: metadata.pk, sk: metadata.sk },
+                  UpdateExpression: "SET #status = :next, updatedAt = :updatedAt",
+                  ConditionExpression: condition,
+                  ExpressionAttributeNames: { "#status": "status" },
+                  ExpressionAttributeValues: values,
+                },
+              },
+              {
+                Update: {
+                  TableName: tableName,
+                  Key: {
+                    pk: apiKeyLookupPartitionKey(metadata.keyId),
+                    sk: API_KEY_LOOKUP_SORT_KEY,
+                  },
+                  UpdateExpression: "SET #status = :next, updatedAt = :updatedAt",
+                  ConditionExpression: condition,
+                  ExpressionAttributeNames: { "#status": "status" },
+                  ExpressionAttributeValues: values,
+                },
+              },
+            ],
+          }),
+        );
+        return updated;
+      } catch (error) {
         if (isConditionalFailure(error)) throw new CredentialStateConflictError();
         throw error;
       }

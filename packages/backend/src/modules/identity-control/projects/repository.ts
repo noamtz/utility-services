@@ -1,5 +1,9 @@
-import type { QueryCommandOutput, TransactWriteCommandOutput } from "@aws-sdk/lib-dynamodb";
-import { QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import type {
+  QueryCommandOutput,
+  TransactWriteCommandOutput,
+  UpdateCommandOutput,
+} from "@aws-sdk/lib-dynamodb";
+import { QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 
 import { createOwnerIndexStartKey, type ProjectCursorPayload } from "./cursor.js";
@@ -14,8 +18,11 @@ import {
   toEnabledUtilityItem,
   toProjectMetadataItem,
   type InternalProject,
+  ProjectOperationalStatusSchema,
   type ProjectMetadataItem,
 } from "./model.js";
+
+type ProjectOperationalStatus = z.infer<typeof ProjectOperationalStatusSchema>;
 
 export interface ListProjectsInput {
   readonly ownerId: string;
@@ -32,11 +39,18 @@ export interface ProjectRepository {
   create(project: InternalProject): Promise<void>;
   list(input: ListProjectsInput): Promise<ListProjectsResult>;
   inspect(publicProjectId: string): Promise<InternalProject | undefined>;
+  setOperationalStatus(
+    publicProjectId: string,
+    expectedStatus: ProjectOperationalStatus,
+    nextStatus: ProjectOperationalStatus,
+    changedAt: string,
+  ): Promise<void>;
 }
 
 export interface ProjectDocumentClient {
   send(command: TransactWriteCommand): Promise<TransactWriteCommandOutput>;
   send(command: QueryCommand): Promise<QueryCommandOutput>;
+  send(command: UpdateCommand): Promise<UpdateCommandOutput>;
 }
 
 export class ProjectCollisionError extends Error {
@@ -50,6 +64,13 @@ export class CorruptProjectRecordError extends Error {
   public constructor() {
     super("Stored project record is incomplete or invalid");
     this.name = "CorruptProjectRecordError";
+  }
+}
+
+export class ProjectStateConflictError extends Error {
+  public constructor() {
+    super("Project operational state changed concurrently");
+    this.name = "ProjectStateConflictError";
   }
 }
 
@@ -193,6 +214,40 @@ export function createDynamoProjectRepository(options: {
         return assembleProject(metadata, utility);
       } catch {
         throw new CorruptProjectRecordError();
+      }
+    },
+
+    async setOperationalStatus(publicProjectId, expectedStatus, nextStatus, changedAt) {
+      const parsedExpected = ProjectOperationalStatusSchema.parse(expectedStatus);
+      const parsedNext = ProjectOperationalStatusSchema.parse(nextStatus);
+      const timestamp = z.iso.datetime({ offset: true }).parse(changedAt);
+      const legacyActiveCondition =
+        parsedExpected === "active" ? " OR attribute_not_exists(#status)" : "";
+
+      try {
+        await options.client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: {
+              pk: projectPartitionKey(publicProjectId),
+              sk: PROJECT_METADATA_SORT_KEY,
+            },
+            UpdateExpression: "SET #status = :next, updatedAt = :changedAt",
+            ConditionExpression: `attribute_exists(pk) AND itemType = :type AND (#status = :expected${legacyActiveCondition})`,
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":type": "project-metadata",
+              ":expected": parsedExpected,
+              ":next": parsedNext,
+              ":changedAt": timestamp,
+            },
+          }),
+        );
+      } catch (error) {
+        if (isConditionalFailure(error)) {
+          throw new ProjectStateConflictError();
+        }
+        throw error;
       }
     },
   };

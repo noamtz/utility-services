@@ -1,9 +1,10 @@
-import { QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   CorruptProjectRecordError,
   ProjectCollisionError,
+  ProjectStateConflictError,
   createDynamoProjectRepository,
   type ProjectDocumentClient,
 } from "./repository.js";
@@ -14,6 +15,7 @@ const project: InternalProject = {
   publicProjectId: "prj_0123456789abcdefghijkl",
   ownerId: "owner-1",
   name: "Repository project",
+  status: "active",
   enabledUtilities: ["file-management"],
   fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
   createdAt: "2026-08-23T08:00:00.000Z",
@@ -209,5 +211,52 @@ describe("Dynamo project repository", () => {
     await expect(repository.inspect(project.publicProjectId)).rejects.toBeInstanceOf(
       CorruptProjectRecordError,
     );
+  });
+
+  it("conditionally updates operational status and accepts legacy active records", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const repository = createDynamoProjectRepository({
+      client: clientWith(send),
+      tableName: "Control",
+    });
+
+    await repository.setOperationalStatus(
+      project.publicProjectId,
+      "active",
+      "suspended",
+      "2026-08-25T10:00:00.000Z",
+    );
+
+    const command = send.mock.calls[0]?.[0] as UpdateCommand;
+    expect(command).toBeInstanceOf(UpdateCommand);
+    expect(command.input).toMatchObject({
+      TableName: "Control",
+      Key: { pk: `PROJECT#${project.publicProjectId}`, sk: "METADATA" },
+      UpdateExpression: "SET #status = :next, updatedAt = :changedAt",
+      ExpressionAttributeValues: { ":expected": "active", ":next": "suspended" },
+    });
+    expect(command.input.ConditionExpression).toContain("attribute_not_exists(#status)");
+  });
+
+  it("maps conditional operational-status races to a safe conflict", async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("provider detail"), { name: "ConditionalCheckFailedException" }),
+      );
+    const repository = createDynamoProjectRepository({
+      client: clientWith(send),
+      tableName: "Control",
+    });
+
+    const update = () =>
+      repository.setOperationalStatus(
+        project.publicProjectId,
+        "suspended",
+        "active",
+        "2026-08-25T10:00:00.000Z",
+      );
+    await expect(update()).rejects.toBeInstanceOf(ProjectStateConflictError);
+    await expect(update()).rejects.not.toThrow("provider detail");
   });
 });

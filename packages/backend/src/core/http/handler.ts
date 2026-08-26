@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getAuthoritativeRequestId } from "../observability/request-context.js";
 import { redactSensitiveValues } from "../observability/redact.js";
+import { createInvocationMetrics } from "../observability/metrics.js";
 
 type AnySchema = z.ZodType;
 type MaybePromise<T> = T | Promise<T>;
@@ -40,12 +41,14 @@ export class HttpError extends Error {
   public readonly code: string;
   public readonly safeMessage: string;
   public readonly details: ValidationDetail[] | undefined;
+  public readonly retryAfterSeconds: number | undefined;
 
   public constructor(
     statusCode: number,
     code: string,
     safeMessage: string,
     details?: ValidationDetail[],
+    retryAfterSeconds?: number,
   ) {
     super(safeMessage);
     this.name = "HttpError";
@@ -53,6 +56,10 @@ export class HttpError extends Error {
     this.code = code;
     this.safeMessage = safeMessage;
     this.details = details;
+    this.retryAfterSeconds =
+      retryAfterSeconds === undefined
+        ? undefined
+        : z.number().int().min(1).max(86_400).parse(retryAfterSeconds);
   }
 }
 
@@ -161,12 +168,14 @@ function jsonResponse(
   statusCode: number,
   requestId: string,
   body: unknown,
+  headers?: Record<string, string>,
 ): APIGatewayProxyStructuredResultV2 {
   return {
     statusCode,
     headers: {
       "content-type": "application/json; charset=utf-8",
       "x-request-id": requestId,
+      ...headers,
     },
     body: JSON.stringify(body),
   };
@@ -181,7 +190,11 @@ function errorResponse(error: HttpError, requestId: string): APIGatewayProxyStru
     },
     requestId,
   };
-  return jsonResponse(error.statusCode, requestId, ErrorEnvelopeSchema.parse(errorBody));
+  return jsonResponse(error.statusCode, requestId, ErrorEnvelopeSchema.parse(errorBody), {
+    ...(error.retryAfterSeconds === undefined
+      ? {}
+      : { "retry-after": String(error.retryAfterSeconds) }),
+  });
 }
 
 function createBoundaryHandler<
@@ -198,6 +211,7 @@ function createBoundaryHandler<
 ) {
   return async (event: unknown): Promise<APIGatewayProxyStructuredResultV2> => {
     const requestId = getAuthoritativeRequestId(event);
+    const invocationMetrics = createInvocationMetrics("HttpApi");
 
     try {
       const eventResult = GatewayEventSchema.safeParse(event);
@@ -241,6 +255,7 @@ function createBoundaryHandler<
       const data = await options.callback(request);
       const response = renderSuccess(data, requestId, options.schemas.response);
       options.logger?.info("http.request.completed", { requestId, statusCode: successStatusCode });
+      invocationMetrics.count("HttpRequest", "Success");
       return response;
     } catch (error) {
       if (error instanceof HttpError) {
@@ -249,6 +264,13 @@ function createBoundaryHandler<
           statusCode: error.statusCode,
           code: error.code,
         });
+        invocationMetrics.count("HttpRequest", "Rejected");
+        if (error.statusCode === 401) {
+          invocationMetrics.count("ProjectAuthenticationFailure", "Rejected");
+        }
+        if (error.statusCode === 429 && error.code === "RATE_LIMIT_EXCEEDED") {
+          invocationMetrics.count("ProjectRateLimitRejection", "Rejected");
+        }
         return errorResponse(error, requestId);
       }
 
@@ -258,10 +280,13 @@ function createBoundaryHandler<
           type: error instanceof Error ? "exception" : typeof error,
         }),
       });
+      invocationMetrics.count("HttpInternalFailure", "Failed");
       return errorResponse(
         new HttpError(500, "INTERNAL_ERROR", "An unexpected error occurred"),
         requestId,
       );
+    } finally {
+      invocationMetrics.flush();
     }
   };
 }

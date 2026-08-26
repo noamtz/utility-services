@@ -27,6 +27,7 @@ const project: InternalProject = {
   publicProjectId: "prj_0123456789abcdefghijkl",
   ownerId: "owner-1",
   name: "Repository project",
+  status: "active",
   enabledUtilities: ["file-management"],
   fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
   createdAt: timestamp,
@@ -206,6 +207,58 @@ describe("Dynamo credential repository", () => {
       (send.mock.calls[0]?.[0] as TransactWriteCommand).input.ClientRequestToken,
     ).toBeUndefined();
     expect((send.mock.calls[1]?.[0] as TransactWriteCommand).input.TransactItems).toHaveLength(4);
+  });
+
+  it("updates metadata and lookup atomically for suspension and resumption", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const repo = repository(send);
+
+    const suspended = await repo.setOperationalStatus(
+      records.metadata,
+      "active",
+      "suspended",
+      timestamp,
+    );
+    expect(suspended.status).toBe("suspended");
+
+    const command = send.mock.calls[0]?.[0] as TransactWriteCommand;
+    expect(command.input.TransactItems).toHaveLength(2);
+    expect(command.input.TransactItems?.map((item) => item.Update?.UpdateExpression)).toEqual([
+      "SET #status = :next, updatedAt = :updatedAt",
+      "SET #status = :next, updatedAt = :updatedAt",
+    ]);
+    expect(command.input.TransactItems?.[1]?.Update?.Key).toEqual({
+      pk: `API_KEY#${records.metadata.keyId}`,
+      sk: "LOOKUP",
+    });
+
+    await expect(
+      repo.setOperationalStatus(suspended, "suspended", "active", timestamp),
+    ).resolves.toMatchObject({ status: "active" });
+  });
+
+  it("rejects terminal or concurrently changed operational state safely", async () => {
+    const repo = repository(vi.fn());
+    await expect(
+      repo.setOperationalStatus(
+        { ...records.metadata, status: "revoked", revokedAt: timestamp },
+        "active",
+        "suspended",
+        timestamp,
+      ),
+    ).rejects.toBeInstanceOf(CredentialStateConflictError);
+
+    const conflict = Object.assign(new Error("provider detail"), {
+      name: "TransactionCanceledException",
+    });
+    await expect(
+      repository(vi.fn().mockRejectedValue(conflict)).setOperationalStatus(
+        records.metadata,
+        "active",
+        "suspended",
+        timestamp,
+      ),
+    ).rejects.toBeInstanceOf(CredentialStateConflictError);
   });
 
   it("returns terminal revoke idempotently without writing and fails closed on corrupt records", async () => {

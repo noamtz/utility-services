@@ -26,6 +26,7 @@ export const CONTROL_TABLE_POLICY = {
   globalIndexes: {
     [OWNER_INDEX_NAME]: { hashKey: "gsi1pk", rangeKey: "gsi1sk", projection: "all" },
   },
+  ttl: "expiresAt",
 } as const;
 
 export const CONTROL_TABLE_LINK_ACTIONS = ["dynamodb:Query"] as const;

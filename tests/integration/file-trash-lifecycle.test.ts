@@ -240,6 +240,7 @@ function fixture(initial = readyFile()) {
       inspect: async () => ({
         internalProjectId,
         publicProjectId,
+        status: "active",
         fileManagement: { downloadUrlLifetimeMinutes: 5 },
       }),
     },

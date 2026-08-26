@@ -3,6 +3,8 @@ import { MAX_FILE_SIZE_BYTES } from "@utility-services/contracts";
 export const FILE_TABLE_COMPONENT_NAME = "FileTable";
 export const FILE_BUCKET_COMPONENT_NAME = "FileBucket";
 export const FILE_COMPLETION_COMPONENT_NAME = "FileUploadCompletion";
+export const FILE_OPERATIONS_DLQ_COMPONENT_NAME = "FileOperationsDeadLetterQueue";
+export const FILE_OPERATIONS_DLQ_POLICY_COMPONENT_NAME = "FileOperationsDeadLetterQueuePolicy";
 export const FILE_RECONCILIATION_COMPONENT_NAME = "FileUploadReconciliation";
 export const FILE_PURGE_COMPONENT_NAME = "FileTrashPurge";
 export const PUBLIC_FILE_INDEX_NAME = "PublicFiles";
@@ -11,6 +13,8 @@ export const MAX_RETAINED_STORAGE_BYTES = 5n * 2n ** 30n;
 export const UPLOAD_COMPLETION_GRACE_MINUTES = 60;
 export const FILE_RECONCILIATION_SCHEDULE = "rate(5 minutes)";
 export const FILE_PURGE_SCHEDULE = "rate(5 minutes)";
+export const FILE_OPERATIONS_RETRY_COUNT = 2 as const;
+export const FILE_OPERATIONS_DLQ_RETENTION_DAYS = 14 as const;
 export const FILE_OBJECT_PREFIX = "projects/";
 
 export { MAX_FILE_SIZE_BYTES };
@@ -45,12 +49,6 @@ export const FILE_BUCKET_POLICY = {
     ignorePublicAcls: true,
     restrictPublicBuckets: true,
   },
-  transportPolicy: {
-    actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
-    effect: "deny",
-    principals: "*",
-    conditions: [{ test: "Bool", variable: "aws:SecureTransport", values: ["false"] }],
-  },
 } as const;
 
 export const FILE_ROUTES = [
@@ -58,7 +56,7 @@ export const FILE_ROUTES = [
     name: "AuthorizeFileUploadRoute",
     route: "POST /v1/files/uploads",
     handler: "packages/backend/src/functions/files/authorize-upload.handler",
-    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
     fileTableActions: ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
     bucketActions: ["s3:PutObject"],
     usageTableActions: [],
@@ -67,7 +65,7 @@ export const FILE_ROUTES = [
     name: "ListFilesRoute",
     route: "GET /v1/files",
     handler: "packages/backend/src/functions/files/list-files.handler",
-    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
     fileTableActions: [],
     bucketActions: [],
     usageTableActions: [],
@@ -76,7 +74,7 @@ export const FILE_ROUTES = [
     name: "InspectFileRoute",
     route: "GET /v1/files/{fileId}",
     handler: "packages/backend/src/functions/files/inspect-file.handler",
-    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
     fileTableActions: ["dynamodb:GetItem"],
     bucketActions: [],
     usageTableActions: [],
@@ -85,7 +83,7 @@ export const FILE_ROUTES = [
     name: "AuthorizeFileDownloadRoute",
     route: "POST /v1/files/{fileId}/downloads",
     handler: "packages/backend/src/functions/files/authorize-download.handler",
-    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
     fileTableActions: ["dynamodb:GetItem"],
     bucketActions: ["s3:GetObject"],
     usageTableActions: [],
@@ -94,7 +92,7 @@ export const FILE_ROUTES = [
     name: "DeleteFileRoute",
     route: "DELETE /v1/files/{fileId}",
     handler: "packages/backend/src/functions/files/delete-file.handler",
-    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
     fileTableActions: [
       "dynamodb:DeleteItem",
       "dynamodb:GetItem",
@@ -114,7 +112,7 @@ export const FILE_ROUTES = [
     name: "RestoreFileRoute",
     route: "POST /v1/files/{fileId}/restore",
     handler: "packages/backend/src/functions/files/restore-file.handler",
-    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
     fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
     bucketActions: [],
     usageTableActions: [],
@@ -137,7 +135,6 @@ export const FILE_COMPLETION_TABLE_ACTIONS = [
   "dynamodb:TransactWriteItems",
 ] as const;
 export const FILE_COMPLETION_BUCKET_ACTIONS = ["s3:GetObject", "s3:DeleteObject"] as const;
-export const FILE_COMPLETION_BUCKET_LIST_ACTIONS = ["s3:ListBucket"] as const;
 export const FILE_COMPLETION_USAGE_ACTIONS = [
   "dynamodb:GetItem",
   "dynamodb:PutItem",

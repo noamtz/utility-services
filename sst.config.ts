@@ -24,6 +24,7 @@ export default $config({
       { createDashboard },
       { createDownloadMeteringResources },
       { createFileManagementResources },
+      { createObservabilityResources },
       { createUsagePricingResources },
     ] = await Promise.all([
       import("./infra/api.js"),
@@ -31,6 +32,7 @@ export default $config({
       import("./infra/dashboard.js"),
       import("./infra/download-metering.js"),
       import("./infra/file-management.js"),
+      import("./infra/observability.js"),
       import("./infra/usage-pricing.js"),
     ]);
     const control = createControlResources({ production: $app.stage === "production" });
@@ -51,6 +53,45 @@ export default $config({
       userPoolId: control.userPool.id,
       userPoolClientId: control.userPoolClient.id,
     });
+    const observability = createObservabilityResources({
+      production: $app.stage === "production",
+      stage: $app.stage,
+      apiId: api.api.nodes.api.id,
+      functions: [
+        ...api.routes.map((route, index) => ({
+          id: `ApiRoute${String(index + 1).padStart(2, "0")}`,
+          functionName: route.nodes.function.apply((fn) => fn.name),
+        })),
+        { id: "FileUploadCompletion", functionName: files.completionWorker.name },
+        {
+          id: "FileUploadReconciliation",
+          functionName: files.reconciler.nodes.function.apply((fn) => fn.name),
+        },
+        {
+          id: "FileTrashPurge",
+          functionName: files.purge.nodes.function.apply((fn) => fn.name),
+        },
+        { id: "DownloadMetering", functionName: downloadMetering.processor.name },
+        {
+          id: "UsageFreshnessMonitor",
+          functionName: usagePricing.freshnessMonitor.nodes.function.apply((fn) => fn.name),
+        },
+      ],
+      meteringQueue: {
+        id: "DownloadMeteringQueue",
+        queueName: downloadMetering.queue.nodes.queue.name,
+      },
+      deadLetterQueues: [
+        {
+          id: "DownloadMeteringDeadLetterQueue",
+          queueName: downloadMetering.deadLetterQueue.nodes.queue.name,
+        },
+        {
+          id: "FileOperationsDeadLetterQueue",
+          queueName: files.operationsDlq.nodes.queue.name,
+        },
+      ],
+    });
     return {
       apiUrl: api.url,
       dashboardUrl: dashboard.url,
@@ -63,6 +104,8 @@ export default $config({
       downloadMeteringLogBucketName: downloadMetering.logBucket.name,
       downloadMeteringQueueUrl: downloadMetering.queue.url,
       downloadMeteringDeadLetterQueueUrl: downloadMetering.deadLetterQueue.url,
+      alertTopicArn: observability.topic?.arn ?? "not-created-for-stage",
+      alertSubscriptionRequired: observability.subscriptionRequired,
     };
   },
 });

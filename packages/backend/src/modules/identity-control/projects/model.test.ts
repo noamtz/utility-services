@@ -18,6 +18,7 @@ const project: InternalProject = {
   publicProjectId: "prj_0123456789abcdefghijkl",
   ownerId: "owner-1",
   name: "Control project",
+  status: "active",
   enabledUtilities: ["file-management"],
   fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
   createdAt: "2026-08-23T08:00:00.000Z",
@@ -47,6 +48,7 @@ describe("project model", () => {
       sk: PROJECT_METADATA_SORT_KEY,
       gsi1pk: "OWNER#owner-1",
       itemType: "project-metadata",
+      status: "active",
     });
     expect(metadata).not.toHaveProperty("fileManagement");
     expect(utility).toMatchObject({
@@ -58,6 +60,15 @@ describe("project model", () => {
     });
     expect(utility).not.toHaveProperty("ownerId");
     expect(assembleProject(metadata, utility)).toEqual(project);
+  });
+
+  it("normalizes legacy metadata without an operational status to active", () => {
+    const metadata = toProjectMetadataItem(project);
+    const legacy: Partial<typeof metadata> = structuredClone(metadata);
+    delete legacy.status;
+
+    expect(parseProjectMetadataItem(legacy).status).toBe("active");
+    expect(() => parseProjectMetadataItem({ ...metadata, status: "disabled" })).toThrow();
   });
 
   it("fails closed for unknown fields and mismatched partitions", () => {

@@ -25,6 +25,8 @@ import {
   retentionExpiry,
   sourceDigest,
   usageEventSortKey,
+  watermarkIndexPartitionKey,
+  watermarkIndexSortKey,
   type DedupeItem,
   type DownloadMeteringQuarantineItem,
   type MetricAggregateItem,
@@ -485,7 +487,16 @@ describe("usage pricing repository projection and operations paths", () => {
       internalProjectId: projectId,
       expiresAt: retentionExpiry(occurredAt, 90),
     };
-    const client = new StubClient([{}, {}, {}]);
+    const existingWatermark = {
+      pk: `PROJECT#${projectId}`,
+      sk: "WATERMARK#cloudtrail",
+      itemType: "usage-watermark",
+      internalProjectId: projectId,
+      sourceKind: "cloudtrail",
+      lastMeteredAt: occurredAt,
+      incompleteSince: null,
+    };
+    const client = new StubClient([{}, { Item: existingWatermark }, {}, {}]);
     const repo = repository(client);
     await repo.advanceWatermark(projectId, "cloudtrail", occurredAt);
     await repo.markWatermarkIncomplete(projectId, "cloudtrail", occurredAt);
@@ -497,11 +508,48 @@ describe("usage pricing repository projection and operations paths", () => {
     expect((client.commands[0] as UpdateCommand).input.UpdateExpression).toContain(
       "if_not_exists(incompleteSince, :complete)",
     );
-    expect((client.commands[1] as UpdateCommand).input.ConditionExpression).toContain(
+    expect(client.commands[1]).toBeInstanceOf(GetCommand);
+    expect((client.commands[2] as UpdateCommand).input.ConditionExpression).toContain(
       "incompleteSince = :complete",
     );
-    expect(client.commands[2]).toBeInstanceOf(PutCommand);
-    expect((client.commands[2] as PutCommand).input.Item).not.toHaveProperty("rawEvent");
+    expect((client.commands[2] as UpdateCommand).input.ExpressionAttributeValues).toMatchObject({
+      ":gsi1pk": "WATERMARK#cloudtrail",
+      ":gsi1sk": `${occurredAt}#${projectId}`,
+    });
+    expect(client.commands[3]).toBeInstanceOf(PutCommand);
+    expect((client.commands[3] as PutCommand).input.Item).not.toHaveProperty("rawEvent");
+  });
+
+  it("queries bounded stale watermark pages through the sparse GSI without scanning", async () => {
+    const indexed = {
+      pk: `PROJECT#${projectId}`,
+      sk: "WATERMARK#cloudtrail-download",
+      itemType: "usage-watermark",
+      internalProjectId: projectId,
+      sourceKind: "cloudtrail-download",
+      lastMeteredAt: occurredAt,
+      incompleteSince: null,
+      gsi1pk: watermarkIndexPartitionKey("cloudtrail-download"),
+      gsi1sk: watermarkIndexSortKey(occurredAt, projectId),
+    } as const;
+    const cursor = { pk: indexed.pk, sk: indexed.sk };
+    const client = new StubClient([{ Items: [indexed], LastEvaluatedKey: cursor }]);
+    await expect(
+      repository(client).listWatermarksBefore(
+        "cloudtrail-download",
+        "2026-08-16T00:00:00.000Z",
+        undefined,
+        25,
+      ),
+    ).resolves.toEqual({ items: [indexed], cursor });
+    expect(client.commands).toHaveLength(1);
+    expect(client.commands[0]).toBeInstanceOf(QueryCommand);
+    expect((client.commands[0] as QueryCommand).input).toMatchObject({
+      IndexName: "UsageWatermarkFreshness",
+      KeyConditionExpression: "gsi1pk = :source AND gsi1sk < :cutoff",
+      Limit: 25,
+    });
+    expect(JSON.stringify((client.commands[0] as QueryCommand).input)).not.toContain("Scan");
   });
 
   it("treats older watermark updates as verified no-ops and deduplicates through TTL lag", async () => {

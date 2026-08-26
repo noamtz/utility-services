@@ -34,18 +34,21 @@ export function createApi(
   files?: FileResources,
 ) {
   const api = new sst.aws.ApiGatewayV2(API_COMPONENT_NAME, { cors: API_CORS });
-  api.route(
-    HEALTH_ROUTE.route,
-    {
-      handler: HEALTH_ROUTE.handler,
-      runtime: HEALTH_ROUTE.runtime,
-      transform: {
-        function: {
-          tracingConfig: { mode: HEALTH_ROUTE.tracingMode },
+  const routes: unknown[] = [];
+  routes.push(
+    api.route(
+      HEALTH_ROUTE.route,
+      {
+        handler: HEALTH_ROUTE.handler,
+        runtime: HEALTH_ROUTE.runtime,
+        transform: {
+          function: {
+            tracingConfig: { mode: HEALTH_ROUTE.tracingMode },
+          },
         },
       },
-    },
-    { name: HEALTH_ROUTE.name },
+      { name: HEALTH_ROUTE.name },
+    ),
   );
   const authorizer = api.addAuthorizer({
     name: CONTROL_AUTHORIZER_NAME,
@@ -57,40 +60,44 @@ export function createApi(
     },
   });
   for (const route of CONTROL_ROUTES) {
-    api.route(
-      route.route,
-      {
-        handler: route.handler,
-        runtime: "nodejs24.x",
-        link: [control.table],
-        ...(route.additionalTableActions.length > 0
-          ? {
-              permissions: [
-                {
-                  actions: [...route.additionalTableActions],
-                  resources: [control.table.arn],
-                },
-              ],
-            }
-          : {}),
-        transform: { function: { tracingConfig: { mode: "Active" } } },
-      },
-      { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },
+    routes.push(
+      api.route(
+        route.route,
+        {
+          handler: route.handler,
+          runtime: "nodejs24.x",
+          link: [control.table],
+          ...(route.additionalTableActions.length > 0
+            ? {
+                permissions: [
+                  {
+                    actions: [...route.additionalTableActions],
+                    resources: [control.table.arn],
+                  },
+                ],
+              }
+            : {}),
+          transform: { function: { tracingConfig: { mode: "Active" } } },
+        },
+        { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },
+      ),
     );
   }
   if (usagePricing) {
-    api.route(
-      CURRENT_MONTH_USAGE_CONTROL_ROUTE.route,
-      {
-        handler: CURRENT_MONTH_USAGE_CONTROL_ROUTE.handler,
-        runtime: "nodejs24.x",
-        link: [control.table, usagePricing.table],
-        transform: { function: { tracingConfig: { mode: "Active" } } },
-      },
-      {
-        name: CURRENT_MONTH_USAGE_CONTROL_ROUTE.name,
-        auth: { jwt: { authorizer: authorizer.id } },
-      },
+    routes.push(
+      api.route(
+        CURRENT_MONTH_USAGE_CONTROL_ROUTE.route,
+        {
+          handler: CURRENT_MONTH_USAGE_CONTROL_ROUTE.handler,
+          runtime: "nodejs24.x",
+          link: [control.table, usagePricing.table],
+          transform: { function: { tracingConfig: { mode: "Active" } } },
+        },
+        {
+          name: CURRENT_MONTH_USAGE_CONTROL_ROUTE.name,
+          auth: { jwt: { authorizer: authorizer.id } },
+        },
+      ),
     );
   }
   if (usagePricing && files) {
@@ -116,18 +123,20 @@ export function createApi(
         ...(route.bucketActions.length > 0 ? [files.bucket] : []),
         ...(route.usageTableActions.length > 0 ? [usagePricing.table] : []),
       ];
-      api.route(
-        route.route,
-        {
-          handler: route.handler,
-          runtime: "nodejs24.x",
-          link: links,
-          ...(permissions.length > 0 ? { permissions } : {}),
-          transform: { function: { tracingConfig: { mode: "Active" } } },
-        },
-        { name: route.name },
+      routes.push(
+        api.route(
+          route.route,
+          {
+            handler: route.handler,
+            runtime: "nodejs24.x",
+            link: links,
+            ...(permissions.length > 0 ? { permissions } : {}),
+            transform: { function: { tracingConfig: { mode: "Active" } } },
+          },
+          { name: route.name },
+        ),
       );
     }
   }
-  return api;
+  return { api, url: api.url, routes };
 }

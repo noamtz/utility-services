@@ -40,6 +40,7 @@ export function createControlResources(options: { production: boolean }) {
     fields: CONTROL_TABLE_POLICY.fields,
     primaryIndex: CONTROL_TABLE_POLICY.primaryIndex,
     globalIndexes: CONTROL_TABLE_POLICY.globalIndexes,
+    ttl: CONTROL_TABLE_POLICY.ttl,
     deletionProtection: controlTableDeletionProtection(options.production),
   });
   return { userPool, userPoolClient, table };

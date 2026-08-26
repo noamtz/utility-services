@@ -38,6 +38,7 @@ function sqsEvent() {
 
 function setup() {
   const logger = { info: vi.fn(), error: vi.fn() };
+  const observedMetrics = { count: vi.fn(), gauge: vi.fn(), flush: vi.fn() };
   const runtime = {
     logBucketName: logBucket,
     logPrefix,
@@ -54,13 +55,15 @@ function setup() {
       runtime: runtime as never,
       logger,
       now: () => "2026-08-24T10:00:00.000Z",
+      metricsFactory: () => observedMetrics,
     }),
+    observedMetrics,
   };
 }
 
 describe("download metering worker", () => {
   it("dispatches queue and exact reconciliation jobs with count/hash-only logs", async () => {
-    const { worker, runtime, logger } = setup();
+    const { worker, runtime, logger, observedMetrics } = setup();
     await expect(worker.handler(sqsEvent())).resolves.toEqual(summary);
     expect(runtime.metering.processQueueLog).toHaveBeenCalledWith(logKey);
     await worker.handler({ kind: "reconcile-download-metering", logKeys: [logKey] });
@@ -68,10 +71,12 @@ describe("download metering worker", () => {
     const serialized = JSON.stringify(logger.info.mock.calls);
     expect(serialized).not.toMatch(/stage-download|AWSLogs|log\.json|message-1|ObjectCreated/u);
     expect(serialized).toContain("a".repeat(64));
+    expect(observedMetrics.count).toHaveBeenCalledWith("DownloadMeteringProcessed", "Success", 1);
+    expect(observedMetrics.flush).toHaveBeenCalledTimes(2);
   });
 
   it("acknowledges expected poison by deterministic quarantine", async () => {
-    const { worker, runtime, logger } = setup();
+    const { worker, runtime, logger, observedMetrics } = setup();
     await expect(worker.handler({ Records: [] })).resolves.toMatchObject({
       logsProcessed: 0,
       quarantined: 1,
@@ -80,10 +85,11 @@ describe("download metering worker", () => {
       expect.objectContaining({ reasonCode: "invalid-sqs-envelope" }),
     );
     expect(logger.error).not.toHaveBeenCalled();
+    expect(observedMetrics.count).toHaveBeenCalledWith("DownloadMeteringQuarantine", "Quarantined");
   });
 
   it("logs only safe request identity and rethrows transient failures for SQS retry", async () => {
-    const { worker, runtime, logger } = setup();
+    const { worker, runtime, logger, observedMetrics } = setup();
     runtime.metering.processQueueLog.mockRejectedValueOnce(
       new Error("temporary failure containing secret-log-key"),
     );
@@ -92,5 +98,7 @@ describe("download metering worker", () => {
     expect(JSON.stringify(logger.error.mock.calls)).not.toMatch(
       /secret-log-key|AWSLogs|log\.json/u,
     );
+    expect(observedMetrics.count).toHaveBeenCalledWith("DownloadMeteringFailure", "Failed");
+    expect(observedMetrics.flush).toHaveBeenCalledOnce();
   });
 });

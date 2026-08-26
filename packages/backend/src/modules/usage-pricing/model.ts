@@ -20,6 +20,7 @@ export const QUARANTINE_RETENTION_DAYS = 90 as const;
 export const DOWNLOAD_EVIDENCE_SORT_KEY = "EVIDENCE" as const;
 export const DOWNLOAD_QUARANTINE_SORT_KEY = "QUARANTINE" as const;
 export const CLOUDTRAIL_DOWNLOAD_SOURCE_KIND = "cloudtrail-download" as const;
+export const WATERMARK_FRESHNESS_INDEX_NAME = "UsageWatermarkFreshness" as const;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -151,8 +152,15 @@ export const WatermarkItemSchema = z
     sourceKind: SourceKindSchema,
     lastMeteredAt: TimestampSchema,
     incompleteSince: TimestampSchema.nullable(),
+    gsi1pk: z.string().startsWith("WATERMARK#").optional(),
+    gsi1sk: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((item, context) => {
+    if ((item.gsi1pk === undefined) !== (item.gsi1sk === undefined)) {
+      context.addIssue({ code: "custom", message: "Watermark index keys must be paired" });
+    }
+  });
 
 export const QuarantineItemSchema = z
   .object({
@@ -338,6 +346,12 @@ export function storagePartitionKey(internalProjectId: string, digest: string): 
 export function watermarkSortKey(sourceKind: string): string {
   return `WATERMARK#${SourceKindSchema.parse(sourceKind)}`;
 }
+export function watermarkIndexPartitionKey(sourceKind: string): string {
+  return `WATERMARK#${SourceKindSchema.parse(sourceKind)}`;
+}
+export function watermarkIndexSortKey(lastMeteredAt: string, internalProjectId: string): string {
+  return `${TimestampSchema.parse(lastMeteredAt)}#${InternalProjectIdSchema.parse(internalProjectId)}`;
+}
 export function quarantinePartitionKey(observedAt: string): string {
   return `QUARANTINE#${usagePeriod(observedAt)}`;
 }
@@ -434,7 +448,10 @@ export function parseWatermarkItem(input: unknown): WatermarkItem {
   const item = WatermarkItemSchema.parse(input);
   if (
     item.pk !== projectPartitionKey(item.internalProjectId) ||
-    item.sk !== watermarkSortKey(item.sourceKind)
+    item.sk !== watermarkSortKey(item.sourceKind) ||
+    (item.gsi1pk !== undefined &&
+      (item.gsi1pk !== watermarkIndexPartitionKey(item.sourceKind) ||
+        item.gsi1sk !== watermarkIndexSortKey(item.lastMeteredAt, item.internalProjectId)))
   )
     throw new Error("Watermark keys are inconsistent");
   return item;

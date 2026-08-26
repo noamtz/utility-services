@@ -45,6 +45,9 @@ import {
   projectMonthPartitionKey,
   projectPartitionKey,
   storagePartitionKey,
+  WATERMARK_FRESHNESS_INDEX_NAME,
+  watermarkIndexPartitionKey,
+  watermarkIndexSortKey,
   watermarkSortKey,
   type DedupeItem,
   type DownloadMeteringQuarantineItem,
@@ -70,6 +73,10 @@ export type RecordDownloadEventResult = {
   readonly events: readonly [UsageEventItem, UsageEventItem, UsageEventItem];
 };
 export type PutDownloadQuarantineResult = { readonly status: "recorded" | "duplicate" };
+export interface WatermarkPage {
+  readonly items: WatermarkItem[];
+  readonly cursor?: Record<string, unknown>;
+}
 
 export interface UsagePricingRepository {
   listPriceVersions(): Promise<PriceVersion[]>;
@@ -101,6 +108,12 @@ export interface UsagePricingRepository {
   createCheckpoint(item: StorageCheckpointItem): Promise<void>;
   replaceCheckpoint(item: StorageCheckpointItem, expectedRevision: bigint): Promise<void>;
   listWatermarks(internalProjectId: string): Promise<WatermarkItem[]>;
+  listWatermarksBefore(
+    sourceKind: string,
+    cutoff: string,
+    cursor?: Record<string, unknown>,
+    limit?: number,
+  ): Promise<WatermarkPage>;
   advanceWatermark(internalProjectId: string, sourceKind: string, meteredAt: string): Promise<void>;
   markWatermarkIncomplete(
     internalProjectId: string,
@@ -806,6 +819,37 @@ export function createDynamoUsagePricingRepository(options: {
       });
     },
 
+    async listWatermarksBefore(sourceKind, cutoff, cursor, limit = 100) {
+      const boundedLimit = z.number().int().min(1).max(100).parse(limit);
+      const output = await options.client.send(
+        new QueryCommand({
+          TableName: tableName,
+          IndexName: WATERMARK_FRESHNESS_INDEX_NAME,
+          KeyConditionExpression: "gsi1pk = :source AND gsi1sk < :cutoff",
+          ExpressionAttributeValues: {
+            ":source": watermarkIndexPartitionKey(sourceKind),
+            ":cutoff": `${z.iso.datetime({ offset: true }).parse(cutoff)}#`,
+          },
+          Limit: boundedLimit,
+          ...(cursor ? { ExclusiveStartKey: cursor } : {}),
+        }),
+      );
+      const items = z
+        .array(z.unknown())
+        .parse(output.Items ?? [])
+        .map((item) => {
+          try {
+            return parseWatermarkItem(item);
+          } catch {
+            throw new CorruptUsageRecordError();
+          }
+        });
+      return {
+        items,
+        ...(output.LastEvaluatedKey ? { cursor: output.LastEvaluatedKey } : {}),
+      };
+    },
+
     async advanceWatermark(internalProjectId, sourceKind, meteredAt) {
       try {
         await options.client.send(
@@ -813,7 +857,7 @@ export function createDynamoUsagePricingRepository(options: {
             TableName: tableName,
             Key: { pk: projectPartitionKey(internalProjectId), sk: watermarkSortKey(sourceKind) },
             UpdateExpression:
-              "SET itemType = :type, internalProjectId = :internal, sourceKind = :source, lastMeteredAt = :meteredAt, incompleteSince = if_not_exists(incompleteSince, :complete)",
+              "SET itemType = :type, internalProjectId = :internal, sourceKind = :source, lastMeteredAt = :meteredAt, incompleteSince = if_not_exists(incompleteSince, :complete), gsi1pk = :gsi1pk, gsi1sk = :gsi1sk",
             ConditionExpression:
               "attribute_not_exists(lastMeteredAt) OR lastMeteredAt < :meteredAt",
             ExpressionAttributeValues: {
@@ -822,6 +866,8 @@ export function createDynamoUsagePricingRepository(options: {
               ":source": sourceKind,
               ":meteredAt": meteredAt,
               ":complete": null,
+              ":gsi1pk": watermarkIndexPartitionKey(sourceKind),
+              ":gsi1sk": watermarkIndexSortKey(meteredAt, internalProjectId),
             },
           }),
         );
@@ -834,21 +880,27 @@ export function createDynamoUsagePricingRepository(options: {
     },
 
     async markWatermarkIncomplete(internalProjectId, sourceKind, observedAt) {
+      const before = await readWatermark(internalProjectId, sourceKind);
+      if (before?.incompleteSince && before.incompleteSince <= observedAt) return;
+      const effectiveTime = before?.lastMeteredAt ?? observedAt;
       try {
         await options.client.send(
           new UpdateCommand({
             TableName: tableName,
             Key: { pk: projectPartitionKey(internalProjectId), sk: watermarkSortKey(sourceKind) },
             UpdateExpression:
-              "SET itemType = :type, internalProjectId = :internal, sourceKind = :source, lastMeteredAt = if_not_exists(lastMeteredAt, :observed), incompleteSince = :observed",
+              "SET itemType = :type, internalProjectId = :internal, sourceKind = :source, lastMeteredAt = if_not_exists(lastMeteredAt, :observed), incompleteSince = :observed, gsi1pk = :gsi1pk, gsi1sk = :gsi1sk",
             ConditionExpression:
-              "attribute_not_exists(incompleteSince) OR incompleteSince = :complete OR :observed < incompleteSince",
+              "(attribute_not_exists(lastMeteredAt) OR lastMeteredAt = :effective) AND (attribute_not_exists(incompleteSince) OR incompleteSince = :complete OR :observed < incompleteSince)",
             ExpressionAttributeValues: {
               ":type": "usage-watermark",
               ":internal": internalProjectId,
               ":source": sourceKind,
               ":observed": observedAt,
+              ":effective": effectiveTime,
               ":complete": null,
+              ":gsi1pk": watermarkIndexPartitionKey(sourceKind),
+              ":gsi1sk": watermarkIndexSortKey(effectiveTime, internalProjectId),
             },
           }),
         );

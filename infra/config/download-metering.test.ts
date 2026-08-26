@@ -82,6 +82,7 @@ describe("download metering infrastructure policy", () => {
     expect(DOWNLOAD_METERING_QUEUE_VISIBILITY_SECONDS).toBeGreaterThan(
       DOWNLOAD_METERING_PROCESSOR_TIMEOUT_SECONDS,
     );
+    expect(DOWNLOAD_METERING_QUEUE_VISIBILITY_SECONDS).toBe(360);
     expect([...DOWNLOAD_METERING_DYNAMO_ACTIONS, ...DOWNLOAD_METERING_LOG_ACTIONS]).not.toContain(
       expect.stringContaining("*"),
     );
