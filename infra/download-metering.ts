@@ -92,6 +92,14 @@ export function createDownloadMeteringResources(options: DownloadMeteringResourc
       },
     },
   });
+  const logBucketEncryption = new aws.s3.BucketServerSideEncryptionConfiguration(
+    "DownloadMeteringLogBucketEncryption",
+    {
+      bucket: logBucket.name,
+      rules: [{ applyServerSideEncryptionByDefault: { sseAlgorithm: "AES256" } }],
+    },
+    { dependsOn: [logBucket] },
+  );
 
   const deadLetterQueue = new sst.aws.Queue(DOWNLOAD_METERING_DLQ_COMPONENT_NAME, {
     visibilityTimeout: `${DOWNLOAD_METERING_QUEUE_VISIBILITY_SECONDS} seconds`,
@@ -212,6 +220,7 @@ export function createDownloadMeteringResources(options: DownloadMeteringResourc
 
   return {
     logBucket,
+    logBucketEncryption,
     deadLetterQueue,
     queue,
     processor,

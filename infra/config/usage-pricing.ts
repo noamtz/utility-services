@@ -8,6 +8,11 @@ import {
 
 export const USAGE_PRICING_TABLE_COMPONENT_NAME = "UsagePricingTable";
 export const USAGE_PRICING_TTL_ATTRIBUTE = "expiresAt";
+export const USAGE_WATERMARK_INDEX_NAME = "UsageWatermarkFreshness";
+export const USAGE_FRESHNESS_MONITOR_COMPONENT_NAME = "UsageFreshnessMonitor";
+export const USAGE_FRESHNESS_MONITOR_SCHEDULE = "rate(5 minutes)";
+export const USAGE_FRESHNESS_STALE_AFTER_SECONDS = 24 * 60 * 60;
+export const USAGE_FRESHNESS_SOURCE_KINDS = ["cloudtrail-download"] as const;
 export const USAGE_PRICING_TABLE_LINK_ACTIONS = ["dynamodb:Query"] as const;
 export const CURRENT_MONTH_USAGE_CONTROL_ROUTE = {
   name: "GetCurrentMonthUsageRoute",
@@ -17,10 +22,12 @@ export const CURRENT_MONTH_USAGE_CONTROL_ROUTE = {
 
 export const USAGE_PRICING_TABLE_POLICY = {
   billingMode: "PAY_PER_REQUEST",
-  fields: { pk: "string", sk: "string" },
+  fields: { pk: "string", sk: "string", gsi1pk: "string", gsi1sk: "string" },
   primaryIndex: { hashKey: "pk", rangeKey: "sk" },
   ttl: USAGE_PRICING_TTL_ATTRIBUTE,
-  globalIndexes: {},
+  globalIndexes: {
+    [USAGE_WATERMARK_INDEX_NAME]: { hashKey: "gsi1pk", rangeKey: "gsi1sk", projection: "all" },
+  },
 } as const;
 
 export const PRICE_SERVICE_PAGE_CROSS_CHECKS = [

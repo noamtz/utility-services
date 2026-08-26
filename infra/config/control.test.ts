@@ -27,6 +27,7 @@ describe("identity/control infrastructure policy", () => {
   it("defines the on-demand project table and owner query index", () => {
     expect(CONTROL_TABLE_POLICY.billingMode).toBe("PAY_PER_REQUEST");
     expect(CONTROL_TABLE_POLICY.primaryIndex).toEqual({ hashKey: "pk", rangeKey: "sk" });
+    expect(CONTROL_TABLE_POLICY.ttl).toBe("expiresAt");
     expect(CONTROL_TABLE_POLICY.globalIndexes).toEqual({
       OwnerProjects: { hashKey: "gsi1pk", rangeKey: "gsi1sk", projection: "all" },
     });

@@ -59,7 +59,7 @@ describe("SST composition contracts", () => {
 
   it("keeps usage pricing independent with the same query-only link baseline", () => {
     expect(USAGE_PRICING_TABLE_POLICY.primaryIndex).toEqual({ hashKey: "pk", rangeKey: "sk" });
-    expect(USAGE_PRICING_TABLE_POLICY.globalIndexes).toEqual({});
+    expect(USAGE_PRICING_TABLE_POLICY.globalIndexes).toHaveProperty("UsageWatermarkFreshness");
     expect(DYNAMO_LINK_BASELINE_ACTIONS).toEqual(["dynamodb:Query"]);
     expect(JSON.stringify(DYNAMO_LINK_BASELINE_ACTIONS)).not.toMatch(/Put|Update|Get|Scan|\*/u);
     expect(CONTROL_ROUTES).toHaveLength(7);

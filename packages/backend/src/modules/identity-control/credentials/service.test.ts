@@ -20,6 +20,7 @@ const project: InternalProject = {
   publicProjectId: "prj_0123456789abcdefghijkl",
   ownerId: ownerA.ownerId,
   name: "Credential project",
+  status: "active",
   enabledUtilities: ["file-management"],
   fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
   createdAt: timestamp,
@@ -54,6 +55,7 @@ function repository(overrides: Partial<CredentialRepository> = {}): CredentialRe
         Promise.resolve({ ...item, status: "revoked", revokedAt: timestamp }),
       ),
     replace: vi.fn().mockResolvedValue({ ...stored.metadata, status: "replaced" }),
+    setOperationalStatus: vi.fn().mockResolvedValue(stored.metadata),
     ...overrides,
   };
 }

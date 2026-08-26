@@ -107,6 +107,7 @@ function projects(overrides: Partial<PublicProjectReader> = {}): PublicProjectRe
     inspect: vi.fn().mockResolvedValue({
       internalProjectId: project.internalProjectId,
       publicProjectId: project.publicProjectId,
+      status: "active",
       fileManagement: { downloadUrlLifetimeMinutes: 5 },
     }),
     ...overrides,
@@ -204,6 +205,7 @@ describe("download service", () => {
       {
         internalProjectId: "22222222-2222-4222-8222-222222222222",
         publicProjectId: project.publicProjectId,
+        status: "active",
         fileManagement: { downloadUrlLifetimeMinutes: 5 },
       },
     ],
@@ -237,6 +239,7 @@ describe("download service", () => {
         inspect: vi.fn().mockResolvedValue({
           internalProjectId: project.internalProjectId,
           publicProjectId: project.publicProjectId,
+          status: "active",
           fileManagement: { downloadUrlLifetimeMinutes: minutes },
         }),
       }),
@@ -296,6 +299,29 @@ describe("download service", () => {
       expiresAt: "2026-08-23T08:11:00.000Z",
     });
     expect(signer.authorizeGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("denies a suspended project before public file lookup or signing", async () => {
+    const repo = repository();
+    const signer = presigner();
+    const service = createDownloadService({
+      repository: repo,
+      projects: projects({
+        inspect: vi.fn().mockResolvedValue({
+          internalProjectId: project.internalProjectId,
+          publicProjectId: project.publicProjectId,
+          status: "suspended",
+          fileManagement: { downloadUrlLifetimeMinutes: 5 },
+        }),
+      }),
+      presigner: signer,
+    });
+
+    await expect(
+      service.authorizePublic(project.publicProjectId, publicFileId),
+    ).rejects.toMatchObject({ statusCode: 404, code: "FILE_NOT_FOUND" });
+    expect(repo.getPublic).not.toHaveBeenCalled();
+    expect(signer.authorizeGet).not.toHaveBeenCalled();
   });
 
   it("propagates signer failures without returning a capability", async () => {

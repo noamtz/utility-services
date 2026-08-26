@@ -111,6 +111,52 @@ repositories, or examples. The independent usage/pricing table retains immutable
 append-only usage events, rebuildable monthly projections, quarantine, and freshness state.
 Infrastructure changes still require the preview and explicit authorization rules above.
 
+## Service protection and operator controls
+
+Every authenticated File Management control operation shares one fixed-window quota per project:
+60 requests per UTC minute across all six private `/v1/files` routes and across every active key for
+that project. A rejected 61st request returns `429 RATE_LIMIT_EXCEEDED` with `Retry-After`; another
+project has an independent counter. Invalid credentials and the stable-public redirect route do not
+consume project quota.
+
+Project and individual-key suspension are operator-only controls; there is no public suspension
+API. Both operator workflows resolve linked resources through the pinned SST shell and are dry-run
+by default. They still require the exact AWS identity preflight, an explicit stage, and separate
+authorization before applying a mutation:
+
+```powershell
+npm run ops:suspension -- --stage dev-rus02 --target project --project-id <project-id> --action suspend
+npm run ops:suspension -- --stage dev-rus02 --target project --project-id <project-id> --action suspend --apply --confirm APPLY:dev-rus02:project:suspend
+
+npm run ops:backfill-watermarks -- --stage dev-rus02
+npm run ops:backfill-watermarks -- --stage dev-rus02 --apply --confirm APPLY:dev-rus02:watermark-index
+```
+
+Never run either apply form without explicit owner authorization. Suspension blocks fresh private
+authorization and stable-public redirects, but cannot revoke a presigned S3 URL that was already
+issued; that URL remains usable until its short expiry. An authorization already in flight can race
+the suspension transition. Resuming a project does not silently reactivate a separately suspended,
+revoked, or replaced key.
+
+Structured logging performs final-boundary recursive redaction of bearer material, signatures,
+credentials, and presigned query parameters. Operational metrics use only stage, operation, and
+outcome dimensions. File upload completion has two Lambda retries and a shared encrypted 14-day
+file-operations DLQ; reconciliation and purge use the same queue after two EventBridge attempts.
+Download metering retains its encrypted queue, five receives, 360-second visibility, batch size one,
+and encrypted 14-day DLQ. Poison evidence is quarantined and acknowledged, while transient failures
+are rethrown for retry.
+
+Production alone creates the encrypted alert topic and CloudWatch alarms for authentication,
+limiting, API/Lambda failures, unexpected API volume, worker failures, quarantine, queue age, both
+DLQs, and stale/incomplete/failed freshness checks. The repository intentionally creates no SNS
+subscription: an operator must add and verify a destination after deployment before alerts can be
+delivered. Non-production stages still emit logs and metrics without alert resources.
+
+The usage table's sparse watermark index supports scan-free five-minute freshness checks at the
+existing 24-hour threshold. Legacy watermark rows are invisible to that index until the guarded
+backfill is explicitly authorized and applied; its dry-run reports aggregate source counts only.
+Do not trust production freshness alarms for historical rows until that prerequisite is completed.
+
 ## Download metering and reconciliation
 
 Successful direct S3 downloads are observed asynchronously. A narrow regional CloudTrail selector

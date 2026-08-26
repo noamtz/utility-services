@@ -22,6 +22,7 @@ describe("usage pricing resources", () => {
       options: Record<string, unknown> | undefined;
     }> = [];
     const wrap = vi.fn();
+    const cronCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
     class Dynamo {
       public readonly name = output("usage-table");
       public readonly arn = output("usage-table-arn");
@@ -38,10 +39,15 @@ describe("usage pricing resources", () => {
         itemCalls.push({ name, args, options });
       }
     }
+    class Cron {
+      public constructor(name: string, args: Record<string, unknown>) {
+        cronCalls.push({ name, args });
+      }
+    }
     vi.stubGlobal("$interpolate", () => output("interpolated-arn"));
     vi.stubGlobal("sst", {
       Linkable: { wrap },
-      aws: { Dynamo, permission: vi.fn((args: unknown) => args) },
+      aws: { Dynamo, Cron, permission: vi.fn((args: unknown) => args) },
     });
     vi.stubGlobal("aws", { dynamodb: { TableItem } });
 
@@ -51,8 +57,15 @@ describe("usage pricing resources", () => {
       {
         name: USAGE_PRICING_TABLE_COMPONENT_NAME,
         args: {
-          fields: { pk: "string", sk: "string" },
+          fields: { pk: "string", sk: "string", gsi1pk: "string", gsi1sk: "string" },
           primaryIndex: { hashKey: "pk", rangeKey: "sk" },
+          globalIndexes: {
+            UsageWatermarkFreshness: {
+              hashKey: "gsi1pk",
+              rangeKey: "gsi1sk",
+              projection: "all",
+            },
+          },
           ttl: "expiresAt",
           deletionProtection: true,
         },
@@ -68,7 +81,20 @@ describe("usage pricing resources", () => {
       pk: { S: "PRICING" },
       itemType: { S: "price-version" },
     });
-    expect(JSON.stringify(dynamoCalls)).not.toMatch(/globalIndexes|Scan|\*/u);
+    expect(JSON.stringify(dynamoCalls)).not.toMatch(/Scan|\*/u);
+    expect(cronCalls).toMatchObject([
+      {
+        name: "UsageFreshnessMonitor",
+        args: {
+          schedule: "rate(5 minutes)",
+          function: {
+            handler:
+              "packages/backend/src/functions/usage-pricing/check-metering-freshness.handler",
+            permissions: [{ actions: ["dynamodb:Query"] }],
+          },
+        },
+      },
+    ]);
     expect(resources.table).toBeInstanceOf(Dynamo);
   });
 
@@ -81,7 +107,11 @@ describe("usage pricing resources", () => {
         args = value;
       }
     }
-    vi.stubGlobal("sst", { Linkable: { wrap: vi.fn() }, aws: { Dynamo, permission: vi.fn() } });
+    vi.stubGlobal("sst", {
+      Linkable: { wrap: vi.fn() },
+      aws: { Dynamo, Cron: class {}, permission: vi.fn() },
+    });
+    vi.stubGlobal("$interpolate", () => output("index-arn"));
     vi.stubGlobal("aws", { dynamodb: { TableItem: class {} } });
     createUsagePricingResources({ production: false });
     expect(args?.["deletionProtection"]).toBe(false);

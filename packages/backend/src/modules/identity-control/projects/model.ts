@@ -10,6 +10,7 @@ import { z } from "zod";
 export const PROJECT_METADATA_SORT_KEY = "METADATA" as const;
 export const FILE_MANAGEMENT_SORT_KEY = "UTILITY#file-management" as const;
 export const OWNER_INDEX_NAME = "OwnerProjects" as const;
+export const ProjectOperationalStatusSchema = z.enum(["active", "suspended"]);
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 const OwnerIdSchema = z.string().trim().min(1).max(2048);
@@ -22,6 +23,7 @@ export const InternalProjectSchema = z
     name: ProjectNameSchema,
     enabledUtilities: EnabledUtilitiesSchema,
     fileManagement: FileManagementSettingsSchema,
+    status: ProjectOperationalStatusSchema.default("active"),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -39,6 +41,7 @@ export const ProjectMetadataItemSchema = z
     ownerId: OwnerIdSchema,
     name: ProjectNameSchema,
     enabledUtilities: EnabledUtilitiesSchema,
+    status: ProjectOperationalStatusSchema.default("active"),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -98,6 +101,7 @@ export function toProjectMetadataItem(project: InternalProject): ProjectMetadata
     ownerId: parsed.ownerId,
     name: parsed.name,
     enabledUtilities: parsed.enabledUtilities,
+    status: parsed.status,
     createdAt: parsed.createdAt,
     updatedAt: parsed.updatedAt,
   });
@@ -134,6 +138,7 @@ export function assembleProject(metadataInput: unknown, utilityInput: unknown): 
     ownerId: metadata.ownerId,
     name: metadata.name,
     enabledUtilities: metadata.enabledUtilities,
+    status: metadata.status,
     fileManagement: {
       uploadUrlLifetimeMinutes: utility.uploadUrlLifetimeMinutes,
       downloadUrlLifetimeMinutes: utility.downloadUrlLifetimeMinutes,

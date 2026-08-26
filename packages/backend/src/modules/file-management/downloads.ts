@@ -14,6 +14,7 @@ import { toPublicFile } from "./service.js";
 export interface PublicProjectDownloadSettings {
   readonly internalProjectId: string;
   readonly publicProjectId: string;
+  readonly status: "active" | "suspended";
   readonly fileManagement: Pick<FileManagementSettings, "downloadUrlLifetimeMinutes">;
 }
 
@@ -72,18 +73,17 @@ export function createDownloadService(dependencies: DownloadServiceDependencies)
     },
 
     async authorizePublic(publicProjectId, publicFileId) {
-      const [item, project] = await Promise.all([
-        dependencies.repository.getPublic(publicProjectId, publicFileId),
-        dependencies.projects.inspect(publicProjectId),
-      ]);
+      const project = await dependencies.projects.inspect(publicProjectId);
+      if (!project || project.status !== "active" || project.publicProjectId !== publicProjectId) {
+        throw fileNotFound();
+      }
+      const item = await dependencies.repository.getPublic(publicProjectId, publicFileId);
       if (
         !item ||
-        !project ||
         item.visibility !== "public" ||
         item.status !== "ready" ||
         item.publicProjectId !== publicProjectId ||
         item.publicFileId !== publicFileId ||
-        project.publicProjectId !== publicProjectId ||
         project.internalProjectId !== item.internalProjectId
       ) {
         throw fileNotFound();

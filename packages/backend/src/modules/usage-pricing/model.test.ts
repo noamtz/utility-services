@@ -39,6 +39,8 @@ import {
   usageEventSortKey,
   usagePeriod,
   watermarkSortKey,
+  watermarkIndexPartitionKey,
+  watermarkIndexSortKey,
 } from "./model.js";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -344,8 +346,14 @@ describe("usage pricing persisted model", () => {
       sourceKind: "cloudtrail",
       lastMeteredAt: occurredAt,
       incompleteSince: null,
+      gsi1pk: watermarkIndexPartitionKey("cloudtrail"),
+      gsi1sk: watermarkIndexSortKey(occurredAt, projectId),
     };
     expect(parseWatermarkItem(watermark).sourceKind).toBe("cloudtrail");
+    expect(
+      parseWatermarkItem({ ...watermark, gsi1pk: undefined, gsi1sk: undefined }),
+    ).toBeDefined();
+    expect(() => parseWatermarkItem({ ...watermark, gsi1sk: `${occurredAt}#invalid` })).toThrow();
     const quarantineId = "22222222-2222-4222-8222-222222222222";
     const quarantine = {
       pk: quarantinePartitionKey(occurredAt),

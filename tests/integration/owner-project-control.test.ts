@@ -77,6 +77,16 @@ function createMemoryRepository(): ProjectRepository {
       const project = projects.get(publicProjectId);
       return Promise.resolve(project ? structuredClone(project) : undefined);
     },
+    setOperationalStatus(publicProjectId, expectedStatus, nextStatus, changedAt) {
+      const project = projects.get(publicProjectId);
+      if (!project || project.status !== expectedStatus) throw new Error("test state conflict");
+      projects.set(publicProjectId, {
+        ...project,
+        status: nextStatus,
+        updatedAt: changedAt,
+      });
+      return Promise.resolve();
+    },
   };
 }
 

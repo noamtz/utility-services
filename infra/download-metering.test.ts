@@ -40,6 +40,7 @@ describe("download metering resources", () => {
     const queuePolicyCalls: Array<{ name: string; args: unknown }> = [];
     const notificationCalls: Array<{ name: string; args: unknown; options: unknown }> = [];
     const trailCalls: Array<{ name: string; args: Record<string, unknown>; options: unknown }> = [];
+    const encryptionCalls: Array<{ name: string; args: unknown }> = [];
 
     class Dynamo {
       public readonly name = output("usage-table");
@@ -98,6 +99,11 @@ describe("download metering resources", () => {
         notificationCalls.push({ name, args, options });
       }
     }
+    class BucketServerSideEncryptionConfiguration {
+      public constructor(name: string, args: unknown) {
+        encryptionCalls.push({ name, args });
+      }
+    }
     class Trail {
       public readonly arn = output("trail-arn");
       public constructor(name: string, args: Record<string, unknown>, options: unknown) {
@@ -124,7 +130,7 @@ describe("download metering resources", () => {
           return { json: output(JSON.stringify(args, (_key, item) => valueOf(item))) };
         },
       },
-      s3: { BucketNotification },
+      s3: { BucketNotification, BucketServerSideEncryptionConfiguration },
       sqs: { QueuePolicy },
       cloudtrail: { Trail },
     });
@@ -160,6 +166,9 @@ describe("download metering resources", () => {
     bucketTransform.publicAccessBlock(publicAccess);
     expect(rawBucket).toEqual({ forceDestroy: false });
     expect(Object.values(publicAccess).every(Boolean)).toBe(true);
+    expect(encryptionCalls[0]?.args).toMatchObject({
+      rules: [{ applyServerSideEncryptionByDefault: { sseAlgorithm: "AES256" } }],
+    });
 
     const bucketPolicies = logBucket.args["policy"] as Array<Record<string, unknown>>;
     expect(bucketPolicies).toHaveLength(2);
@@ -193,7 +202,7 @@ describe("download metering resources", () => {
     expect(dlqRaw).toEqual({ messageRetentionSeconds: 1_209_600, sqsManagedSseEnabled: true });
     expect(queueRaw).toEqual({ sqsManagedSseEnabled: true });
     expect(queueCalls[1]!.args).toMatchObject({
-      visibilityTimeout: "180 seconds",
+      visibilityTimeout: "360 seconds",
       dlq: { retry: 5 },
     });
 
@@ -303,7 +312,10 @@ describe("download metering resources", () => {
     });
     vi.stubGlobal("aws", {
       iam: { getPolicyDocumentOutput: () => ({ json: output("policy") }) },
-      s3: { BucketNotification: class {} },
+      s3: {
+        BucketNotification: class {},
+        BucketServerSideEncryptionConfiguration: class {},
+      },
       sqs: { QueuePolicy: class {} },
       cloudtrail: { Trail: class {} },
     });

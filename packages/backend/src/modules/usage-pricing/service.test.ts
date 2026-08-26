@@ -256,6 +256,10 @@ class MemoryRepository implements UsagePricingRepository {
       (item) => item.internalProjectId === internalProjectId,
     );
   }
+
+  public async listWatermarksBefore() {
+    return { items: [] };
+  }
   public async advanceWatermark(internalProjectId: string, sourceKind: string, meteredAt: string) {
     if (this.failWatermarkOnce) {
       this.failWatermarkOnce = false;

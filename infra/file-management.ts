@@ -3,11 +3,14 @@ import {
   FILE_BUCKET_COMPONENT_NAME,
   FILE_BUCKET_POLICY,
   FILE_COMPLETION_BUCKET_ACTIONS,
-  FILE_COMPLETION_BUCKET_LIST_ACTIONS,
   FILE_COMPLETION_COMPONENT_NAME,
   FILE_COMPLETION_TABLE_ACTIONS,
   FILE_COMPLETION_USAGE_ACTIONS,
   FILE_OBJECT_PREFIX,
+  FILE_OPERATIONS_DLQ_COMPONENT_NAME,
+  FILE_OPERATIONS_DLQ_POLICY_COMPONENT_NAME,
+  FILE_OPERATIONS_DLQ_RETENTION_DAYS,
+  FILE_OPERATIONS_RETRY_COUNT,
   FILE_PURGE_BUCKET_ACTIONS,
   FILE_PURGE_COMPONENT_NAME,
   FILE_PURGE_SCHEDULE,
@@ -39,8 +42,7 @@ export function createFileManagementResources(options: FileResourceDependencies)
   });
   const bucket = new sst.aws.Bucket(FILE_BUCKET_COMPONENT_NAME, {
     cors: FILE_BUCKET_POLICY.cors,
-    enforceHttps: false,
-    policy: [FILE_BUCKET_POLICY.transportPolicy],
+    enforceHttps: true,
     transform: {
       bucket(args) {
         args.forceDestroy = options.production ? FILE_BUCKET_POLICY.forceDestroy : true;
@@ -50,27 +52,53 @@ export function createFileManagementResources(options: FileResourceDependencies)
       },
     },
   });
+  const bucketEncryption = new aws.s3.BucketServerSideEncryptionConfiguration(
+    "FileBucketEncryption",
+    {
+      bucket: bucket.name,
+      rules: [{ applyServerSideEncryptionByDefault: { sseAlgorithm: "AES256" } }],
+    },
+    { dependsOn: [bucket] },
+  );
+  const operationsDlq = new sst.aws.Queue(FILE_OPERATIONS_DLQ_COMPONENT_NAME, {
+    transform: {
+      queue(args) {
+        args.messageRetentionSeconds = FILE_OPERATIONS_DLQ_RETENTION_DAYS * 86_400;
+        args.sqsManagedSseEnabled = true;
+      },
+    },
+  });
 
   const objectResources = [$interpolate`${bucket.arn}/${FILE_OBJECT_PREFIX}*`];
-  const workerFunction = {
+  const workerPermissions = [
+    { actions: [...FILE_COMPLETION_TABLE_ACTIONS], resources: [table.arn] },
+    { actions: [...FILE_COMPLETION_BUCKET_ACTIONS], resources: objectResources },
+    { actions: [...FILE_COMPLETION_USAGE_ACTIONS], resources: [options.usageTable.arn] },
+  ];
+  const completionFunction = {
     handler: "packages/backend/src/functions/files/process-upload-completion.handler",
     runtime: "nodejs24.x" as const,
     link: [table, bucket, options.usageTable],
     permissions: [
-      { actions: [...FILE_COMPLETION_TABLE_ACTIONS], resources: [table.arn] },
-      { actions: [...FILE_COMPLETION_BUCKET_ACTIONS], resources: objectResources },
-      { actions: [...FILE_COMPLETION_BUCKET_LIST_ACTIONS], resources: [bucket.arn] },
-      { actions: [...FILE_COMPLETION_USAGE_ACTIONS], resources: [options.usageTable.arn] },
+      ...workerPermissions,
+      { actions: ["sqs:SendMessage"], resources: [operationsDlq.arn] },
     ],
-    transform: { function: { tracingConfig: { mode: "Active" as const } } },
+    retries: FILE_OPERATIONS_RETRY_COUNT,
+    transform: {
+      function: { tracingConfig: { mode: "Active" as const } },
+      eventInvokeConfig(args: { destinationConfig?: unknown }) {
+        args.destinationConfig = { onFailure: { destination: operationsDlq.arn } };
+      },
+    },
   };
+  const completionWorker = new sst.aws.Function(FILE_COMPLETION_COMPONENT_NAME, completionFunction);
   const notification = bucket.notify({
     notifications: [
       {
         name: FILE_COMPLETION_COMPONENT_NAME,
         events: ["s3:ObjectCreated:Put"],
         filterPrefix: FILE_OBJECT_PREFIX,
-        function: workerFunction,
+        function: completionWorker.arn,
       },
     ],
   });
@@ -78,8 +106,17 @@ export function createFileManagementResources(options: FileResourceDependencies)
   const reconciler = new sst.aws.Cron(FILE_RECONCILIATION_COMPONENT_NAME, {
     schedule: FILE_RECONCILIATION_SCHEDULE,
     function: {
-      ...workerFunction,
       handler: "packages/backend/src/functions/files/reconcile-pending-uploads.handler",
+      runtime: "nodejs24.x" as const,
+      link: [table, bucket, options.usageTable],
+      permissions: workerPermissions,
+      transform: { function: { tracingConfig: { mode: "Active" as const } } },
+    },
+    transform: {
+      target(args) {
+        args.deadLetterConfig = { arn: operationsDlq.arn };
+        args.retryPolicy = { maximumRetryAttempts: FILE_OPERATIONS_RETRY_COUNT };
+      },
     },
   });
 
@@ -96,7 +133,46 @@ export function createFileManagementResources(options: FileResourceDependencies)
       ],
       transform: { function: { tracingConfig: { mode: "Active" as const } } },
     },
+    transform: {
+      target(args) {
+        args.deadLetterConfig = { arn: operationsDlq.arn };
+        args.retryPolicy = { maximumRetryAttempts: FILE_OPERATIONS_RETRY_COUNT };
+      },
+    },
   });
 
-  return { table, bucket, notification, reconciler, purge };
+  const operationsDlqPolicyDocument = aws.iam.getPolicyDocumentOutput({
+    statements: [
+      {
+        sid: "AllowExactFileSchedules",
+        effect: "Allow",
+        actions: ["sqs:SendMessage"],
+        resources: [operationsDlq.arn],
+        principals: [{ type: "Service", identifiers: ["events.amazonaws.com"] }],
+        conditions: [
+          {
+            test: "ArnEquals",
+            variable: "aws:SourceArn",
+            values: [reconciler.nodes.rule.arn, purge.nodes.rule.arn],
+          },
+        ],
+      },
+    ],
+  });
+  const operationsDlqPolicy = new aws.sqs.QueuePolicy(FILE_OPERATIONS_DLQ_POLICY_COMPONENT_NAME, {
+    queueUrl: operationsDlq.url,
+    policy: operationsDlqPolicyDocument.json,
+  });
+
+  return {
+    table,
+    bucket,
+    bucketEncryption,
+    operationsDlq,
+    operationsDlqPolicy,
+    completionWorker,
+    notification,
+    reconciler,
+    purge,
+  };
 }

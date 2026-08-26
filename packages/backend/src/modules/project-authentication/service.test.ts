@@ -18,6 +18,7 @@ const project: InternalProject = {
   publicProjectId: "prj_0123456789abcdefghijkl",
   ownerId: "private-owner",
   name: "Auth project",
+  status: "active",
   enabledUtilities: ["file-management"],
   fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
   createdAt: timestamp,
@@ -42,6 +43,7 @@ function repository(overrides: Partial<CredentialRepository> = {}): CredentialRe
     issue: vi.fn().mockResolvedValue(undefined),
     revoke: vi.fn().mockResolvedValue(records.metadata),
     replace: vi.fn().mockResolvedValue(records.metadata),
+    setOperationalStatus: vi.fn().mockResolvedValue(records.metadata),
     ...overrides,
   };
 }
@@ -57,8 +59,10 @@ async function authError(repo: CredentialRepository, credential = { keyId, secre
 
 describe("project authentication service", () => {
   it("returns a frozen trusted context built only from the verified snapshot", async () => {
+    const limiter = { admit: vi.fn().mockResolvedValue(undefined) };
     const context = await createProjectAuthenticationService({
       repository: repository(),
+      limiter,
     }).authenticate({
       keyId,
       secret,
@@ -72,6 +76,7 @@ describe("project authentication service", () => {
     });
     expect(Object.isFrozen(context)).toBe(true);
     expect(JSON.stringify(context)).not.toMatch(/secret|owner|\"pk\"/);
+    expect(limiter.admit).toHaveBeenCalledWith(project.internalProjectId);
   });
 
   it("uses a fixed-size dummy comparison for an unknown parseable key", async () => {
@@ -159,16 +164,28 @@ describe("project authentication service", () => {
         project: { ...project, internalProjectId: "22222222-2222-4222-8222-222222222222" },
       },
       { ...snapshot, metadata: { ...records.metadata, status: "suspended" } },
+      { ...snapshot, project: { ...project, status: "suspended" } },
     ];
     const errors = await Promise.all(
       cases.map((value) =>
         authError(repository({ getVerificationSnapshot: vi.fn().mockResolvedValue(value) })),
       ),
     );
-    expect(errors).toHaveLength(4);
+    expect(errors).toHaveLength(5);
     expect(errors.every((error) => (error as { statusCode?: number }).statusCode === 401)).toBe(
       true,
     );
+  });
+
+  it("never consumes rate capacity for rejected authentication", async () => {
+    const limiter = { admit: vi.fn() };
+    await expect(
+      createProjectAuthenticationService({
+        repository: repository({ getLookup: vi.fn().mockResolvedValue(undefined) }),
+        limiter,
+      }).authenticate({ keyId, secret }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(limiter.admit).not.toHaveBeenCalled();
   });
 
   it("does not convert infrastructure failures into credential details", async () => {

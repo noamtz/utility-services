@@ -26,6 +26,7 @@ function project(ownerId: string, suffix = "0"): InternalProject {
     ...ids(suffix),
     ownerId,
     name: `Project ${suffix}`,
+    status: "active",
     enabledUtilities: ["file-management"],
     fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
     createdAt: timestamp,
@@ -38,6 +39,7 @@ function repository(overrides: Partial<ProjectRepository> = {}): ProjectReposito
     create: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue({ items: [] }),
     inspect: vi.fn().mockResolvedValue(undefined),
+    setOperationalStatus: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

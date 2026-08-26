@@ -220,6 +220,25 @@ describe("createHttpHandler", () => {
     expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
     expect(requestId).not.toBe("caller-controlled");
   });
+
+  it("serializes only a validated retry-after header for throttling", async () => {
+    const handler = createHttpHandler({
+      schemas: { response: ResponseSchema },
+      callback: () => {
+        throw new HttpError(
+          429,
+          "RATE_LIMIT_EXCEEDED",
+          "Project request limit exceeded; retry later",
+          undefined,
+          27,
+        );
+      },
+    });
+    const response = await handler(event());
+    expect(response.statusCode).toBe(429);
+    expect(response.headers).toMatchObject({ "retry-after": "27" });
+    expect(() => new HttpError(429, "RATE_LIMIT_EXCEEDED", "retry", undefined, 0)).toThrow();
+  });
 });
 
 describe("createHttpRedirectHandler", () => {

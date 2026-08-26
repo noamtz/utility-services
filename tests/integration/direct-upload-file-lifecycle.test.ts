@@ -86,6 +86,7 @@ const project: InternalProject = {
   publicProjectId,
   ownerId: "private-owner",
   name: "Upload project",
+  status: "active",
   enabledUtilities: ["file-management"],
   fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
   createdAt: timestamp,
@@ -397,6 +398,10 @@ class MemoryUsage implements UsagePricingRepository {
   }
   public async listWatermarks() {
     return [...this.watermarks.values()];
+  }
+
+  public async listWatermarksBefore() {
+    return { items: [] };
   }
   public async advanceWatermark(projectId: string, source: string, at: string) {
     this.watermarks.set(`${projectId}|${source}`, {

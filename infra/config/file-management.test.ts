@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   FILE_BUCKET_POLICY,
   FILE_LIFECYCLE_INDEX_NAME,
+  FILE_OPERATIONS_DLQ_RETENTION_DAYS,
+  FILE_OPERATIONS_RETRY_COUNT,
   FILE_PURGE_BUCKET_ACTIONS,
   FILE_PURGE_SCHEDULE,
   FILE_PURGE_TABLE_ACTIONS,
@@ -29,17 +31,14 @@ describe("file management infrastructure policy", () => {
     expect(UPLOAD_COMPLETION_GRACE_MINUTES).toBe(60);
     expect(FILE_RECONCILIATION_SCHEDULE).toBe("rate(5 minutes)");
     expect(FILE_PURGE_SCHEDULE).toBe("rate(5 minutes)");
+    expect(FILE_OPERATIONS_RETRY_COUNT).toBe(2);
+    expect(FILE_OPERATIONS_DLQ_RETENTION_DAYS).toBe(14);
   });
 
   it("keeps the bucket private, without CORS, and enforces TLS", () => {
     expect(FILE_BUCKET_POLICY.cors).toBe(false);
     expect(FILE_BUCKET_POLICY.forceDestroy).toBe(false);
     expect(Object.values(FILE_BUCKET_POLICY.publicAccessBlock).every(Boolean)).toBe(true);
-    expect(FILE_BUCKET_POLICY.transportPolicy).toMatchObject({
-      effect: "deny",
-      principals: "*",
-      conditions: [{ test: "Bool", variable: "aws:SecureTransport", values: ["false"] }],
-    });
     expect(JSON.stringify(FILE_BUCKET_POLICY)).not.toMatch(/allowOrigins|public-read|s3:\*/u);
   });
 
@@ -68,7 +67,7 @@ describe("file management infrastructure policy", () => {
     const privateDownload = FILE_ROUTES[3];
     expect(privateDownload).toMatchObject({
       handler: "packages/backend/src/functions/files/authorize-download.handler",
-      controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems"],
+      controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
       fileTableActions: ["dynamodb:GetItem"],
       bucketActions: ["s3:GetObject"],
     });
@@ -107,6 +106,7 @@ describe("file management infrastructure policy", () => {
     expect(FILE_PURGE_TABLE_ACTIONS).toContain("dynamodb:Query");
     expect(FILE_PURGE_BUCKET_ACTIONS).toEqual(["s3:DeleteObject"]);
     expect(FILE_PURGE_USAGE_ACTIONS).toContain("dynamodb:TransactWriteItems");
+    expect(JSON.stringify(FILE_ROUTES)).not.toContain("s3:ListBucket");
     expect(fileTableDeletionProtection(true)).toBe(true);
     expect(fileTableDeletionProtection(false)).toBe(false);
   });

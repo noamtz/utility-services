@@ -11,6 +11,7 @@ import {
   toCredentialItems,
   withReplacedStatus,
   withRevokedStatus,
+  withCredentialOperationalStatus,
 } from "./model.js";
 
 const createdAt = "2026-08-23T08:00:00.000Z";
@@ -89,5 +90,19 @@ describe("credential stored model", () => {
     expect(JSON.stringify(toApiKeyMetadata(metadata))).not.toMatch(
       /internalProjectId|publicProjectId|pk|secret/,
     );
+  });
+
+  it("transitions only reversible credential operational states", () => {
+    const { metadata } = toCredentialItems(project);
+    const suspended = withCredentialOperationalStatus(metadata, "suspended", createdAt);
+    expect(suspended.status).toBe("suspended");
+    expect(withCredentialOperationalStatus(suspended, "active", createdAt).status).toBe("active");
+    expect(() =>
+      withCredentialOperationalStatus(
+        { ...metadata, status: "revoked", revokedAt: createdAt },
+        "active",
+        createdAt,
+      ),
+    ).toThrow("Terminal credential state cannot be changed");
   });
 });

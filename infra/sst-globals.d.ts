@@ -32,6 +32,19 @@ declare namespace aws.iam {
 }
 
 declare namespace aws.s3 {
+  class BucketServerSideEncryptionConfiguration {
+    public constructor(
+      name: string,
+      args: {
+        bucket: SstOutput<string> | string;
+        rules: Array<{
+          applyServerSideEncryptionByDefault: { sseAlgorithm: "AES256" };
+        }>;
+      },
+      options?: ComponentResourceOptions,
+    );
+  }
+
   class BucketPolicy {
     public constructor(
       name: string,
@@ -103,6 +116,23 @@ declare namespace aws.cloudtrail {
       },
       options?: ComponentResourceOptions,
     );
+  }
+}
+
+declare namespace aws.sns {
+  class Topic {
+    public constructor(
+      name: string,
+      args: { name?: string; kmsMasterKeyId: string },
+      options?: ComponentResourceOptions,
+    );
+    public readonly arn: SstOutput<string>;
+  }
+}
+
+declare namespace aws.cloudwatch {
+  class MetricAlarm {
+    public constructor(name: string, args: Record<string, unknown>);
   }
 }
 
@@ -182,7 +212,11 @@ declare namespace sst {
       memory?: `${number} MB` | `${number} GB`;
       permissions?: Array<{ actions: string[]; resources: unknown[] }>;
       timeout?: `${number} seconds` | `${number} minutes`;
-      transform?: { function?: { tracingConfig?: { mode: "Active" | "PassThrough" } } };
+      retries?: number;
+      transform?: {
+        function?: { tracingConfig?: { mode: "Active" | "PassThrough" } };
+        eventInvokeConfig?: (args: { destinationConfig?: unknown }) => void;
+      };
     }
 
     class Function {
@@ -193,6 +227,7 @@ declare namespace sst {
       );
       public readonly name: SstOutput<string>;
       public readonly arn: SstOutput<string>;
+      public readonly nodes: { function: { name: SstOutput<string> } };
     }
 
     interface RouteArgs {
@@ -200,10 +235,19 @@ declare namespace sst {
       auth?: { jwt: { authorizer: SstOutput<string> } };
     }
 
+    interface ApiGatewayV2LambdaRoute {
+      readonly nodes: { function: SstOutput<{ name: string }> };
+    }
+
     class ApiGatewayV2 {
       public constructor(name: string, args: { cors: boolean });
       public readonly url: SstOutput<string>;
-      public route(route: string, handler: string | FunctionDefinition, args?: RouteArgs): unknown;
+      public readonly nodes: { api: { id: SstOutput<string> } };
+      public route(
+        route: string,
+        handler: string | FunctionDefinition,
+        args?: RouteArgs,
+      ): ApiGatewayV2LambdaRoute;
       public addAuthorizer(args: {
         name: string;
         jwt: { issuer: SstOutput<string>; audiences: SstOutput<string>[] };
@@ -304,7 +348,7 @@ declare namespace sst {
         events: Array<"s3:ObjectCreated:Put">;
         filterPrefix: string;
         filterSuffix?: string;
-        function?: FunctionDefinition;
+        function?: FunctionDefinition | SstOutput<string> | string;
         queue?: Queue | SstOutput<string> | string;
       }>;
     }
@@ -337,6 +381,7 @@ declare namespace sst {
       public constructor(name: string, args?: QueueArgs, options?: ComponentResourceOptions);
       public readonly arn: SstOutput<string>;
       public readonly url: SstOutput<string>;
+      public readonly nodes: { queue: { name: SstOutput<string> } };
       public subscribe(
         subscriber: SstOutput<string> | string | FunctionDefinition,
         args?: QueueSubscriberArgs,
@@ -347,8 +392,21 @@ declare namespace sst {
     class Cron {
       public constructor(
         name: string,
-        args: { schedule: `rate(${string})` | `cron(${string})`; function: FunctionDefinition },
+        args: {
+          schedule: `rate(${string})` | `cron(${string})`;
+          function: FunctionDefinition;
+          transform?: {
+            target?: (args: {
+              deadLetterConfig?: { arn: SstOutput<string> | string };
+              retryPolicy?: { maximumRetryAttempts: number };
+            }) => void;
+          };
+        },
       );
+      public readonly nodes: {
+        rule: { arn: SstOutput<string> };
+        function: SstOutput<{ name: string }>;
+      };
     }
 
     interface DistributionOrigin {
