@@ -10,6 +10,7 @@ import {
   FILE_OPERATIONS_DLQ_COMPONENT_NAME,
   FILE_OPERATIONS_DLQ_POLICY_COMPONENT_NAME,
   FILE_OPERATIONS_DLQ_RETENTION_DAYS,
+  FILE_OPERATIONS_MAXIMUM_EVENT_AGE_SECONDS,
   FILE_OPERATIONS_RETRY_COUNT,
   FILE_PURGE_BUCKET_ACTIONS,
   FILE_PURGE_COMPONENT_NAME,
@@ -115,7 +116,10 @@ export function createFileManagementResources(options: FileResourceDependencies)
     transform: {
       target(args) {
         args.deadLetterConfig = { arn: operationsDlq.arn };
-        args.retryPolicy = { maximumRetryAttempts: FILE_OPERATIONS_RETRY_COUNT };
+        args.retryPolicy = {
+          maximumEventAgeInSeconds: FILE_OPERATIONS_MAXIMUM_EVENT_AGE_SECONDS,
+          maximumRetryAttempts: FILE_OPERATIONS_RETRY_COUNT,
+        };
       },
     },
   });
@@ -136,7 +140,10 @@ export function createFileManagementResources(options: FileResourceDependencies)
     transform: {
       target(args) {
         args.deadLetterConfig = { arn: operationsDlq.arn };
-        args.retryPolicy = { maximumRetryAttempts: FILE_OPERATIONS_RETRY_COUNT };
+        args.retryPolicy = {
+          maximumEventAgeInSeconds: FILE_OPERATIONS_MAXIMUM_EVENT_AGE_SECONDS,
+          maximumRetryAttempts: FILE_OPERATIONS_RETRY_COUNT,
+        };
       },
     },
   });

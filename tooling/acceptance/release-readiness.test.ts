@@ -128,7 +128,9 @@ describe("release readiness acceptance policy", () => {
     expect(requireAuthorizedReleaseEnvironment(environment)).toMatchObject({
       stage: "dev-rus11-e2e",
       runLabel: "rus11",
+      expiryTimeoutSeconds: 420,
     });
+    expect(parseReleaseArguments(args)).toMatchObject({ expiryTimeoutSeconds: 420 });
     expect(() =>
       requireAuthorizedReleaseEnvironment({ ...environment, RUS_RELEASE_EXECUTE: "wrong" }),
     ).toThrow("marker");

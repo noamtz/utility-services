@@ -165,7 +165,7 @@ describe("file management resources", () => {
       );
       expect(targetArgs).toMatchObject({
         deadLetterConfig: {},
-        retryPolicy: { maximumRetryAttempts: 2 },
+        retryPolicy: { maximumEventAgeInSeconds: 3_600, maximumRetryAttempts: 2 },
       });
     }
     const purgeFunction = cronCalls[1]?.args["function"] as {

@@ -59,7 +59,10 @@ export async function expectPublicError(
     throw new Error("Denied request exposed a redirect capability");
   const parsed = ErrorEnvelopeSchema.safeParse(await parseJson(response));
   if (!parsed.success) throw new Error("Release API error did not use the shared envelope");
-  const serialized = JSON.stringify(parsed.data);
+  // requestId is an intentionally public correlation value and may be UUID-shaped in AWS.
+  // Scan only the caller-facing error fields so valid correlation IDs are not mistaken for
+  // leaked internal entity identifiers.
+  const serialized = JSON.stringify(parsed.data.error);
   if (FORBIDDEN_PUBLIC_EVIDENCE.test(serialized)) {
     throw new Error("Release API error exposed forbidden implementation evidence");
   }

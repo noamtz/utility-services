@@ -36,8 +36,9 @@ export async function signInInvitedOwner(
     if (!credentials.newPassword) {
       throw new Error("Invited owner requires an authorized permanent password value");
     }
-    await page.getByLabel("New password").fill(credentials.newPassword);
-    await page.getByRole("button", { name: "Set password" }).click();
+    const passwordRegion = page.getByRole("region", { name: "Choose a new password" });
+    await passwordRegion.getByLabel("New password", { exact: true }).fill(credentials.newPassword);
+    await passwordRegion.getByRole("button", { name: "Set password" }).click();
     await expect(projectHeading).toBeVisible();
   }
 }

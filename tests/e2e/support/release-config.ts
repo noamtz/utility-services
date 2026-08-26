@@ -1,4 +1,5 @@
 export const RELEASE_EXECUTION_MARKER = "authorized-deployed";
+export const RELEASE_EXPIRY_TIMEOUT_SECONDS = 7 * 60;
 
 export const RELEASE_CASES = Object.freeze({
   twoOwnerSignIn: "two-owner-sign-in",
@@ -155,7 +156,7 @@ export function requireAuthorizedReleaseEnvironment(
   const expiryTimeoutSeconds = validateBoundedSeconds(
     environment[RELEASE_ENVIRONMENT_KEYS.expiryTimeoutSeconds],
     RELEASE_ENVIRONMENT_KEYS.expiryTimeoutSeconds,
-    90,
+    RELEASE_EXPIRY_TIMEOUT_SECONDS,
   );
   if (expiryTimeoutSeconds < 65) {
     throw new Error("Release expiry timeout must allow the one-minute URL to expire");
