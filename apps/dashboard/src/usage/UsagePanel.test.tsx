@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -127,5 +127,29 @@ describe("UsagePanel", () => {
     });
     expect(screen.queryByText("$1", { exact: false })).not.toBeInTheDocument();
     expect(screen.getByText("$2", { exact: false })).toBeVisible();
+  });
+
+  it("recovers from an error and exposes incomplete metering after refresh", async () => {
+    const incomplete = {
+      ...projection("0.02"),
+      freshness: {
+        state: "incomplete" as const,
+        lastMeteredAt: "2026-08-24T09:00:00.000Z",
+        evaluatedAt: "2026-08-24T10:00:00.000Z",
+      },
+    };
+    const currentMonth = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("internal detail must not escape"))
+      .mockResolvedValueOnce(incomplete);
+    render(<UsagePanel projectId="prj_0123456789abcdefghijkl" api={{ currentMonth }} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Usage could not be loaded.");
+    expect(screen.queryByText(/internal detail/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByText(/Metering: incomplete/)).toBeVisible();
+    expect(screen.getByText("$0.02", { exact: false })).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

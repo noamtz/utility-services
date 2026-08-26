@@ -25,5 +25,25 @@ describe("IntegrationGuide", () => {
     expect(container.textContent).toContain("paste-the-key-shown-once");
     expect(container.textContent).not.toMatch(/rus_v1\.key_/u);
     expect(container.textContent).not.toMatch(/VITE_|Cognito/u);
+    expect(screen.getAllByRole("button", { name: "Copy curl" })).toHaveLength(5);
+
+    const examples = Array.from(
+      container.querySelectorAll("pre code"),
+      (element) => element.textContent ?? "",
+    );
+    expect(examples).toHaveLength(5);
+    expect(examples.every((example) => example.includes("curl --fail-with-body"))).toBe(true);
+    const canonicalExamples = examples.join("\n");
+    expect(canonicalExamples).toContain("/v1/files/uploads");
+    expect(canonicalExamples).toContain("/v1/files?limit=20");
+    expect(canonicalExamples).toContain("/v1/files/$FILE_ID/downloads");
+    expect(canonicalExamples).toContain("/files/public/$PUBLIC_PROJECT_ID/$PUBLIC_FILE_ID");
+    expect(canonicalExamples).toContain("/v1/files/$FILE_ID/restore");
+    expect(canonicalExamples).toContain("/v1/files/$FILE_ID?force=true");
+    expect(canonicalExamples).toContain("Authorization: Bearer $RUS_API_KEY");
+    expect(canonicalExamples).toContain("Content-Type: application/pdf");
+    expect(canonicalExamples).toContain("Content-Length: 12345");
+    expect(canonicalExamples).toContain("If-None-Match: *");
+    expect(canonicalExamples).not.toMatch(/X-Amz-(?:Credential|Signature)=/u);
   });
 });

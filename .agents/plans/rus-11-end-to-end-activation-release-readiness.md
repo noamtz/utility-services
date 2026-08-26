@@ -566,3 +566,7 @@ No lower layer is relabeled as proof of a higher one. In particular, local mocks
 ## AMENDMENTS
 
 <!-- Append-only after approval/execution. Newest entry at the bottom. -->
+
+- **2026-08-26 â€” stale project-inspection response discovered during release-matrix work.** The existing dashboard protected list and usage requests from stale responses but not project inspection. A slower response for an earlier selection could overwrite the ownerâ€™s latest selection and display the wrong project experience. The implementation now applies the same request-generation rule to project inspection (and invalidates pending inspections after project creation), with focused component regression coverage. This is a bounded production correctness fix required for trustworthy two-project release proof; it does not change public contracts or architecture.
+
+- **2026-08-26 â€” Vitest discovery command corrected during validation.** With the repository's installed Vitest 4 CLI, `vitest run --list` is not a supported option. Level 5 therefore uses the read-only equivalent `npm exec -- vitest list`; Playwright discovery remains `npm run test:e2e:list`. The rejected command and successful replacement are both retained in the implementation report.

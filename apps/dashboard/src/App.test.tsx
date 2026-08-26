@@ -45,4 +45,28 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeVisible();
     expect(authClient.signOut).toHaveBeenCalledOnce();
   });
+
+  it("completes the first-login new-password challenge", async () => {
+    const { authClient } = renderApp({
+      signIn: vi.fn().mockResolvedValue("new-password-required"),
+    });
+
+    fireEvent.change(await screen.findByLabelText("Email"), {
+      target: { value: "owner@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "Temporary-Password-1!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Choose a new password" })).toBeVisible();
+    fireEvent.change(screen.getByLabelText("New password"), {
+      target: { value: "Durable-Password-2!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Set password" }));
+
+    expect(await screen.findByRole("heading", { name: "Project control" })).toBeVisible();
+    expect(authClient.signIn).toHaveBeenCalledWith("owner@example.com", "Temporary-Password-1!");
+    expect(authClient.confirmNewPassword).toHaveBeenCalledWith("Durable-Password-2!");
+  });
 });

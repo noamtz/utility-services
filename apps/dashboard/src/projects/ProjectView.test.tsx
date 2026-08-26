@@ -91,6 +91,42 @@ describe("ProjectView", () => {
     expect(screen.queryByRole("button", { name: /Documents/ })).not.toBeInTheDocument();
   });
 
+  it("keeps the latest selected project when an older inspect request finishes later", async () => {
+    const firstInspect = deferred<typeof project>();
+    const secondInspect = deferred<typeof project>();
+    const secondSummary = {
+      ...summary,
+      projectId: "prj_bcdefghijklmnopqrstuvw",
+      name: "Images",
+    };
+    const secondProject = { ...project, ...secondSummary };
+    const api: ProjectApi = {
+      list: vi.fn().mockResolvedValue({ items: [summary, secondSummary] }),
+      inspect: vi
+        .fn()
+        .mockReturnValueOnce(firstInspect.promise)
+        .mockReturnValueOnce(secondInspect.promise),
+      create: vi.fn(),
+    };
+    render(<ProjectView api={api} onUnauthorized={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Documents/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Images/ }));
+
+    await act(() => {
+      secondInspect.resolve(secondProject);
+      return secondInspect.promise;
+    });
+    expect(screen.getByRole("heading", { name: "Images" })).toBeVisible();
+
+    await act(() => {
+      firstInspect.resolve(project);
+      return firstInspect.promise;
+    });
+    expect(screen.getByRole("heading", { name: "Images" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Documents" })).not.toBeInTheDocument();
+  });
+
   it("requests an in-flight pagination cursor only once", async () => {
     const nextPage = deferred<{ items: (typeof summary)[] }>();
     const api: ProjectApi = {
