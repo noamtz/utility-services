@@ -1,5 +1,21 @@
 export const RELEASE_EXECUTION_MARKER = "authorized-deployed";
 
+export const RELEASE_CASES = Object.freeze({
+  twoOwnerSignIn: "two-owner-sign-in",
+  twoOwnerProjects: "two-owner-projects",
+  oneTimeKeyIssuance: "one-time-key-issuance",
+  fiveMinutePrivateActivation: "five-minute-private-activation",
+  stablePublicAccess: "stable-public-access",
+  crossProjectAndGuessedIdDenial: "cross-project-and-guessed-id-denial",
+  trashRestoreIdentity: "trash-restore-identity",
+  keyReplacementAndUrlExpiry: "key-replacement-and-url-expiry",
+  forceDelete: "force-delete",
+  usageFreshness: "usage-freshness",
+  keyRevocation: "key-revocation",
+} as const);
+
+export const RELEASE_CASE_NAMES = Object.freeze(Object.values(RELEASE_CASES));
+
 export const RELEASE_ENVIRONMENT_KEYS = Object.freeze({
   execute: "RUS_RELEASE_EXECUTE",
   stage: "RUS_RELEASE_STAGE",

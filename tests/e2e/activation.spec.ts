@@ -7,6 +7,7 @@ import {
   createFileJourneyContexts,
   disposeFileJourneyContexts,
   downloadOpaqueTransfer,
+  expectExpiredTransfer,
   expectPublicError,
   forceDeleteFile,
   listFiles,
@@ -27,7 +28,7 @@ import {
   signInInvitedOwner,
   signOutOwner,
 } from "./support/owner-journey.js";
-import { requireAuthorizedReleaseEnvironment } from "./support/release-config.js";
+import { RELEASE_CASES, requireAuthorizedReleaseEnvironment } from "./support/release-config.js";
 
 const GUESSED_FILE_ID = "fil_aaaaaaaaaaaaaaaaaaaaaa";
 const GUESSED_PUBLIC_FILE_ID = "pfil_aaaaaaaaaaaaaaaaaaaaaa";
@@ -55,13 +56,13 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
   try {
     await signInInvitedOwner(pageA, config.ownerA);
     await signInInvitedOwner(pageB, config.ownerB);
-    cases.push({ name: "two-owner-sign-in", status: "pass" });
+    cases.push({ name: RELEASE_CASES.twoOwnerSignIn, status: "pass" });
 
     const runScope = `${config.runLabel}-${Date.now().toString(36)}`;
     const projectA = await createOwnerProject(pageA, `${runScope}-owner-a`);
     const projectB = await createOwnerProject(pageB, `${runScope}-owner-b`);
     expect(projectA).not.toBe(projectB);
-    cases.push({ name: "two-owner-projects", status: "pass" });
+    cases.push({ name: RELEASE_CASES.twoOwnerProjects, status: "pass" });
 
     const keyA = await issueOwnerKey(pageA);
     activeKeyA = keyA.keyId;
@@ -70,7 +71,7 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
     activeKeyB = keyB.keyId;
     filesA = await createFileJourneyContexts(config.apiUrl, keyA.apiKey);
     filesB = await createFileJourneyContexts(config.apiUrl, keyB.apiKey);
-    cases.push({ name: "one-time-key-issuance", status: "pass" });
+    cases.push({ name: RELEASE_CASES.oneTimeKeyIssuance, status: "pass" });
 
     const privateContent = Buffer.from("rus11-private-disposable", "utf8");
     const privateUpload = await authorizeUpload(filesA.api, {
@@ -93,7 +94,7 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
     expect(await downloadOpaqueTransfer(filesA.transfer, firstDownloadUrl)).toEqual(privateContent);
     activationSeconds = (performance.now() - activationStartedAt) / 1_000;
     expect(activationSeconds).toBeLessThan(300);
-    cases.push({ name: "five-minute-private-activation", status: "pass" });
+    cases.push({ name: RELEASE_CASES.fiveMinutePrivateActivation, status: "pass" });
 
     const publicContent = Buffer.from("rus11-public-disposable", "utf8");
     const publicUpload = await authorizeUpload(filesA.api, {
@@ -117,7 +118,7 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
       publicReady.publicFileId,
     );
     expect(await downloadOpaqueTransfer(filesA.transfer, publicLocation)).toEqual(publicContent);
-    cases.push({ name: "stable-public-access", status: "pass" });
+    cases.push({ name: RELEASE_CASES.stablePublicAccess, status: "pass" });
 
     const ownerBContent = Buffer.from("rus11-owner-b-disposable", "utf8");
     const ownerBUpload = await authorizeUpload(filesB.api, {
@@ -155,7 +156,7 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
       404,
       ["FILE_NOT_FOUND"],
     );
-    cases.push({ name: "cross-project-and-guessed-id-denial", status: "pass" });
+    cases.push({ name: RELEASE_CASES.crossProjectAndGuessedIdDenial, status: "pass" });
 
     await trashFile(filesA.api, privateReady.fileId);
     await expectPublicError(
@@ -165,7 +166,7 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
     );
     const restored = await restoreFile(filesA.api, privateReady.fileId);
     expect(restored.fileId).toBe(privateReady.fileId);
-    cases.push({ name: "trash-restore-identity", status: "pass" });
+    cases.push({ name: RELEASE_CASES.trashRestoreIdentity, status: "pass" });
 
     const residualUrl = await authorizePrivateDownload(filesA.api, privateReady.fileId);
     const replacementKey = await replaceOwnerKey(pageA, keyA.keyId);
@@ -177,21 +178,23 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
       setTimeout(resolve, Math.min(config.expiryTimeoutSeconds, 70) * 1_000),
     );
     const expired = await filesA.transfer.get(residualUrl);
-    if (expired.status() < 400) throw new Error("Expired transfer capability remained usable");
+    expectExpiredTransfer(expired);
     await authorizePrivateDownload(replacementA.api, privateReady.fileId);
-    cases.push({ name: "key-replacement-and-url-expiry", status: "pass" });
+    cases.push({ name: RELEASE_CASES.keyReplacementAndUrlExpiry, status: "pass" });
 
     await forceDeleteFile(replacementA.api, privateReady.fileId, config.expiryTimeoutSeconds);
     await forceDeleteFile(replacementA.api, publicReady.fileId, config.expiryTimeoutSeconds);
     await forceDeleteFile(filesB.api, ownerBUpload.file.fileId, config.expiryTimeoutSeconds);
     cleanupA.length = 0;
     cleanupB.length = 0;
-    cases.push({ name: "force-delete", status: "pass" });
+    cases.push({ name: RELEASE_CASES.forceDelete, status: "pass" });
 
     await refreshUsage(pageA);
-    await expect(pageA.getByText(projectA, { exact: true })).toBeVisible();
+    await expect(
+      pageA.locator("section.project-details").getByText(projectA, { exact: true }),
+    ).toBeVisible();
     await refreshUsage(pageB);
-    cases.push({ name: "usage-freshness", status: "pass" });
+    cases.push({ name: RELEASE_CASES.usageFreshness, status: "pass" });
 
     await revokeOwnerKey(pageA, replacementKey.keyId);
     activeKeyA = undefined;
@@ -200,7 +203,7 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
     await expectPublicError(await replacementA.api.get("/v1/files?limit=20"), 401, [
       "UNAUTHORIZED",
     ]);
-    cases.push({ name: "key-revocation", status: "pass" });
+    cases.push({ name: RELEASE_CASES.keyRevocation, status: "pass" });
 
     await signOutOwner(pageA);
     await signOutOwner(pageB);

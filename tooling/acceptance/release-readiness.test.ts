@@ -4,6 +4,7 @@ import type { ExecFileOptions } from "node:child_process";
 import {
   RELEASE_ENVIRONMENT_KEYS,
   RELEASE_EXECUTION_MARKER,
+  RELEASE_CASE_NAMES,
   requireAuthorizedReleaseEnvironment,
 } from "../../tests/e2e/support/release-config.js";
 import {
@@ -41,17 +42,14 @@ function identity() {
   };
 }
 
-function sentinel(stage = "dev-rus11-e2e") {
+function sentinel(stage = "dev-rus11-e2e", caseNames: readonly string[] = RELEASE_CASE_NAMES) {
   return `RUS_RELEASE_RESULT:${JSON.stringify({
     decision: "pass",
     stage,
     runTimestamp: "2026-08-26T10:00:00.000Z",
     activationSeconds: 42.5,
-    cases: [
-      { name: "two-owner-activation", status: "pass" },
-      { name: "isolation-lifecycle", status: "pass" },
-    ],
-    caseCounts: { passed: 2, failed: 0 },
+    cases: caseNames.map((name) => ({ name, status: "pass" })),
+    caseCounts: { passed: caseNames.length, failed: 0 },
     projectResidue: true,
     externalGatesPending: [
       "cloudtrail-transfer-matrix",
@@ -142,6 +140,13 @@ describe("release readiness acceptance policy", () => {
       RUS_RELEASE_OWNER_A_EMAIL: "owner-a@example.com",
       PLAYWRIGHT_BROWSERS_PATH: "unexpected",
       PWDEBUG: "1",
+      node_options: "--require mixed-case-injected",
+      NoDe_PaTh: "mixed-case-path",
+      Aws_Access_Key_Id: "mixed-case-access-key",
+      rUs_ReLeAsE_OwNeR_A_EmAiL: "mixed-case-owner@example.com",
+      PlAyWrIgHt_BrOwSeRs_PaTh: "mixed-case-browser-path",
+      pWdEbUg: "1",
+      dEbUg: "unsafe",
     });
     expect(sanitized).toEqual({ PATH: "safe-path" });
   });
@@ -228,5 +233,16 @@ describe("release readiness acceptance policy", () => {
     expect(() => parseReleaseResult(sentinel().replace('"failed":0', '"failed":1'))).toThrow(
       "invalid safe result",
     );
+    expect(() =>
+      parseReleaseResult(sentinel("dev-rus11-e2e", RELEASE_CASE_NAMES.slice(0, -1))),
+    ).toThrow("invalid safe result");
+    expect(() =>
+      parseReleaseResult(sentinel("dev-rus11-e2e", [...RELEASE_CASE_NAMES, "unexpected-case"])),
+    ).toThrow("invalid safe result");
+    expect(() =>
+      parseReleaseResult(
+        sentinel("dev-rus11-e2e", [...RELEASE_CASE_NAMES.slice(0, -1), RELEASE_CASE_NAMES[0]!]),
+      ),
+    ).toThrow("invalid safe result");
   });
 });

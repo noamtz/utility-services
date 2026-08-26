@@ -1,8 +1,8 @@
 # Implementation Report â€” RUS-11 End-to-End Activation and Release Readiness
 
-**Plan**: `.agents/plans/rus-11-end-to-end-activation-release-readiness.md`  
-**Branch**: `feature/rus-11-end-to-end-activation-release-readiness`  
-**Status**: LOCAL IMPLEMENTATION COMPLETE; EXTERNAL RELEASE GATES PENDING
+- **Plan**: `.agents/plans/rus-11-end-to-end-activation-release-readiness.md`
+- **Branch**: `feature/rus-11-end-to-end-activation-release-readiness`
+- **Status**: LOCAL IMPLEMENTATION COMPLETE; EXTERNAL RELEASE GATES PENDING
 
 ## Summary
 
@@ -30,12 +30,13 @@ Release-matrix work exposed one production correctness defect: a slower project-
 - `apps/dashboard/src/usage/UsagePanel.test.tsx`: safe error recovery into an incomplete projection.
 - `apps/dashboard/src/integration/IntegrationGuide.test.tsx`: all five copyable curl blocks, routes, placeholders, required upload headers, lifecycle operations, and signed-query exclusion.
 - `tests/e2e/activation.spec.ts`: one listed deployed Playwright test; it was intentionally not executed locally.
-- Final local suite: 107 test files and 588 tests passed.
+- `tests/e2e/support/file-journey.test.ts`: public-error evidence scanning and exact expired-transfer status coverage.
+- Final local suite: 108 test files and 590 tests passed.
 
 ## Validation results
 
 - `npm run check` â€” PASS after one formatting correction; includes format, lint, typecheck, coverage, and production dashboard build.
-- `npm test` â€” PASS: 107 files, 588 tests.
+- `npm test` â€” PASS: 108 files, 590 tests.
 - Coverage â€” PASS: 86.78% statements, 80.17% branches, 90.90% functions, and 89.59% lines.
 - Focused backend release matrix â€” PASS: 8 files, 18 tests.
 - Focused dashboard journey â€” PASS: 5 files, 15 tests.
@@ -44,7 +45,7 @@ Release-matrix work exposed one production correctness defect: a slower project-
 - Release dry run against `.invalid` origins â€” PASS with `decision: not-run` and `externalMutation: false`; no AWS/browser execution.
 - `python tooling/validate_codex_layer.py` â€” PASS: 31 skills and 6 custom agents.
 - `uv run --script tooling/mcp/codebase_search.py --self-test` â€” PASS.
-- `npm exec -- vitest list` â€” PASS: 588 tests discovered.
+- `npm exec -- vitest list` â€” PASS: 590 tests discovered.
 - `git diff --check` â€” PASS.
 - Static sensitive-term/IAM/object-key scan â€” reviewed; matches are policy checks, environment-variable names, synthetic test placeholders, fixed repository identity constants, or documentation warnings. No real credentials, signed queries, internal object identifiers, or generated Playwright artifact directories were found.
 
@@ -63,3 +64,12 @@ Release-matrix work exposed one production correctness defect: a slower project-
 - Task 11 still requires an approved production alert-delivery path/recipient and the real two-user, three-day product experiment, followed by separately authorized GitHub writes authenticated exactly as `noamtz`.
 
 RUS-11 cannot be called release-complete until those external gates produce reviewed evidence; this report marks only the local implementation and validation scope complete.
+
+## PR #24 review remediation
+
+- Scoped the deployed project-attribution locator to the selected project-details region and added a dashboard assertion proving the public project ID is rendered in multiple regions.
+- Made reserved environment-name filtering case-insensitive for Windows and covered mixed-case Node, AWS, release, Playwright, and debug variables.
+- Defined one shared frozen release-case inventory and made the launcher reject missing, extra, duplicate, reordered, or otherwise incomplete result evidence.
+- Expanded public-error evidence scanning across bucket, account, object-key/prefix, credential/token, UUID, signed-query URL, and exception disclosures with deterministic helper tests.
+- Tightened presigned-expiry evidence to exact HTTP 403; the real one-minute deployed assertion remains pending the separately authorized journey.
+- Removed report trailing whitespace and reran the local diff check successfully.

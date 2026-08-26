@@ -7,6 +7,7 @@ import { createAwsEnvironment, verifyAwsIdentity } from "../aws-access.mjs";
 import {
   RELEASE_ENVIRONMENT_KEYS,
   RELEASE_EXECUTION_MARKER,
+  RELEASE_CASE_NAMES,
   requireAuthorizedReleaseEnvironment,
   validateBoundedSeconds,
   validateReleaseOrigin,
@@ -106,15 +107,16 @@ export function parseReleaseArguments(argv) {
 export function sanitizeReleaseEnvironment(environment = process.env) {
   return Object.fromEntries(
     Object.entries(environment).filter(([key]) => {
+      const canonical = key.toUpperCase();
       const normalized = key.toLowerCase().replaceAll(/[^a-z0-9]/gu, "");
       return (
-        !key.startsWith("AWS_") &&
-        !key.startsWith("RUS_RELEASE_") &&
-        !key.startsWith("PLAYWRIGHT_") &&
-        key !== "NODE_OPTIONS" &&
-        key !== "NODE_PATH" &&
-        key !== "PWDEBUG" &&
-        key !== "DEBUG" &&
+        !canonical.startsWith("AWS_") &&
+        !canonical.startsWith("RUS_RELEASE_") &&
+        !canonical.startsWith("PLAYWRIGHT_") &&
+        canonical !== "NODE_OPTIONS" &&
+        canonical !== "NODE_PATH" &&
+        canonical !== "PWDEBUG" &&
+        canonical !== "DEBUG" &&
         !/(?:authorization|bearer|apikey|password|token|secret|credential|session)/u.test(
           normalized,
         )
@@ -207,6 +209,8 @@ export function parseReleaseResult(output) {
         !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(item.name) ||
         item.status !== "pass",
     ) ||
+    parsed.cases.map((/** @type {any} */ item) => item.name).join("|") !==
+      RELEASE_CASE_NAMES.join("|") ||
     !exactKeys(parsed.caseCounts, ["passed", "failed"]) ||
     !Number.isSafeInteger(parsed.caseCounts.passed) ||
     parsed.caseCounts.passed !== parsed.cases.length ||

@@ -12,7 +12,7 @@ import {
 } from "@utility-services/contracts";
 
 const FORBIDDEN_PUBLIC_EVIDENCE =
-  /(?:arn:aws|internalProjectId|objectKey|PROJECT#|FILE#|secretHash|stack|X-Amz-|projects\/)/iu;
+  /(?:arn:aws|amazonaws\.com|\b\d{12}\b|bucket(?:name)?|internalProjectId|object[-_ ]?key|(?:object|project)[-_ ]?prefix|PROJECT#|FILE#|secretHash|stack|X-Amz-|projects\/|authorization|bearer|credential|token|secret|rus_v1\.|eyJ[A-Za-z0-9_-]{10,}|signature=|https?:\/\/[^"\s?]+\?|\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b|(?:error|exception):)/iu;
 
 export interface FileJourneyContexts {
   api: APIRequestContext;
@@ -149,6 +149,12 @@ export async function downloadOpaqueTransfer(
   const response = await transfer.get(url);
   if (!response.ok()) throw new Error("Opaque download transfer failed");
   return response.body();
+}
+
+export function expectExpiredTransfer(response: APIResponse): void {
+  if (response.status() !== 403) {
+    throw new Error("Expired transfer capability did not return the expected denial");
+  }
 }
 
 export async function stablePublicRedirect(
