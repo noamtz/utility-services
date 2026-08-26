@@ -199,10 +199,13 @@ export async function forceDeleteFile(
   context: APIRequestContext,
   fileId: string,
   timeoutSeconds = 90,
+  allowNotFound = false,
 ): Promise<void> {
   const deadline = Date.now() + timeoutSeconds * 1_000;
+  let notFoundCompletes = allowNotFound;
   while (Date.now() < deadline) {
     const response = await context.delete(`/v1/files/${encodeURIComponent(fileId)}?force=true`);
+    if (response.status() === 404 && notFoundCompletes) return;
     if (response.status() !== 200) throw new Error("File force deletion failed");
     const parsed = DeleteFileResponseSchema.safeParse(await parseJson(response));
     if (!parsed.success) throw new Error("File force deletion response was invalid");
@@ -210,6 +213,7 @@ export async function forceDeleteFile(
     if (parsed.data.data.disposition !== "purge-pending") {
       throw new Error("File force deletion response was invalid");
     }
+    notFoundCompletes = true;
     await delay(1_000);
   }
   throw new Error("File force deletion exceeded the bounded acceptance timeout");
@@ -218,13 +222,29 @@ export async function forceDeleteFile(
 export async function bestEffortForceDelete(
   context: APIRequestContext | undefined,
   fileIds: readonly string[],
+  timeoutSeconds = 90,
 ): Promise<boolean> {
   if (!context) return fileIds.length === 0;
   let complete = true;
   for (const fileId of fileIds) {
     try {
       const response = await context.delete(`/v1/files/${encodeURIComponent(fileId)}?force=true`);
-      if (![200, 404].includes(response.status())) complete = false;
+      if (response.status() === 404) continue;
+      if (response.status() !== 200) {
+        complete = false;
+        continue;
+      }
+      const parsed = DeleteFileResponseSchema.safeParse(await parseJson(response));
+      if (!parsed.success) {
+        complete = false;
+        continue;
+      }
+      if (parsed.data.data.disposition === "purged") continue;
+      if (parsed.data.data.disposition !== "purge-pending") {
+        complete = false;
+        continue;
+      }
+      await forceDeleteFile(context, fileId, timeoutSeconds, true);
     } catch {
       complete = false;
     }

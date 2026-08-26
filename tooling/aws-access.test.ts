@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AWS_ACCESS_POLICY, createAwsEnvironment, verifyAwsIdentity } from "./aws-access.mjs";
+import {
+  AWS_ACCESS_POLICY,
+  createAwsEnvironment,
+  resolveTrustedAwsCliPath,
+  verifyAwsIdentity,
+} from "./aws-access.mjs";
 
 describe("AWS access policy", () => {
   it("pins the required profile, region, and Windows CA bundle", () => {
@@ -20,15 +25,24 @@ describe("AWS access policy", () => {
         Arn: AWS_ACCESS_POLICY.principalArn,
       }),
     });
-    expect(verifyAwsIdentity(valid, {}, "C:\\repo")).toEqual({
+    expect(verifyAwsIdentity(valid, {}, "C:\\repo", AWS_ACCESS_POLICY.windowsCliPath)).toEqual({
       accountId: AWS_ACCESS_POLICY.accountId,
       principalArn: AWS_ACCESS_POLICY.principalArn,
     });
+    expect(valid.mock.calls[0]?.[0]).toBe(AWS_ACCESS_POLICY.windowsCliPath);
 
     const invalid = vi.fn().mockReturnValue({
       status: 0,
       stdout: JSON.stringify({ Account: "000000000000", Arn: "arn:other" }),
     });
-    expect(() => verifyAwsIdentity(invalid, {}, "C:\\repo")).toThrow("identity mismatch");
+    expect(() =>
+      verifyAwsIdentity(invalid, {}, "C:\\repo", AWS_ACCESS_POLICY.windowsCliPath),
+    ).toThrow("identity mismatch");
+  });
+
+  it("resolves only absolute trusted CLI paths", () => {
+    expect(resolveTrustedAwsCliPath("win32")).toBe(AWS_ACCESS_POLICY.windowsCliPath);
+    expect(resolveTrustedAwsCliPath("linux")).toBe(AWS_ACCESS_POLICY.posixCliPath);
+    expect(resolveTrustedAwsCliPath("darwin")).toBe(AWS_ACCESS_POLICY.posixCliPath);
   });
 });

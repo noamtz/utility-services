@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
-import type { APIResponse } from "@playwright/test";
+import { describe, expect, it, vi } from "vitest";
+import type { APIRequestContext, APIResponse } from "@playwright/test";
 
-import { expectExpiredTransfer, expectPublicError } from "./file-journey.js";
+import { bestEffortForceDelete, expectExpiredTransfer, expectPublicError } from "./file-journey.js";
+
+const FILE_ID = "fil_aaaaaaaaaaaaaaaaaaaaaa";
 
 function response(
   status: number,
@@ -52,5 +54,33 @@ describe("deployed file journey evidence policy", () => {
     for (const status of [400, 404, 429, 500]) {
       expect(() => expectExpiredTransfer(response(status, undefined))).toThrow("expected denial");
     }
+  });
+
+  it("does not report best-effort cleanup complete until purge finishes", async () => {
+    const deleteFile = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(200, {
+          data: {
+            fileId: FILE_ID,
+            disposition: "purge-pending",
+            purgeAt: "2026-08-26T10:01:00.000Z",
+          },
+          requestId: "cleanup-request-1",
+        }),
+      )
+      .mockResolvedValueOnce(response(404, undefined));
+    const context = { delete: deleteFile } as unknown as APIRequestContext;
+
+    await expect(bestEffortForceDelete(context, [FILE_ID], 30)).resolves.toBe(true);
+    expect(deleteFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports best-effort cleanup incomplete for invalid purge evidence", async () => {
+    const context = {
+      delete: vi.fn().mockResolvedValue(response(200, { data: { disposition: "purged" } })),
+    } as unknown as APIRequestContext;
+
+    await expect(bestEffortForceDelete(context, [FILE_ID], 30)).resolves.toBe(false);
   });
 });

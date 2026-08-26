@@ -1,9 +1,14 @@
 import { execFile as execFileCallback, spawnSync as spawnSyncDefault } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { createAwsEnvironment, verifyAwsIdentity } from "../aws-access.mjs";
+import {
+  createAwsEnvironment,
+  resolveTrustedAwsCliPath,
+  verifyAwsIdentity,
+} from "../aws-access.mjs";
 import {
   RELEASE_ENVIRONMENT_KEYS,
   RELEASE_EXECUTION_MARKER,
@@ -17,6 +22,7 @@ import {
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const PLAYWRIGHT_CLI = createRequire(import.meta.url).resolve("@playwright/test/cli");
+const SST_OUTPUTS_RELATIVE_PATH = path.join(".sst", "outputs.json");
 const RESULT_PREFIX = "RUS_RELEASE_RESULT:";
 const MAX_RESULT_BYTES = 8 * 1024;
 const EXTERNAL_GATES = Object.freeze([
@@ -37,9 +43,11 @@ const FLAG_OPTIONS = new Set(["--execute"]);
 
 /** @typedef {Record<string, string | undefined>} Environment */
 /** @typedef {{ stage: string, dashboardUrl: string, apiUrl: string, runLabel: string, completionTimeoutSeconds: number, expiryTimeoutSeconds: number, execute: boolean }} ReleaseArgumentConfig */
+/** @typedef {{ stage: string, dashboardUrl: string, apiUrl: string }} ReleaseTargetConfig */
 /** @typedef {{ stdout?: string | Buffer, stderr?: string | Buffer }} ReleaseProcessResult */
 /** @typedef {(file: string, args: string[], options: import("node:child_process").ExecFileOptions) => Promise<ReleaseProcessResult>} ReleaseExecFile */
-/** @typedef {{ cwd?: string, env?: Environment, platform?: NodeJS.Platform, spawnSync?: typeof spawnSyncDefault, execFile?: ReleaseExecFile }} ReleaseDependencies */
+/** @typedef {{ cwd?: string, env?: Environment, platform?: NodeJS.Platform, spawnSync?: typeof spawnSyncDefault, execFile?: ReleaseExecFile, readFile?: (file: string, encoding: BufferEncoding) => string }} ReleaseDependencies */
+/** @typedef {{ cwd?: string, platform?: NodeJS.Platform, spawnSync?: typeof spawnSyncDefault, readFile?: (file: string, encoding: BufferEncoding) => string }} ReleaseBoundaryDependencies */
 /** @typedef {{ name: string, status: "pass" }} ReleaseCase */
 /** @typedef {{ decision: "pass", stage: string, runTimestamp: string, activationSeconds: number, cases: ReleaseCase[], caseCounts: { passed: number, failed: 0 }, projectResidue: true, externalGatesPending: string[] }} ReleaseResult */
 /** @typedef {{ decision: "not-run", plan: { stage: string, mode: "dry-run", externalMutation: false, runLabel: string, cases: string[] } }} ReleaseDryRunResult */
@@ -154,6 +162,60 @@ function releaseChildEnvironment(config, sourceEnvironment) {
   return environment;
 }
 
+/**
+ * @param {ReleaseTargetConfig} config
+ * @param {string} cwd
+ * @param {(file: string, encoding: BufferEncoding) => string} readFile
+ */
+function requireStageBoundOrigins(config, cwd, readFile) {
+  let outputs;
+  try {
+    outputs = JSON.parse(readFile(path.join(cwd, SST_OUTPUTS_RELATIVE_PATH), "utf8"));
+  } catch {
+    throw new Error("Confirmed SST stage outputs are unavailable or unreadable");
+  }
+  if (
+    outputs === null ||
+    typeof outputs !== "object" ||
+    Array.isArray(outputs) ||
+    outputs.stage !== config.stage ||
+    typeof outputs.dashboardUrl !== "string" ||
+    typeof outputs.apiUrl !== "string"
+  ) {
+    throw new Error("Confirmed SST stage outputs do not match the selected stage");
+  }
+  const dashboardUrl = validateReleaseOrigin(outputs.dashboardUrl, "SST dashboard output");
+  const apiUrl = validateReleaseOrigin(outputs.apiUrl, "SST API output");
+  if (dashboardUrl !== config.dashboardUrl || apiUrl !== config.apiUrl) {
+    throw new Error("Release origins do not match the confirmed SST stage outputs");
+  }
+}
+
+/**
+ * Re-validates the mutating execution boundary inside both the launcher and the
+ * Playwright spec so a direct test invocation cannot bypass the stage or AWS guards.
+ *
+ * @param {Environment} environment
+ * @param {ReleaseBoundaryDependencies} [dependencies]
+ */
+export function verifyReleaseExecutionBoundary(environment = process.env, dependencies = {}) {
+  const config = requireAuthorizedReleaseEnvironment(environment);
+  const cwd = dependencies.cwd ?? REPOSITORY_ROOT;
+  const platform = dependencies.platform ?? process.platform;
+  requireStageBoundOrigins(config, cwd, dependencies.readFile ?? readFileSync);
+  const preflightEnvironment = createAwsEnvironment(
+    sanitizeReleaseEnvironment(environment),
+    platform,
+  );
+  verifyAwsIdentity(
+    dependencies.spawnSync ?? spawnSyncDefault,
+    preflightEnvironment,
+    cwd,
+    resolveTrustedAwsCliPath(platform),
+  );
+  return config;
+}
+
 /** @param {unknown} value @param {string[]} expected */
 function exactKeys(value, expected) {
   return (
@@ -263,8 +325,14 @@ export async function runReleaseReadiness(argv, dependencies = {}) {
   const cwd = dependencies.cwd ?? REPOSITORY_ROOT;
   const sourceEnvironment = dependencies.env ?? process.env;
   const childEnvironment = releaseChildEnvironment(config, sourceEnvironment);
-  const awsEnvironment = createAwsEnvironment(childEnvironment, dependencies.platform);
-  verifyAwsIdentity(dependencies.spawnSync ?? spawnSyncDefault, awsEnvironment, cwd);
+  const platform = dependencies.platform ?? process.platform;
+  verifyReleaseExecutionBoundary(childEnvironment, {
+    cwd,
+    platform,
+    ...(dependencies.spawnSync ? { spawnSync: dependencies.spawnSync } : {}),
+    ...(dependencies.readFile ? { readFile: dependencies.readFile } : {}),
+  });
+  const childAwsEnvironment = createAwsEnvironment(childEnvironment, platform);
 
   let result;
   try {
@@ -275,7 +343,7 @@ export async function runReleaseReadiness(argv, dependencies = {}) {
         cwd,
         shell: false,
         windowsHide: true,
-        env: awsEnvironment,
+        env: childAwsEnvironment,
         timeout: 16 * 60 * 1_000,
         maxBuffer: MAX_RESULT_BYTES,
       },

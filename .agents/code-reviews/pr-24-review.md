@@ -66,3 +66,26 @@ All six findings were fixed in the PR branch:
 - Report metadata no longer uses trailing whitespace.
 
 Post-fix validation passed: `npm run check` (108 files / 590 tests), coverage (86.78% statements, 80.17% branches, 90.90% functions, 89.59% lines), `npm run test:e2e:list`, the no-mutation release dry run, both Codex-layer checks, and `git diff --check`. The real one-minute deployed expiry exercise remains intentionally not run pending separate authorization.
+
+## Second review and resolution
+
+A fresh post-fix review confirmed the original six findings were resolved and found two additional high-severity launcher gaps: execute-mode origins were not bound to the confirmed SST stage, and the AWS identity preflight resolved `aws` through inherited `PATH` while owner credentials were already present. It also noted that fallback file cleanup could accept `purge-pending` as complete and that the PR description retained stale test counts.
+
+All locally actionable items were corrected:
+
+- `sst.config.ts` now records the exact stage beside its deployment endpoints. Execute mode reads the ignored `.sst/outputs.json` and rejects a missing, stale, mismatched-stage, or mismatched-origin target before AWS preflight and browser startup.
+- AWS identity checks use an absolute trusted CLI path. Release preflight receives only the sanitized base environment plus the pinned AWS profile/region/CA settings; owner credentials are added only to the validated Playwright child environment.
+- Best-effort cleanup validates delete envelopes and waits through `purge-pending` until the file is confirmed purged or absent.
+- README/operator evidence and PR validation counts were updated.
+
+Second-fix validation passed: focused security/cleanup tests (35/35), `npm run check` (108 files / 594 tests), coverage (86.78% statements, 80.17% branches, 90.90% functions, 89.59% lines), and production dashboard build. The deployed journey remains intentionally pending separate authorization.
+
+## Direct-invocation review and resolution
+
+A subsequent fresh review found that direct `playwright test` execution could bypass the launcher's new stage-output binding and AWS preflight. The Playwright spec now calls the same exported execution-boundary verifier before creating browser or API contexts. Both the supported launcher and a direct test invocation therefore require the exact stage/output binding and the trusted, secret-free AWS identity preflight. A focused regression rejects missing or mismatched outputs without invoking AWS or the browser journey.
+
+Final local validation passed: focused security/cleanup tests (36/36), `npm run check` (108 files / 595 tests), coverage (86.78% statements, 80.17% branches, 90.90% functions, 89.59% lines), Playwright discovery, the mutation-free release dry run, both Codex-layer checks, and `git diff --check`.
+
+## Final merge gate
+
+A final clean-context review found no high-confidence critical, high, or medium findings and recommends merge. It verified that both launcher and direct Playwright execution reach the shared stage/output and trusted secret-free AWS boundary before any browser/API context or mutation, and that cleanup waits to confirmed purge or absence. The separately authorized deployed journey remains an external acceptance gate rather than a blocker for merging this local implementation.

@@ -24,28 +24,28 @@ Release-matrix work exposed one production correctness defect: a slower project-
 
 ## Tests added or extended
 
-- `tooling/acceptance/release-readiness.test.ts`: 7 policy tests for dry-run isolation, invalid input refusal, owner/marker confirmation, inherited-environment sanitization, exact identity/no-shell launch, timeout/failure safety, and strict result parsing.
+- `tooling/acceptance/release-readiness.test.ts`: 9 policy tests for dry-run isolation, invalid input refusal, owner/marker confirmation, inherited-environment sanitization, stage-bound endpoint verification, direct-invocation refusal, secret-free exact identity/no-shell launch, timeout/failure safety, and strict result parsing.
 - `apps/dashboard/src/App.test.tsx`: complete first-login `NEW_PASSWORD_REQUIRED` flow.
 - `apps/dashboard/src/projects/ProjectView.test.tsx`: stale project-inspection response regression.
 - `apps/dashboard/src/usage/UsagePanel.test.tsx`: safe error recovery into an incomplete projection.
 - `apps/dashboard/src/integration/IntegrationGuide.test.tsx`: all five copyable curl blocks, routes, placeholders, required upload headers, lifecycle operations, and signed-query exclusion.
 - `tests/e2e/activation.spec.ts`: one listed deployed Playwright test; it was intentionally not executed locally.
-- `tests/e2e/support/file-journey.test.ts`: public-error evidence scanning and exact expired-transfer status coverage.
-- Final local suite: 108 test files and 590 tests passed.
+- `tests/e2e/support/file-journey.test.ts`: public-error evidence scanning, exact expired-transfer status, and purge-complete fallback cleanup coverage.
+- Final local suite: 108 test files and 595 tests passed.
 
 ## Validation results
 
 - `npm run check` â€” PASS after one formatting correction; includes format, lint, typecheck, coverage, and production dashboard build.
-- `npm test` â€” PASS: 108 files, 590 tests.
+- `npm test` â€” PASS: 108 files, 595 tests.
 - Coverage â€” PASS: 86.78% statements, 80.17% branches, 90.90% functions, and 89.59% lines.
 - Focused backend release matrix â€” PASS: 8 files, 18 tests.
 - Focused dashboard journey â€” PASS: 5 files, 15 tests.
-- Release launcher policy â€” PASS: 7 tests.
+- Release launcher policy â€” PASS: 9 tests.
 - `npm run test:e2e:list` â€” PASS: exactly one `authorized-deployed` test; no secret or network requirement.
 - Release dry run against `.invalid` origins â€” PASS with `decision: not-run` and `externalMutation: false`; no AWS/browser execution.
 - `python tooling/validate_codex_layer.py` â€” PASS: 31 skills and 6 custom agents.
 - `uv run --script tooling/mcp/codebase_search.py --self-test` â€” PASS.
-- `npm exec -- vitest list` â€” PASS: 590 tests discovered.
+- `npm exec -- vitest list` â€” PASS: 595 tests discovered.
 - `git diff --check` â€” PASS.
 - Static sensitive-term/IAM/object-key scan â€” reviewed; matches are policy checks, environment-variable names, synthetic test placeholders, fixed repository identity constants, or documentation warnings. No real credentials, signed queries, internal object identifiers, or generated Playwright artifact directories were found.
 
@@ -73,3 +73,7 @@ RUS-11 cannot be called release-complete until those external gates produce revi
 - Expanded public-error evidence scanning across bucket, account, object-key/prefix, credential/token, UUID, signed-query URL, and exception disclosures with deterministic helper tests.
 - Tightened presigned-expiry evidence to exact HTTP 403; the real one-minute deployed assertion remains pending the separately authorized journey.
 - Removed report trailing whitespace and reran the local diff check successfully.
+- Bound execute-mode dashboard/API origins to the exact stage recorded by the ignored SST deployment outputs before AWS preflight or browser startup.
+- Changed AWS identity preflight to an absolute trusted CLI path and a sanitized environment that excludes all owner credentials; only the validated Playwright child receives them.
+- Made fallback cleanup poll `purge-pending` files until they are confirmed purged or absent, with invalid evidence reported as incomplete cleanup.
+- Reused the same stage-output and secret-free AWS boundary inside the Playwright spec before it creates browser or API contexts, so direct Playwright invocation cannot bypass the launcher.

@@ -216,6 +216,12 @@ the intended cases, and neither checks AWS identity nor launches a browser witho
 npm run acceptance:release -- --stage dev-rus11-e2e --dashboard-url https://dashboard.example.com --api-url https://api.example.com
 ```
 
+Execute mode additionally requires the ignored `.sst/outputs.json` produced by the successful
+deployment of that exact stage. Its `stage`, `dashboardUrl`, and `apiUrl` values must exactly match
+the confirmed command; a stale stage or manually mistyped endpoint is rejected before AWS
+preflight or browser startup. Never copy this generated output into source control or substitute
+another stage's endpoints.
+
 Live execution is destructive test work and requires separate owner authorization, a deployed
 stage with no concurrent run, and two distinct invited Cognito owners. Put credentials only in the
 following process environment variables; never add their values to argv, repository files, issue
@@ -232,14 +238,16 @@ npm run acceptance:release -- --stage dev-rus11-e2e --dashboard-url https://dash
 
 For an owner's first Cognito login, set the matching optional
 `RUS_RELEASE_OWNER_A_NEW_PASSWORD` or `RUS_RELEASE_OWNER_B_NEW_PASSWORD`; doing so changes that
-account's password. The harness verifies the exact approved AWS identity, disables retries and all
-Playwright screenshots/video/traces, keeps API keys and presigned URLs in memory only, and emits a
+account's password. The harness verifies the exact approved AWS identity through the trusted
+absolute AWS CLI path using an environment that contains no owner credentials. Only the validated
+Playwright child receives those credentials. The journey disables retries and all Playwright
+screenshots/video/traces, keeps API keys and presigned URLs in memory only, and emits a
 bounded secret-free result containing only the decision, sanitized stage, timestamp, activation
 seconds, case names/status counts, project-residue flag, and pending external gate names. It
-force-deletes disposable files and revokes issued keys, but project records remain because project
-deletion is out of scope. A passing journey proves the assembled dashboard/API/direct-S3 path and
-activation time under five minutes; it does not prove the separate CloudTrail transfer matrix,
-production alert delivery, or two-human product experiment.
+waits until disposable files are purged or absent and revokes issued keys, but project records
+remain because project deletion is out of scope. A passing journey proves the assembled
+dashboard/API/direct-S3 path and activation time under five minutes; it does not prove the separate
+CloudTrail transfer matrix, production alert delivery, or two-human product experiment.
 
 For the separately observed human experiment, start a monotonic timer when the one-time key is
 available and stop only after the first upload has completed and the downloaded bytes have been

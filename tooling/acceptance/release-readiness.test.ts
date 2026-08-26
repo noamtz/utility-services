@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ExecFileOptions } from "node:child_process";
+import type { ExecFileOptions, SpawnSyncOptions } from "node:child_process";
 
 import {
   RELEASE_ENVIRONMENT_KEYS,
@@ -7,11 +7,13 @@ import {
   RELEASE_CASE_NAMES,
   requireAuthorizedReleaseEnvironment,
 } from "../../tests/e2e/support/release-config.js";
+import { AWS_ACCESS_POLICY } from "../aws-access.mjs";
 import {
   parseReleaseArguments,
   parseReleaseResult,
   runReleaseReadiness,
   sanitizeReleaseEnvironment,
+  verifyReleaseExecutionBoundary,
 } from "./release-readiness.mjs";
 
 const args = [
@@ -39,6 +41,27 @@ function identity() {
       Account: "162067902192",
       Arn: "arn:aws:iam::162067902192:user/ntz-cli",
     }),
+  };
+}
+
+function stageOutputs(
+  stage = "dev-rus11-e2e",
+  dashboardUrl = "https://dashboard.example.com",
+  apiUrl = "https://api.example.com",
+) {
+  return JSON.stringify({ stage, dashboardUrl, apiUrl });
+}
+
+const readStageOutputs = () => stageOutputs();
+
+function authorizedEnvironment() {
+  return {
+    ...secrets,
+    [RELEASE_ENVIRONMENT_KEYS.execute]: RELEASE_EXECUTION_MARKER,
+    [RELEASE_ENVIRONMENT_KEYS.stage]: "dev-rus11-e2e",
+    [RELEASE_ENVIRONMENT_KEYS.dashboardUrl]: "https://dashboard.example.com",
+    [RELEASE_ENVIRONMENT_KEYS.apiUrl]: "https://api.example.com",
+    [RELEASE_ENVIRONMENT_KEYS.confirmStage]: "dev-rus11-e2e",
   };
 }
 
@@ -101,14 +124,7 @@ describe("release readiness acceptance policy", () => {
   });
 
   it("requires an exact marker, confirmation, and two distinct invited owners", () => {
-    const environment = {
-      ...secrets,
-      [RELEASE_ENVIRONMENT_KEYS.execute]: RELEASE_EXECUTION_MARKER,
-      [RELEASE_ENVIRONMENT_KEYS.stage]: "dev-rus11-e2e",
-      [RELEASE_ENVIRONMENT_KEYS.dashboardUrl]: "https://dashboard.example.com",
-      [RELEASE_ENVIRONMENT_KEYS.apiUrl]: "https://api.example.com",
-      [RELEASE_ENVIRONMENT_KEYS.confirmStage]: "dev-rus11-e2e",
-    };
+    const environment = authorizedEnvironment();
     expect(requireAuthorizedReleaseEnvironment(environment)).toMatchObject({
       stage: "dev-rus11-e2e",
       runLabel: "rus11",
@@ -153,6 +169,11 @@ describe("release readiness acceptance policy", () => {
 
   it("preflights the exact identity and launches the local CLI without a shell", async () => {
     const spawnSync = vi.fn().mockReturnValue(identity());
+    const readFile = vi.fn((file: string, encoding: BufferEncoding) => {
+      void file;
+      void encoding;
+      return stageOutputs();
+    });
     const execFile = vi.fn((file: string, command: string[], options: ExecFileOptions) => {
       void file;
       void command;
@@ -161,11 +182,23 @@ describe("release readiness acceptance policy", () => {
     });
     const result = await runReleaseReadiness(
       [...args, "--execute", "--confirm-stage", "dev-rus11-e2e"],
-      { spawnSync, execFile, env: { PATH: "safe-path", ...secrets }, platform: "win32" },
+      {
+        spawnSync,
+        execFile,
+        readFile,
+        env: { PATH: "unsafe-shadow-path", ...secrets },
+        platform: "win32",
+      },
     );
     expect(result).toMatchObject({ decision: "pass", activationSeconds: 42.5 });
-    expect(spawnSync.mock.calls[0]?.[0]).toBe("aws");
-    expect(spawnSync.mock.calls[0]?.[2]).toMatchObject({ shell: false });
+    expect(readFile.mock.calls[0]?.[0]).toMatch(/[\\/]\.sst[\\/]outputs\.json$/u);
+    expect(spawnSync.mock.calls[0]?.[0]).toBe(AWS_ACCESS_POLICY.windowsCliPath);
+    const preflightOptions = spawnSync.mock.calls[0]?.[2] as SpawnSyncOptions | undefined;
+    expect(preflightOptions).toMatchObject({ shell: false });
+    expect(preflightOptions?.env).not.toHaveProperty(RELEASE_ENVIRONMENT_KEYS.ownerAEmail);
+    expect(preflightOptions?.env).not.toHaveProperty(RELEASE_ENVIRONMENT_KEYS.ownerAPassword);
+    expect(preflightOptions?.env).not.toHaveProperty(RELEASE_ENVIRONMENT_KEYS.ownerBEmail);
+    expect(preflightOptions?.env).not.toHaveProperty(RELEASE_ENVIRONMENT_KEYS.ownerBPassword);
     const [file, command, options] = execFile.mock.calls[0]!;
     expect(file).toBe(process.execPath);
     expect(command).toContain("--project=authorized-deployed");
@@ -185,6 +218,71 @@ describe("release readiness acceptance policy", () => {
     expect(JSON.stringify(result)).not.toMatch(/password|dashboard\.example|api\.example/u);
   });
 
+  it("binds execution origins to the exact confirmed SST stage outputs", async () => {
+    const spawnSync = vi.fn();
+    const execFile = vi.fn();
+    const executeArgs = [...args, "--execute", "--confirm-stage", "dev-rus11-e2e"];
+
+    await expect(
+      runReleaseReadiness(executeArgs, {
+        spawnSync,
+        execFile,
+        readFile: () => stageOutputs("dev-other"),
+        env: secrets,
+      }),
+    ).rejects.toThrow("do not match the selected stage");
+    await expect(
+      runReleaseReadiness(executeArgs, {
+        spawnSync,
+        execFile,
+        readFile: () =>
+          stageOutputs(
+            "dev-rus11-e2e",
+            "https://production.example.com",
+            "https://api.example.com",
+          ),
+        env: secrets,
+      }),
+    ).rejects.toThrow("origins do not match");
+    await expect(
+      runReleaseReadiness(executeArgs, {
+        spawnSync,
+        execFile,
+        readFile: () => {
+          throw new Error("missing");
+        },
+        env: secrets,
+      }),
+    ).rejects.toThrow("unavailable or unreadable");
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("blocks direct Playwright execution from bypassing stage and identity guards", () => {
+    const spawnSync = vi.fn().mockReturnValue(identity());
+    const environment = authorizedEnvironment();
+
+    expect(() =>
+      verifyReleaseExecutionBoundary(environment, {
+        spawnSync,
+        readFile: () => stageOutputs("dev-other"),
+        platform: "win32",
+      }),
+    ).toThrow("do not match the selected stage");
+    expect(spawnSync).not.toHaveBeenCalled();
+
+    expect(() =>
+      verifyReleaseExecutionBoundary(environment, {
+        spawnSync,
+        readFile: () => {
+          throw new Error("missing");
+        },
+        platform: "win32",
+      }),
+    ).toThrow("unavailable or unreadable");
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
   it("refuses wrong identity, child failure, missing results, and stage mismatch safely", async () => {
     const wrongIdentity = vi.fn().mockReturnValue({
       status: 0,
@@ -192,12 +290,17 @@ describe("release readiness acceptance policy", () => {
     });
     const executeArgs = [...args, "--execute", "--confirm-stage", "dev-rus11-e2e"];
     await expect(
-      runReleaseReadiness(executeArgs, { spawnSync: wrongIdentity, env: secrets }),
+      runReleaseReadiness(executeArgs, {
+        spawnSync: wrongIdentity,
+        readFile: readStageOutputs,
+        env: secrets,
+      }),
     ).rejects.toThrow("identity mismatch");
     await expect(
       runReleaseReadiness(executeArgs, {
         spawnSync: vi.fn().mockReturnValue(identity()),
         execFile: vi.fn().mockRejectedValue(new Error("owner-a-password signed-url?secret=x")),
+        readFile: readStageOutputs,
         env: secrets,
       }),
     ).rejects.toThrow("failed without publishable evidence");
@@ -207,6 +310,7 @@ describe("release readiness acceptance policy", () => {
         execFile: vi
           .fn()
           .mockRejectedValue(Object.assign(new Error("timed out"), { killed: true })),
+        readFile: readStageOutputs,
         env: secrets,
       }),
     ).rejects.toThrow("failed without publishable evidence");
@@ -214,6 +318,7 @@ describe("release readiness acceptance policy", () => {
       runReleaseReadiness(executeArgs, {
         spawnSync: vi.fn().mockReturnValue(identity()),
         execFile: vi.fn().mockResolvedValue({ stdout: "ordinary output", stderr: "" }),
+        readFile: readStageOutputs,
         env: secrets,
       }),
     ).rejects.toThrow("exactly one safe result");
@@ -221,6 +326,7 @@ describe("release readiness acceptance policy", () => {
       runReleaseReadiness(executeArgs, {
         spawnSync: vi.fn().mockReturnValue(identity()),
         execFile: vi.fn().mockResolvedValue({ stdout: sentinel("dev-other"), stderr: "" }),
+        readFile: readStageOutputs,
         env: secrets,
       }),
     ).rejects.toThrow("does not match execution");

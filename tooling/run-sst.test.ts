@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { resolveTrustedAwsCliPath } from "./aws-access.mjs";
 import { AWS_ACCESS_POLICY, createAwsEnvironment, parseSstInvocation, runSst } from "./run-sst.mjs";
 
 const validIdentity = JSON.stringify({
@@ -47,14 +48,15 @@ describe("runSst", () => {
   });
 
   it("spawns the pinned local CLI without a shell and preserves arguments", () => {
+    const awsCliPath = resolveTrustedAwsCliPath();
     const spawn = vi.fn((...parameters: [string, string[], object]) => {
       expect(parameters).toHaveLength(3);
-      return parameters[0] === "aws" ? { status: 0, stdout: validIdentity } : { status: 0 };
+      return parameters[0] === awsCliPath ? { status: 0, stdout: validIdentity } : { status: 0 };
     });
 
     expect(runSst(["diff", "--json", "--stage", "dev-plan"], spawn)).toBe(0);
     expect(spawn).toHaveBeenCalledTimes(2);
-    expect(spawn.mock.calls[0]?.[0]).toBe("aws");
+    expect(spawn.mock.calls[0]?.[0]).toBe(awsCliPath);
     expect(spawn.mock.calls[0]?.[1]).toEqual(
       expect.arrayContaining(["sts", "get-caller-identity", "--profile", "ntz-cli"]),
     );
@@ -97,7 +99,7 @@ describe("runSst", () => {
 
     expect(runSst(["install", "--stage", "dev-plan"], spawn)).toBe(0);
     expect(spawn).toHaveBeenCalledOnce();
-    expect(spawn.mock.calls[0]?.[0]).not.toBe("aws");
+    expect(spawn.mock.calls[0]?.[0]).not.toBe(resolveTrustedAwsCliPath());
   });
 });
 

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { verifyReleaseExecutionBoundary } from "../../tooling/acceptance/release-readiness.mjs";
 import {
   bestEffortForceDelete,
   authorizePrivateDownload,
@@ -28,7 +29,7 @@ import {
   signInInvitedOwner,
   signOutOwner,
 } from "./support/owner-journey.js";
-import { RELEASE_CASES, requireAuthorizedReleaseEnvironment } from "./support/release-config.js";
+import { RELEASE_CASES } from "./support/release-config.js";
 
 const GUESSED_FILE_ID = "fil_aaaaaaaaaaaaaaaaaaaaaa";
 const GUESSED_PUBLIC_FILE_ID = "pfil_aaaaaaaaaaaaaaaaaaaaaa";
@@ -37,7 +38,7 @@ const RESULT_PREFIX = "RUS_RELEASE_RESULT:";
 test.describe.configure({ mode: "serial" });
 
 test("proves two-owner activation and release boundaries", async ({ browser }) => {
-  const config = requireAuthorizedReleaseEnvironment();
+  const config = verifyReleaseExecutionBoundary();
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
   const pageA = await contextA.newPage();
@@ -210,8 +211,12 @@ test("proves two-owner activation and release boundaries", async ({ browser }) =
     cleanupComplete = true;
   } finally {
     const cleanupResults = await Promise.all([
-      bestEffortForceDelete(replacementA?.api ?? filesA?.api, cleanupA),
-      bestEffortForceDelete(filesB?.api, cleanupB),
+      bestEffortForceDelete(
+        replacementA?.api ?? filesA?.api,
+        cleanupA,
+        config.expiryTimeoutSeconds,
+      ),
+      bestEffortForceDelete(filesB?.api, cleanupB, config.expiryTimeoutSeconds),
     ]);
     const keyCleanupResults = await Promise.all([
       bestEffortRevokeOwnerKey(pageA, activeKeyA),
