@@ -32,4 +32,23 @@ describe("SSM communication credential store", () => {
     });
     expect(JSON.stringify(send.mock.calls)).toContain("SecureString");
   });
+
+  it("writes rotations to a distinct opaque parameter without overwriting the active reference", async () => {
+    const send = vi.fn().mockResolvedValue({ Version: 1 });
+    const store = createSsmConnectionSecretStore({
+      client: { send } as never,
+      stage: "dev-israel-test",
+    });
+    const rotated = await store.store({
+      connectionId: "con_1234567890123456789012",
+      credential: "credential-material-that-is-long-enough",
+      version: 2,
+    });
+    expect(rotated).toMatchObject({ version: 2 });
+    expect(rotated.reference).toMatch(
+      /^\/utility-services\/dev-israel-test\/communication\/con_1234567890123456789012\/2-/,
+    );
+    const command = send.mock.calls[0]?.[0] as { input: { Overwrite?: boolean } };
+    expect(command.input.Overwrite).toBe(false);
+  });
 });

@@ -88,7 +88,7 @@ describe("communication connection service", () => {
     );
   });
 
-  it("rotates at the existing opaque parameter and persists its returned version", async () => {
+  it("rotates to a new opaque parameter and retires the previous reference after metadata CAS", async () => {
     const current: ConnectionRecord = {
       connectionId: "con_1234567890123456789012",
       projectId: "prj_1234567890123456789012",
@@ -102,6 +102,7 @@ describe("communication connection service", () => {
       updatedAt: "2026-11-09T00:00:00.000Z",
     };
     const updateLifecycle = vi.fn().mockResolvedValue(undefined);
+    const remove = vi.fn().mockResolvedValue(undefined);
     const service = createCommunicationConnectionService({
       repository: {
         reserveAndCreate: async () => undefined,
@@ -109,8 +110,8 @@ describe("communication connection service", () => {
         updateLifecycle,
       },
       secretStore: {
-        store: async () => ({ reference: "ref", version: 2 }),
-        remove: async () => undefined,
+        store: async () => ({ reference: "ref-v2", version: 2 }),
+        remove,
       },
       now: () => new Date("2026-11-10T00:00:00.000Z"),
     });
@@ -120,13 +121,67 @@ describe("communication connection service", () => {
     expect(updateLifecycle).toHaveBeenCalledWith(
       current.connectionId,
       1,
-      expect.objectContaining({ secretVersion: 2 }),
+      expect.objectContaining({ secretReference: "ref-v2", secretVersion: 2 }),
     );
+    expect(remove).toHaveBeenCalledWith("ref");
+  });
+
+  it("removes an orphaned rotated parameter when the metadata CAS loses the race", async () => {
+    const current: ConnectionRecord = {
+      connectionId: "con_1234567890123456789012",
+      projectId: "prj_1234567890123456789012",
+      provider: "green-api",
+      instanceId: "instance-a",
+      status: "active",
+      ownerId: "owner-a",
+      secretReference: "ref-v1",
+      secretVersion: 1,
+      createdAt: "2026-11-09T00:00:00.000Z",
+      updatedAt: "2026-11-09T00:00:00.000Z",
+    };
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const service = createCommunicationConnectionService({
+      repository: {
+        reserveAndCreate: async () => undefined,
+        inspect: async () => current,
+        updateLifecycle: async () => {
+          throw new DuplicateProviderInstanceError();
+        },
+      },
+      secretStore: {
+        store: async () => ({ reference: "ref-v2", version: 2 }),
+        remove,
+      },
+    });
+    await expect(
+      service.rotate(owner, current.connectionId, input.credential),
+    ).rejects.toMatchObject({ code: "CONNECTION_CHANGED" });
+    expect(remove).toHaveBeenCalledWith("ref-v2");
+    expect(remove).not.toHaveBeenCalledWith("ref-v1");
   });
 
   it("refuses to rotate a disabled connection", async () => {
-    const current: ConnectionRecord = { connectionId: "con_1234567890123456789012", projectId: "prj_1234567890123456789012", provider: "green-api", instanceId: "instance-a", status: "disabled", ownerId: "owner-a", secretReference: "ref", secretVersion: 1, createdAt: "2026-11-09T00:00:00.000Z", updatedAt: "2026-11-09T00:00:00.000Z" };
-    const service = createCommunicationConnectionService({ repository: { reserveAndCreate: async () => undefined, inspect: async () => current }, secretStore: { store: async () => ({ reference: "ref", version: 2 }), remove: async () => undefined } });
-    await expect(service.rotate(owner, current.connectionId, input.credential)).rejects.toMatchObject({ code: "CONNECTION_DISABLED" });
+    const current: ConnectionRecord = {
+      connectionId: "con_1234567890123456789012",
+      projectId: "prj_1234567890123456789012",
+      provider: "green-api",
+      instanceId: "instance-a",
+      status: "disabled",
+      ownerId: "owner-a",
+      secretReference: "ref",
+      secretVersion: 1,
+      createdAt: "2026-11-09T00:00:00.000Z",
+      updatedAt: "2026-11-09T00:00:00.000Z",
+    };
+    const service = createCommunicationConnectionService({
+      repository: { reserveAndCreate: async () => undefined, inspect: async () => current },
+      secretStore: {
+        store: async () => ({ reference: "ref", version: 2 }),
+        remove: async () => undefined,
+      },
+    });
+    await expect(
+      service.rotate(owner, current.connectionId, input.credential),
+    ).rejects.toMatchObject({ code: "CONNECTION_DISABLED" });
   });
 });

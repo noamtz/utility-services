@@ -54,6 +54,8 @@ export {
 export {
   COMMUNICATION_UTILITY,
   CommunicationConnectionPathSchema,
+  CommunicationConnectionListResponseSchema,
+  CommunicationConnectionListSchema,
   CommunicationConnectionResponseSchema,
   CommunicationConnectionSchema,
   ConnectionIdSchema,

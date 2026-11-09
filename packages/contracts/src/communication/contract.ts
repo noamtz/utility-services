@@ -35,6 +35,12 @@ export const CommunicationConnectionSchema = z
 export const CommunicationConnectionResponseSchema = createSuccessEnvelopeSchema(
   CommunicationConnectionSchema,
 );
+export const CommunicationConnectionListSchema = z
+  .object({ items: z.array(CommunicationConnectionSchema).max(1) })
+  .strict();
+export const CommunicationConnectionListResponseSchema = createSuccessEnvelopeSchema(
+  CommunicationConnectionListSchema,
+);
 export const CommunicationConnectionPathSchema = z
   .object({ projectId: PublicProjectIdSchema, connectionId: ConnectionIdSchema })
   .strict();

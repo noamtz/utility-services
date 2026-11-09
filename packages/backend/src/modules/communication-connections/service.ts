@@ -19,14 +19,16 @@ export interface ConnectionRepository {
   updateLifecycle?(
     connectionId: string,
     expectedVersion: number,
-    patch: Pick<ConnectionRecord, "secretVersion" | "status" | "updatedAt">,
+    patch: Pick<ConnectionRecord, "secretReference" | "secretVersion" | "status" | "updatedAt">,
   ): Promise<void>;
+  listForProject?(projectId: string): Promise<readonly ConnectionRecord[]>;
 }
 
 export interface ConnectionSecretStore {
   store(input: {
     connectionId: string;
     credential: string;
+    version?: number;
   }): Promise<{ reference: string; version: number }>;
   remove(reference: string): Promise<void>;
 }
@@ -115,25 +117,42 @@ export function createCommunicationConnectionService(dependencies: {
         throw new HttpError(404, "NOT_FOUND", "Communication connection not found");
       if (current.status === "disabled")
         throw new HttpError(409, "CONNECTION_DISABLED", "Communication connection is disabled");
-      const stored = await dependencies.secretStore.store({ connectionId, credential });
+      const stored = await dependencies.secretStore.store({
+        connectionId,
+        credential,
+        version: current.secretVersion + 1,
+      });
       const updatedAt = now().toISOString();
       try {
         if (!dependencies.repository.updateLifecycle)
           throw new Error("Connection lifecycle repository is unavailable");
         await dependencies.repository.updateLifecycle(connectionId, current.secretVersion, {
+          secretReference: stored.reference,
           secretVersion: stored.version,
           status: "active",
           updatedAt,
         });
       } catch {
+        await dependencies.secretStore.remove(stored.reference).catch(() => undefined);
         throw new HttpError(409, "CONNECTION_CHANGED", "Communication connection changed; retry");
       }
+      await dependencies.secretStore.remove(current.secretReference).catch(() => undefined);
       return toPublicConnection({
         ...current,
+        secretReference: stored.reference,
         secretVersion: stored.version,
         status: "active",
         updatedAt,
       });
+    },
+    async list(
+      owner: OwnerContext,
+      projectId: string,
+    ): Promise<readonly CommunicationConnection[]> {
+      if (!dependencies.repository.listForProject)
+        throw new Error("Connection list repository is unavailable");
+      const records = await dependencies.repository.listForProject(projectId);
+      return records.filter((record) => record.ownerId === owner.ownerId).map(toPublicConnection);
     },
     async disable(owner: OwnerContext, connectionId: string): Promise<CommunicationConnection> {
       const current = await dependencies.repository.inspect(connectionId);
@@ -143,6 +162,7 @@ export function createCommunicationConnectionService(dependencies: {
       if (!dependencies.repository.updateLifecycle)
         throw new Error("Connection lifecycle repository is unavailable");
       await dependencies.repository.updateLifecycle(connectionId, current.secretVersion, {
+        secretReference: current.secretReference,
         secretVersion: current.secretVersion,
         status: "disabled",
         updatedAt,

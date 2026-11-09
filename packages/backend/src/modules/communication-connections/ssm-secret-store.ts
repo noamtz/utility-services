@@ -7,8 +7,15 @@ const stageSchema = z.string().regex(/^[a-z0-9-]{1,64}$/);
 const connectionIdSchema = z.string().regex(/^con_[A-Za-z0-9_-]{22}$/);
 
 /** Builds an opaque, stage-isolated SSM parameter path without using project or provider identifiers. */
-export function connectionCredentialParameterName(stage: string, connectionId: string): string {
-  return `/utility-services/${stageSchema.parse(stage)}/communication/${connectionIdSchema.parse(connectionId)}`;
+export function connectionCredentialParameterName(
+  stage: string,
+  connectionId: string,
+  version?: number,
+): string {
+  const base = `/utility-services/${stageSchema.parse(stage)}/communication/${connectionIdSchema.parse(connectionId)}`;
+  return version === undefined
+    ? base
+    : `${base}/${z.number().int().positive().parse(version)}-${crypto.randomUUID()}`;
 }
 
 export function createSsmConnectionSecretStore(options: {
@@ -18,17 +25,17 @@ export function createSsmConnectionSecretStore(options: {
   const client = options.client ?? new SSMClient({});
   const stage = stageSchema.parse(options.stage);
   return {
-    async store({ connectionId, credential }) {
-      const reference = connectionCredentialParameterName(stage, connectionId);
+    async store({ connectionId, credential, version }) {
+      const reference = connectionCredentialParameterName(stage, connectionId, version);
       const output = await client.send(
         new PutParameterCommand({
           Name: reference,
           Value: credential,
           Type: "SecureString",
-          Overwrite: true,
+          Overwrite: false,
         }),
       );
-      return { reference, version: z.number().int().positive().parse(output.Version) };
+      return { reference, version: version ?? z.number().int().positive().parse(output.Version) };
     },
     async remove(reference) {
       await client.send(

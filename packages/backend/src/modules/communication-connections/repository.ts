@@ -1,4 +1,9 @@
-import { GetCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  GetCommand,
+  QueryCommand,
+  TransactWriteCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 
 import {
@@ -35,7 +40,9 @@ function isConditionalFailure(error: unknown): boolean {
 
 export function createDynamoConnectionRepository(options: {
   readonly client: {
-    send(command: TransactWriteCommand | GetCommand | UpdateCommand): Promise<unknown>;
+    send(
+      command: TransactWriteCommand | GetCommand | QueryCommand | UpdateCommand,
+    ): Promise<unknown>;
   };
   readonly tableName: string;
 }): ConnectionRepository {
@@ -44,6 +51,7 @@ export function createDynamoConnectionRepository(options: {
     async reserveAndCreate(record) {
       const stored = StoredConnectionSchema.parse({
         ...record,
+        projectId: record.projectId,
         pk: metadataKey(record.connectionId),
         sk: "METADATA",
         itemType: "communication-connection",
@@ -96,10 +104,11 @@ export function createDynamoConnectionRepository(options: {
             TableName: tableName,
             Key: { pk: metadataKey(connectionId), sk: "METADATA" },
             UpdateExpression:
-              "SET secretVersion = :secretVersion, #status = :status, updatedAt = :updatedAt",
+              "SET secretReference = :secretReference, secretVersion = :secretVersion, #status = :status, updatedAt = :updatedAt",
             ConditionExpression: "attribute_exists(pk) AND secretVersion = :expectedVersion",
             ExpressionAttributeNames: { "#status": "status" },
             ExpressionAttributeValues: {
+              ":secretReference": patch.secretReference,
               ":secretVersion": patch.secretVersion,
               ":status": patch.status,
               ":updatedAt": patch.updatedAt,
@@ -111,6 +120,17 @@ export function createDynamoConnectionRepository(options: {
         if (isConditionalFailure(error)) throw new DuplicateProviderInstanceError();
         throw error;
       }
+    },
+    async listForProject(projectId) {
+      const output = await options.client.send(
+        new QueryCommand({
+          TableName: tableName,
+          IndexName: "projectId-index",
+          KeyConditionExpression: "projectId = :projectId",
+          ExpressionAttributeValues: { ":projectId": projectId },
+        }),
+      );
+      return z.array(StoredConnectionSchema).parse((output as { Items?: unknown }).Items ?? []);
     },
   };
 }
