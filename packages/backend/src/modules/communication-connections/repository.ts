@@ -9,15 +9,23 @@ import { z } from "zod";
 import {
   ConnectionIdSchema,
   CommunicationConnectionSchema,
+  PublicProjectIdSchema,
   ProviderInstanceIdSchema,
 } from "@utility-services/contracts";
 
-import { DuplicateProviderInstanceError, type ConnectionRepository } from "./service.js";
+import {
+  DuplicateProviderInstanceError,
+  ProjectCommunicationAlreadyBoundError,
+  type ConnectionRepository,
+} from "./service.js";
 
 const metadataKey = (connectionId: string) =>
   `CONNECTION#${ConnectionIdSchema.parse(connectionId)}`;
 const instanceKey = (instanceId: string) =>
   `PROVIDER#green-api#INSTANCE#${ProviderInstanceIdSchema.parse(instanceId)}`;
+/** Isolated MVP policy record; future multi-connection support can replace this reservation only. */
+const projectConnectionKey = (projectId: string) =>
+  `PROJECT#${PublicProjectIdSchema.parse(projectId)}#COMMUNICATION`;
 
 const StoredConnectionSchema = CommunicationConnectionSchema.extend({
   pk: z.string().startsWith("CONNECTION#"),
@@ -36,6 +44,17 @@ function isConditionalFailure(error: unknown): boolean {
     (error.name === "TransactionCanceledException" ||
       error.name === "ConditionalCheckFailedException")
   );
+}
+
+function projectReservationFailed(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("CancellationReasons" in error))
+    return false;
+  const reasons: unknown = error.CancellationReasons;
+  if (!Array.isArray(reasons)) return false;
+  const projectReason: unknown = reasons[1];
+  if (typeof projectReason !== "object" || projectReason === null || !("Code" in projectReason))
+    return false;
+  return projectReason.Code === "ConditionalCheckFailed";
 }
 
 export function createDynamoConnectionRepository(options: {
@@ -71,6 +90,18 @@ export function createDynamoConnectionRepository(options: {
                 Put: {
                   TableName: tableName,
                   Item: {
+                    pk: projectConnectionKey(record.projectId),
+                    sk: "RESERVATION",
+                    itemType: "project-communication-connection-reservation",
+                    connectionId: record.connectionId,
+                  },
+                  ConditionExpression: "attribute_not_exists(pk)",
+                },
+              },
+              {
+                Put: {
+                  TableName: tableName,
+                  Item: {
                     pk: instanceKey(record.instanceId),
                     sk: "RESERVATION",
                     itemType: "provider-instance-reservation",
@@ -83,6 +114,7 @@ export function createDynamoConnectionRepository(options: {
           }),
         );
       } catch (error) {
+        if (projectReservationFailed(error)) throw new ProjectCommunicationAlreadyBoundError();
         if (isConditionalFailure(error)) throw new DuplicateProviderInstanceError();
         throw error;
       }

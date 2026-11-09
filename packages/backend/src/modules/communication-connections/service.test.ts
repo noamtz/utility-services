@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { HttpError } from "../../core/http/handler.js";
 import {
   DuplicateProviderInstanceError,
+  ProjectCommunicationAlreadyBoundError,
   createCommunicationConnectionService,
   type ConnectionRecord,
 } from "./service.js";
@@ -61,6 +62,33 @@ describe("communication connection service", () => {
     });
   });
 
+  it("rejects a second distinct provider instance for the same project, including disabled bindings", async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const service = createCommunicationConnectionService({
+      repository: {
+        reserveAndCreate: async () => {
+          throw new ProjectCommunicationAlreadyBoundError();
+        },
+        inspect: async () => undefined,
+      },
+      secretStore: {
+        store: async () => ({ reference: "secret-ref", version: 1 }),
+        remove,
+      },
+      generateId: () => "con_1234567890123456789012",
+    });
+    await expect(
+      service.create(owner, "prj_1234567890123456789012", {
+        ...input,
+        instanceId: "distinct-instance",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: "PROJECT_COMMUNICATION_ALREADY_BOUND",
+    });
+    expect(remove).toHaveBeenCalledWith("secret-ref");
+  });
+
   it("hides guessed and cross-owner connections as not found", async () => {
     const service = createCommunicationConnectionService({
       repository: {
@@ -86,6 +114,35 @@ describe("communication connection service", () => {
     await expect(service.inspect(owner, "con_1234567890123456789012")).rejects.toBeInstanceOf(
       HttpError,
     );
+  });
+
+  it("returns the single redacted project connection for discovery", async () => {
+    const discovered: ConnectionRecord = {
+      connectionId: "con_1234567890123456789012",
+      projectId: "prj_1234567890123456789012",
+      provider: "green-api",
+      instanceId: "instance-a",
+      status: "disabled",
+      ownerId: "owner-a",
+      secretReference: "secret-ref",
+      secretVersion: 1,
+      createdAt: "2026-11-09T00:00:00.000Z",
+      updatedAt: "2026-11-09T00:00:00.000Z",
+    };
+    const service = createCommunicationConnectionService({
+      repository: {
+        reserveAndCreate: async () => undefined,
+        inspect: async () => undefined,
+        listForProject: async () => [discovered],
+      },
+      secretStore: {
+        store: async () => ({ reference: "secret-ref", version: 1 }),
+        remove: async () => undefined,
+      },
+    });
+    await expect(service.list(owner, discovered.projectId)).resolves.toEqual([
+      expect.objectContaining({ connectionId: discovered.connectionId, status: "disabled" }),
+    ]);
   });
 
   it("rotates to a new opaque parameter and retires the previous reference after metadata CAS", async () => {

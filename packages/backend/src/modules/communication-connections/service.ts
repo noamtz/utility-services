@@ -34,6 +34,7 @@ export interface ConnectionSecretStore {
 }
 
 export class DuplicateProviderInstanceError extends Error {}
+export class ProjectCommunicationAlreadyBoundError extends Error {}
 
 function toPublicConnection(record: ConnectionRecord): CommunicationConnection {
   return CommunicationConnectionSchema.parse({
@@ -94,6 +95,13 @@ export function createCommunicationConnectionService(dependencies: {
             409,
             "PROVIDER_INSTANCE_ALREADY_BOUND",
             "Provider instance is already bound",
+          );
+        }
+        if (error instanceof ProjectCommunicationAlreadyBoundError) {
+          throw new HttpError(
+            409,
+            "PROJECT_COMMUNICATION_ALREADY_BOUND",
+            "Project already has a communication connection",
           );
         }
         throw error;

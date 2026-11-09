@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 import { createDynamoConnectionRepository } from "./repository.js";
-import { DuplicateProviderInstanceError, type ConnectionRecord } from "./service.js";
+import {
+  DuplicateProviderInstanceError,
+  ProjectCommunicationAlreadyBoundError,
+  type ConnectionRecord,
+} from "./service.js";
 
 const record: ConnectionRecord = {
   connectionId: "con_1234567890123456789012",
@@ -18,7 +22,7 @@ const record: ConnectionRecord = {
 };
 
 describe("Dynamo communication connection repository", () => {
-  it("atomically writes metadata and the installation-wide provider instance reservation", async () => {
+  it("atomically writes metadata, provider, and one-connection-per-project reservations", async () => {
     const send = vi.fn().mockResolvedValue({});
     const repository = createDynamoConnectionRepository({
       client: { send },
@@ -29,8 +33,9 @@ describe("Dynamo communication connection repository", () => {
     expect(command).toBeInstanceOf(TransactWriteCommand);
     if (!(command instanceof TransactWriteCommand)) throw new Error("Expected transaction command");
     const items = command.input.TransactItems;
-    expect(items).toHaveLength(2);
-    expect(items?.[1]?.Put?.Item?.pk).toBe("PROVIDER#green-api#INSTANCE#instance-a");
+    expect(items).toHaveLength(3);
+    expect(items?.[1]?.Put?.Item?.pk).toBe("PROJECT#prj_1234567890123456789012#COMMUNICATION");
+    expect(items?.[2]?.Put?.Item?.pk).toBe("PROVIDER#green-api#INSTANCE#instance-a");
     expect(
       items?.every((item) => item.Put?.ConditionExpression === "attribute_not_exists(pk)"),
     ).toBe(true);
@@ -43,6 +48,25 @@ describe("Dynamo communication connection repository", () => {
     });
     await expect(repository.reserveAndCreate(record)).rejects.toBeInstanceOf(
       DuplicateProviderInstanceError,
+    );
+  });
+
+  it("maps the project reservation conditional failure to the MVP one-connection conflict", async () => {
+    const repository = createDynamoConnectionRepository({
+      client: {
+        send: vi.fn().mockRejectedValue({
+          name: "TransactionCanceledException",
+          CancellationReasons: [
+            { Code: "None" },
+            { Code: "ConditionalCheckFailed" },
+            { Code: "None" },
+          ],
+        }),
+      },
+      tableName: "connections",
+    });
+    await expect(repository.reserveAndCreate(record)).rejects.toBeInstanceOf(
+      ProjectCommunicationAlreadyBoundError,
     );
   });
 
