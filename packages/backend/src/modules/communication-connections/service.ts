@@ -16,6 +16,7 @@ export interface ConnectionRecord extends CommunicationConnection {
 export interface ConnectionRepository {
   reserveAndCreate(record: ConnectionRecord): Promise<void>;
   inspect(connectionId: string): Promise<ConnectionRecord | undefined>;
+  updateLifecycle?(connectionId: string, expectedVersion: number, patch: Pick<ConnectionRecord, "secretVersion" | "status" | "updatedAt">): Promise<void>;
 }
 
 export interface ConnectionSecretStore {
@@ -92,6 +93,27 @@ export function createCommunicationConnectionService(dependencies: {
         throw new HttpError(404, "NOT_FOUND", "Communication connection not found");
       }
       return toPublicConnection(record);
+    },
+    async rotate(owner: OwnerContext, connectionId: string, credential: string): Promise<CommunicationConnection> {
+      const current = await dependencies.repository.inspect(connectionId);
+      if (!current || current.ownerId !== owner.ownerId) throw new HttpError(404, "NOT_FOUND", "Communication connection not found");
+      const stored = await dependencies.secretStore.store({ connectionId, credential });
+      const updatedAt = now().toISOString();
+      try {
+        if (!dependencies.repository.updateLifecycle) throw new Error("Connection lifecycle repository is unavailable");
+        await dependencies.repository.updateLifecycle(connectionId, current.secretVersion, { secretVersion: stored.version, status: "active", updatedAt });
+      } catch (error) {
+        throw new HttpError(409, "CONNECTION_CHANGED", "Communication connection changed; retry");
+      }
+      return toPublicConnection({ ...current, secretVersion: stored.version, status: "active", updatedAt });
+    },
+    async disable(owner: OwnerContext, connectionId: string): Promise<CommunicationConnection> {
+      const current = await dependencies.repository.inspect(connectionId);
+      if (!current || current.ownerId !== owner.ownerId) throw new HttpError(404, "NOT_FOUND", "Communication connection not found");
+      const updatedAt = now().toISOString();
+      if (!dependencies.repository.updateLifecycle) throw new Error("Connection lifecycle repository is unavailable");
+      await dependencies.repository.updateLifecycle(connectionId, current.secretVersion, { secretVersion: current.secretVersion, status: "disabled", updatedAt });
+      return toPublicConnection({ ...current, status: "disabled", updatedAt });
     },
   };
 }

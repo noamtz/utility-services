@@ -1,4 +1,4 @@
-import { GetCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 
 import { ConnectionIdSchema, CommunicationConnectionSchema, ProviderInstanceIdSchema } from "@utility-services/contracts";
@@ -22,7 +22,7 @@ function isConditionalFailure(error: unknown): boolean {
 }
 
 export function createDynamoConnectionRepository(options: {
-  readonly client: { send(command: TransactWriteCommand | GetCommand): Promise<unknown> };
+  readonly client: { send(command: TransactWriteCommand | GetCommand | UpdateCommand): Promise<unknown> };
   readonly tableName: string;
 }): ConnectionRepository {
   const tableName = z.string().min(1).parse(options.tableName);
@@ -47,6 +47,14 @@ export function createDynamoConnectionRepository(options: {
       );
       const item = (output as { Item?: unknown }).Item;
       return item === undefined ? undefined : StoredConnectionSchema.parse(item);
+    },
+    async updateLifecycle(connectionId, expectedVersion, patch) {
+      try {
+        await options.client.send(new UpdateCommand({ TableName: tableName, Key: { pk: metadataKey(connectionId), sk: "METADATA" }, UpdateExpression: "SET secretVersion = :secretVersion, #status = :status, updatedAt = :updatedAt", ConditionExpression: "attribute_exists(pk) AND secretVersion = :expectedVersion", ExpressionAttributeNames: { "#status": "status" }, ExpressionAttributeValues: { ":secretVersion": patch.secretVersion, ":status": patch.status, ":updatedAt": patch.updatedAt, ":expectedVersion": expectedVersion } }));
+      } catch (error) {
+        if (isConditionalFailure(error)) throw new DuplicateProviderInstanceError();
+        throw error;
+      }
     },
   };
 }

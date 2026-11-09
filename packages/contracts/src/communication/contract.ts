@@ -12,6 +12,7 @@ export const ConnectionStatusSchema = z.enum(["active", "rotating", "disabled"])
 export const CreateCommunicationConnectionRequestSchema = z
   .object({ provider: z.literal("green-api"), instanceId: ProviderInstanceIdSchema, credential: ProviderCredentialSchema })
   .strict();
+export const RotateCommunicationCredentialRequestSchema = z.object({ credential: ProviderCredentialSchema }).strict();
 
 export const CommunicationConnectionSchema = z
   .object({
@@ -37,3 +38,4 @@ export type CreateCommunicationConnectionRequest = z.infer<
 >;
 export type CommunicationConnection = z.infer<typeof CommunicationConnectionSchema>;
 export type CommunicationConnectionPath = z.infer<typeof CommunicationConnectionPathSchema>;
+export type RotateCommunicationCredentialRequest = z.infer<typeof RotateCommunicationCredentialRequestSchema>;

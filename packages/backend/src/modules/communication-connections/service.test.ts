@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { HttpError } from "../../core/http/handler.js";
 import { DuplicateProviderInstanceError, createCommunicationConnectionService, type ConnectionRecord } from "./service.js";
@@ -37,5 +37,13 @@ describe("communication connection service", () => {
       secretStore: { store: async () => ({ reference: "secret-ref", version: 1 }), remove: async () => undefined },
     });
     await expect(service.inspect(owner, "con_1234567890123456789012")).rejects.toBeInstanceOf(HttpError);
+  });
+
+  it("rotates at the existing opaque parameter and persists its returned version", async () => {
+    const current: ConnectionRecord = { connectionId: "con_1234567890123456789012", projectId: "prj_1234567890123456789012", provider: "green-api", instanceId: "instance-a", status: "active", ownerId: "owner-a", secretReference: "ref", secretVersion: 1, createdAt: "2026-11-09T00:00:00.000Z", updatedAt: "2026-11-09T00:00:00.000Z" };
+    const updateLifecycle = vi.fn().mockResolvedValue(undefined);
+    const service = createCommunicationConnectionService({ repository: { reserveAndCreate: async () => undefined, inspect: async () => current, updateLifecycle }, secretStore: { store: async () => ({ reference: "ref", version: 2 }), remove: async () => undefined }, now: () => new Date("2026-11-10T00:00:00.000Z") });
+    await expect(service.rotate(owner, current.connectionId, input.credential)).resolves.toMatchObject({ status: "active" });
+    expect(updateLifecycle).toHaveBeenCalledWith(current.connectionId, 1, expect.objectContaining({ secretVersion: 2 }));
   });
 });

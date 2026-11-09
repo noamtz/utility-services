@@ -60,9 +60,11 @@ export {
   CreateCommunicationConnectionRequestSchema,
   ProviderCredentialSchema,
   ProviderInstanceIdSchema,
+  RotateCommunicationCredentialRequestSchema,
   type CommunicationConnection,
   type CommunicationConnectionPath,
   type CreateCommunicationConnectionRequest,
+  type RotateCommunicationCredentialRequest,
 } from "./communication/contract.js";
 export {
   ApiKeyCursorSchema,
