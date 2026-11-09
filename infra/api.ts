@@ -109,20 +109,31 @@ export function createApi(
   for (const route of COMMUNICATION_CONTROL_ROUTES) {
     const permissions = [
       ...(route.connectionTableActions.length > 0
-        ? [{ actions: [...route.connectionTableActions], resources: [control.communicationTable.arn] }]
+        ? [
+            {
+              actions: [...route.connectionTableActions],
+              resources: [control.communicationTable.arn],
+            },
+          ]
         : []),
       ...(route.parameterActions.length > 0
         ? [{ actions: [...route.parameterActions], resources: [communicationParameterArn] }]
         : []),
     ];
-    routes.push(api.route(route.route, {
-      handler: route.handler,
-      runtime: "nodejs24.x",
-      link: [control.communicationTable],
-      ...(permissions.length > 0 ? { permissions } : {}),
-      environment: { SST_STAGE: stage },
-      transform: { function: { tracingConfig: { mode: "Active" } } },
-    }, { name: route.name, auth: { jwt: { authorizer: authorizer.id } } }));
+    routes.push(
+      api.route(
+        route.route,
+        {
+          handler: route.handler,
+          runtime: "nodejs24.x",
+          link: [control.communicationTable],
+          ...(permissions.length > 0 ? { permissions } : {}),
+          environment: { SST_STAGE: stage },
+          transform: { function: { tracingConfig: { mode: "Active" } } },
+        },
+        { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },
+      ),
+    );
   }
   if (usagePricing) {
     routes.push(

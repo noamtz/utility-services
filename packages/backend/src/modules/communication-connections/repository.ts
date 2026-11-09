@@ -7,11 +7,7 @@ import {
   ProviderInstanceIdSchema,
 } from "@utility-services/contracts";
 
-import {
-  DuplicateProviderInstanceError,
-  type ConnectionRecord,
-  type ConnectionRepository,
-} from "./service.js";
+import { DuplicateProviderInstanceError, type ConnectionRepository } from "./service.js";
 
 const metadataKey = (connectionId: string) =>
   `CONNECTION#${ConnectionIdSchema.parse(connectionId)}`;

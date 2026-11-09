@@ -37,9 +37,24 @@ describe("project contracts", () => {
   });
 
   it("permits communication independently or alongside File Management", () => {
-    expect(CreateProjectRequestSchema.parse({ name: "Communication", enabledUtilities: ["communication"] }).enabledUtilities).toEqual(["communication"]);
-    expect(CreateProjectRequestSchema.parse({ name: "Both", enabledUtilities: ["file-management", "communication"] }).enabledUtilities).toEqual(["file-management", "communication"]);
-    expect(CreateProjectRequestSchema.safeParse({ name: "Wrong", enabledUtilities: ["communication", "file-management"] }).success).toBe(false);
+    expect(
+      CreateProjectRequestSchema.parse({
+        name: "Communication",
+        enabledUtilities: ["communication"],
+      }).enabledUtilities,
+    ).toEqual(["communication"]);
+    expect(
+      CreateProjectRequestSchema.parse({
+        name: "Both",
+        enabledUtilities: ["file-management", "communication"],
+      }).enabledUtilities,
+    ).toEqual(["file-management", "communication"]);
+    expect(
+      CreateProjectRequestSchema.safeParse({
+        name: "Wrong",
+        enabledUtilities: ["communication", "file-management"],
+      }).success,
+    ).toBe(false);
   });
 
   it.each([1, 60])("accepts lifetime boundary %i", (value) => {

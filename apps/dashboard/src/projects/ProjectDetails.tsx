@@ -27,8 +27,12 @@ export function ProjectDetails({
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    setStorageQuotaBytes(project ? String(project.fileManagement.storageQuotaBytes) : "");
-    setTrashRetentionDays(project ? String(project.fileManagement.trashRetentionDays) : "");
+    setStorageQuotaBytes(
+      project?.fileManagement ? String(project.fileManagement.storageQuotaBytes) : "",
+    );
+    setTrashRetentionDays(
+      project?.fileManagement ? String(project.fileManagement.trashRetentionDays) : "",
+    );
     setError(undefined);
   }, [project]);
 
@@ -60,7 +64,7 @@ export function ProjectDetails({
       <p className="eyebrow">Project details</p>
       <h2 id="details-title">{project ? project.name : "Select a project"}</h2>
       {!project && <p>Choose a project to inspect its public configuration.</p>}
-      {project && (
+      {project?.fileManagement && (
         <dl>
           <div>
             <dt>Public project ID</dt>
@@ -88,7 +92,7 @@ export function ProjectDetails({
           </div>
         </dl>
       )}
-      {project && onUpdatePolicy && (
+      {project?.fileManagement && onUpdatePolicy && (
         <form className="policy-form" onSubmit={(event) => void updatePolicy(event)}>
           <h3>File Management policy</h3>
           <div className="field-grid">

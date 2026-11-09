@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 
 import { createDynamoConnectionRepository } from "./repository.js";
 import { DuplicateProviderInstanceError, type ConnectionRecord } from "./service.js";
@@ -24,15 +25,14 @@ describe("Dynamo communication connection repository", () => {
       tableName: "connections",
     });
     await repository.reserveAndCreate(record);
-    const input = send.mock.calls[0]?.[0].input as {
-      TransactItems: Array<{ Put: { Item: Record<string, unknown>; ConditionExpression: string } }>;
-    };
-    expect(input.TransactItems).toHaveLength(2);
-    expect(input.TransactItems[1]?.Put.Item.pk).toBe("PROVIDER#green-api#INSTANCE#instance-a");
+    const command: unknown = send.mock.calls[0]?.[0];
+    expect(command).toBeInstanceOf(TransactWriteCommand);
+    if (!(command instanceof TransactWriteCommand)) throw new Error("Expected transaction command");
+    const items = command.input.TransactItems;
+    expect(items).toHaveLength(2);
+    expect(items?.[1]?.Put?.Item?.pk).toBe("PROVIDER#green-api#INSTANCE#instance-a");
     expect(
-      input.TransactItems.every(
-        (item) => item.Put.ConditionExpression === "attribute_not_exists(pk)",
-      ),
+      items?.every((item) => item.Put?.ConditionExpression === "attribute_not_exists(pk)"),
     ).toBe(true);
   });
 
@@ -49,16 +49,14 @@ describe("Dynamo communication connection repository", () => {
   it("reads a connection by opaque id", async () => {
     const repository = createDynamoConnectionRepository({
       client: {
-        send: vi
-          .fn()
-          .mockResolvedValue({
-            Item: {
-              ...record,
-              pk: "CONNECTION#con_1234567890123456789012",
-              sk: "METADATA",
-              itemType: "communication-connection",
-            },
-          }),
+        send: vi.fn().mockResolvedValue({
+          Item: {
+            ...record,
+            pk: "CONNECTION#con_1234567890123456789012",
+            sk: "METADATA",
+            itemType: "communication-connection",
+          },
+        }),
       },
       tableName: "connections",
     });

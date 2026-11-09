@@ -55,7 +55,9 @@ describe("SST composition contracts", () => {
     expect(source).toContain("resolveSstAppInstallation(input.stage, process.env)");
     expect(source).toContain("resolveInstallationEnvironment($app.stage, process.env)");
     expect(source).toContain("region: policy.provider.region");
-    expect(source).toContain("createApi(control, installation.region, usagePricing, files, $app.stage)");
+    expect(source).toContain(
+      "createApi(control, installation.region, usagePricing, files, $app.stage)",
+    );
     expect(source).toContain("installationTarget: installation.name");
   });
 

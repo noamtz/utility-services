@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/require-await */
 import { describe, expect, it, vi } from "vitest";
 
 import { createRegisterCommunicationConnectionHandler } from "./handlers.js";

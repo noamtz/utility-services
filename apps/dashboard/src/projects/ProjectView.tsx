@@ -176,7 +176,7 @@ export function ProjectView({
       {selectedProject?.enabledUtilities.includes("communication") && communicationApi && (
         <ConnectionPanel projectId={selectedProject.projectId} api={communicationApi} />
       )}
-      {selectedProject && credentialApi && usageApi && apiBaseUrl && (
+      {selectedProject?.fileManagement && credentialApi && usageApi && apiBaseUrl && (
         <div className="project-experience">
           <ApiKeyPanel
             key={`api-keys-${selectedProject.projectId}`}
