@@ -241,4 +241,22 @@ describe("communication connection service", () => {
       service.rotate(owner, current.connectionId, input.credential),
     ).rejects.toMatchObject({ code: "CONNECTION_DISABLED" });
   });
+
+  it("removes a newly stored credential when atomic connection reservation fails", async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const service = createCommunicationConnectionService({
+      repository: {
+        reserveAndCreate: async () => {
+          throw new Error("transient");
+        },
+        inspect: async () => undefined,
+      },
+      secretStore: { store: async () => ({ reference: "new-ref", version: 1 }), remove },
+      generateId: () => "con_1234567890123456789012",
+    });
+    await expect(service.create(owner, "prj_1234567890123456789012", input)).rejects.toThrow(
+      "transient",
+    );
+    expect(remove).toHaveBeenCalledWith("new-ref");
+  });
 });
