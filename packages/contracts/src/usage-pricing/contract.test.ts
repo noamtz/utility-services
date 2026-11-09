@@ -78,13 +78,16 @@ describe("usage pricing contracts", () => {
     );
   });
 
-  it("rejects missing, duplicate, extra, wrong-region, and wrong-currency price evidence", () => {
+  it("accepts valid regional price evidence and rejects malformed regions and currencies", () => {
     const base = priceVersion();
+    expect(PriceVersionSchema.parse({ ...base, productRegion: "eu-central-1" }).productRegion).toBe(
+      "eu-central-1",
+    );
     expect(() => PriceVersionSchema.parse({ ...base, rates: base.rates.slice(1) })).toThrow();
     expect(() =>
       PriceVersionSchema.parse({ ...base, rates: base.rates.map(() => base.rates[0]) }),
     ).toThrow();
-    expect(() => PriceVersionSchema.parse({ ...base, productRegion: "us-east-1" })).toThrow();
+    expect(() => PriceVersionSchema.parse({ ...base, productRegion: "AWS-global" })).toThrow();
     expect(() => PriceVersionSchema.parse({ ...base, currency: "ILS" })).toThrow();
     expect(() => PriceVersionSchema.parse({ ...base, mutable: true })).toThrow();
   });

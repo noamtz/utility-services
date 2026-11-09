@@ -44,11 +44,14 @@ describe("download metering infrastructure policy", () => {
   });
 
   it("targets only regional CloudTrail logs for the configured account", () => {
-    expect(cloudTrailRegionalLogPrefix("162067902192")).toBe(
+    expect(cloudTrailRegionalLogPrefix({ accountId: "162067902192", region: "il-central-1" })).toBe(
       "AWSLogs/162067902192/CloudTrail/il-central-1/",
     );
     expect(cloudTrailAccountLogPrefix("162067902192")).toBe("AWSLogs/162067902192/");
-    expect(() => cloudTrailRegionalLogPrefix("*")).toThrow();
+    expect(() => cloudTrailRegionalLogPrefix({ accountId: "*", region: "il-central-1" })).toThrow();
+    expect(cloudTrailRegionalLogPrefix({ accountId: "000000000000", region: "eu-central-1" })).toBe(
+      "AWSLogs/000000000000/CloudTrail/eu-central-1/",
+    );
   });
 
   it("selects only read-only project GetObject data events", () => {

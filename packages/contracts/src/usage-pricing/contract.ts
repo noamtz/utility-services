@@ -61,7 +61,7 @@ export const PriceVersionSchema = z
     effectiveAt: TimestampSchema,
     publishedAt: TimestampSchema,
     currency: UsageCurrencySchema,
-    productRegion: z.literal("il-central-1"),
+    productRegion: z.string().regex(/^[a-z]{2}(?:-gov)?-[a-z]+-\d+$/u),
     rates: z.array(PriceRateSchema).length(USAGE_METRICS.length),
     sources: z.array(PriceSourceSchema).min(1),
   })

@@ -3,9 +3,6 @@ import { z } from "zod";
 import { FILE_OBJECT_PREFIX } from "./file-management.js";
 import { classifyStage } from "./stage.js";
 
-// WCU-02 owns regional metering; this existing deployment policy remains Israel-only.
-export const DOWNLOAD_METERING_REGION = "il-central-1";
-
 export const DOWNLOAD_LOG_BUCKET_COMPONENT_NAME = "DownloadMeteringLogBucket";
 export const DOWNLOAD_METERING_DLQ_COMPONENT_NAME = "DownloadMeteringDeadLetterQueue";
 export const DOWNLOAD_METERING_QUEUE_COMPONENT_NAME = "DownloadMeteringQueue";
@@ -14,7 +11,6 @@ export const DOWNLOAD_METERING_NOTIFICATION_COMPONENT_NAME = "DownloadMeteringLo
 export const DOWNLOAD_METERING_TRAIL_COMPONENT_NAME = "DownloadMeteringTrail";
 
 export const DOWNLOAD_METERING_SOURCE_KIND = "cloudtrail-download" as const;
-export const DOWNLOAD_METERING_AWS_ACCOUNT_ID = "162067902192" as const;
 export const DOWNLOAD_METERING_AWS_PARTITION = "aws" as const;
 export const DOWNLOAD_PRICING_MODE = "evidence-only" as const satisfies DownloadPricingMode;
 export const DOWNLOAD_LOG_RETENTION_DAYS = 90 as const;
@@ -72,9 +68,13 @@ export function downloadMeteringTrailArn(input: {
   return `arn:${partition}:cloudtrail:${region}:${accountId}:trail/${trailName}`;
 }
 
-export function cloudTrailRegionalLogPrefix(accountIdInput: string): string {
-  const accountId = AwsAccountIdSchema.parse(accountIdInput);
-  return `AWSLogs/${accountId}/CloudTrail/${DOWNLOAD_METERING_REGION}/`;
+export function cloudTrailRegionalLogPrefix(input: { accountId: string; region: string }): string {
+  const accountId = AwsAccountIdSchema.parse(input.accountId);
+  const region = z
+    .string()
+    .regex(/^[a-z]{2}(?:-gov)?-[a-z]+-\d+$/u)
+    .parse(input.region);
+  return `AWSLogs/${accountId}/CloudTrail/${region}/`;
 }
 
 export function cloudTrailAccountLogPrefix(accountIdInput: string): string {

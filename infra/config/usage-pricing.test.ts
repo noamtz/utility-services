@@ -5,11 +5,13 @@ import {
   CURRENT_MONTH_USAGE_CONTROL_ROUTE,
   PRICE_SERVICE_PAGE_CROSS_CHECKS,
   PRICE_VERSIONS,
+  PRICE_VERSIONS_BY_REGION,
   USAGE_PRICING_TABLE_LINK_ACTIONS,
   USAGE_PRICING_TABLE_POLICY,
   USAGE_PRICING_TTL_ATTRIBUTE,
   USAGE_WATERMARK_INDEX_NAME,
   pricingVersionSortKey,
+  priceVersionsForRegion,
   toPriceSeedItem,
   usagePricingTableDeletionProtection,
   validateAppendOnlyPriceVersions,
@@ -52,6 +54,20 @@ describe("usage pricing infrastructure policy", () => {
     expect(current?.sources).toHaveLength(3);
     expect(current?.sources.every((source) => source.sha256.length === 64)).toBe(true);
     expect(PRICE_SERVICE_PAGE_CROSS_CHECKS).toHaveLength(3);
+  });
+
+  it("selects immutable complete published rate histories by installation region", () => {
+    const israel = priceVersionsForRegion("il-central-1");
+    const frankfurt = priceVersionsForRegion("eu-central-1");
+    expect(israel).toBe(PRICE_VERSIONS_BY_REGION["il-central-1"]);
+    expect(frankfurt).toBe(PRICE_VERSIONS_BY_REGION["eu-central-1"]);
+    expect(frankfurt[0]).toMatchObject({
+      versionId: "aws-eu-central-1-2026-08-01",
+      productRegion: "eu-central-1",
+    });
+    expect(frankfurt[0]?.rates).toHaveLength(USAGE_METRICS.length);
+    expect(frankfurt[0]?.rates).not.toEqual(israel[0]?.rates);
+    expect(() => priceVersionsForRegion("us-east-1")).toThrow("No published usage-pricing rates");
   });
 
   it("records the exact first-tier published values and provenance", () => {
