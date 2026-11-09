@@ -16,7 +16,7 @@ import { createDynamoConnectionRepository } from "./repository.js";
 import { createCommunicationConnectionService } from "./service.js";
 import { createSsmConnectionSecretStore } from "./ssm-secret-store.js";
 
-const resources = Resource as {
+const resources = Resource as unknown as {
   CommunicationConnectionsTable: { name: unknown };
   ControlTable: { name: unknown };
 };
@@ -25,7 +25,7 @@ const controlTableName = z.string().min(1).parse(resources.ControlTable.name);
 const stage = z
   .string()
   .regex(/^[a-z0-9-]{1,64}$/)
-  .parse(process.env.SST_STAGE);
+  .parse(process.env["SST_STAGE"]);
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });

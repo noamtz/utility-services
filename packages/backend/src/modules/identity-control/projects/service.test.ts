@@ -154,7 +154,9 @@ describe("project service", () => {
       }),
     );
 
-    expect(create.mock.calls[0]?.[0].enabledUtilities).toEqual(["communication"]);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ enabledUtilities: ["communication"] }),
+    );
     expect(result).not.toHaveProperty("fileManagement");
   });
 

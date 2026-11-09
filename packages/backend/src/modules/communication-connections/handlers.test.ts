@@ -102,28 +102,31 @@ describe("communication connection handlers", () => {
     expect(JSON.stringify(logger)).not.toContain("credential-material-that-is-long-enough");
   });
 
-  it.each([
-    [undefined, "missing"],
-    [{ ...project, ownerId: "owner-b" }, "another owner's"],
-    [{ ...project, enabledUtilities: ["file-management"] as const }, "utility-disabled"],
-  ])("rejects %s projects before it stores a credential", async (candidate) => {
-    const store = vi.fn();
-    const service = createCommunicationConnectionService({
-      repository: { reserveAndCreate: async () => undefined, inspect: async () => undefined },
-      secretStore: { store, remove: async () => undefined },
-    });
-    const response = await createRegisterCommunicationConnectionHandler(service, {
-      inspect: async () => candidate,
-    })(
-      event({
-        provider: "green-api",
-        instanceId: "instance-a",
-        credential: "credential-material-that-is-long-enough",
-      }),
-    );
+  it("rejects missing, cross-owner, and utility-disabled projects before it stores a credential", async () => {
+    const candidates: ReadonlyArray<InternalProject | undefined> = [
+      undefined,
+      { ...project, ownerId: "owner-b" },
+      { ...project, enabledUtilities: ["file-management"] },
+    ];
+    for (const candidate of candidates) {
+      const store = vi.fn();
+      const service = createCommunicationConnectionService({
+        repository: { reserveAndCreate: async () => undefined, inspect: async () => undefined },
+        secretStore: { store, remove: async () => undefined },
+      });
+      const response = await createRegisterCommunicationConnectionHandler(service, {
+        inspect: async () => candidate,
+      })(
+        event({
+          provider: "green-api",
+          instanceId: "instance-a",
+          credential: "credential-material-that-is-long-enough",
+        }),
+      );
 
-    expect(response.statusCode).toBe(404);
-    expect(store).not.toHaveBeenCalled();
+      expect(response.statusCode).toBe(404);
+      expect(store).not.toHaveBeenCalled();
+    }
   });
 
   it.each([

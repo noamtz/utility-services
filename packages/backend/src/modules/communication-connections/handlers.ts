@@ -78,7 +78,7 @@ export function createListCommunicationConnectionsHandler(
     deriveAuthorization: extractOwnerContext,
     callback: async ({ authorization, path }) => {
       await authorizeCommunicationProject(projects, authorization, path.projectId);
-      return { items: await service.list(authorization, path.projectId) };
+      return { items: Array.from(await service.list(authorization, path.projectId)) };
     },
     ...(logger ? { logger } : {}),
   });
