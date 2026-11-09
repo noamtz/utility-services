@@ -8,7 +8,6 @@ import {
   createCreateProjectHandler,
   createInspectProjectHandler,
   createListProjectsHandler,
-  createUpdateFileManagementPolicyHandler,
   createFileManagementPolicyLimitsHandler,
 } from "./handlers.js";
 import { createDynamoProjectRepository } from "./repository.js";
@@ -22,17 +21,12 @@ const documentClient = DynamoDBDocumentClient.from(dynamoClient, {
 const repository = createDynamoProjectRepository({
   client: documentClient,
   tableName,
-  fileTableName: Resource.FileTable?.name,
 });
 const service = createProjectService({ repository });
 
 export const createProjectHandler = createCreateProjectHandler(service, safeLogger);
 export const listProjectsHandler = createListProjectsHandler(service, safeLogger);
 export const inspectProjectHandler = createInspectProjectHandler(service, safeLogger);
-export const updateFileManagementPolicyHandler = createUpdateFileManagementPolicyHandler(
-  service,
-  safeLogger,
-);
 export const fileManagementPolicyLimitsHandler = createFileManagementPolicyLimitsHandler(
   service,
   safeLogger,

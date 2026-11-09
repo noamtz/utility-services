@@ -1,1 +1,1 @@
-export { updateFileManagementPolicyHandler as handler } from "../../modules/identity-control/projects/runtime.js";
+export { updateFileManagementPolicyHandler as handler } from "../../modules/identity-control/projects/update-policy-runtime.js";
