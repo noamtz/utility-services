@@ -17,6 +17,8 @@ import type { UsageApi } from "../usage/api.js";
 import { ProjectDetails } from "./ProjectDetails.js";
 import { ProjectList } from "./ProjectList.js";
 import { ProjectApiError, type ProjectApi } from "./api.js";
+import { ConnectionPanel } from "../communication/ConnectionPanel.js";
+import type { createCommunicationApi } from "../communication/api.js";
 
 const SAFE_PROJECT_ERROR = "The project request could not be completed. Please try again.";
 
@@ -26,6 +28,7 @@ interface ProjectViewProps {
   usageApi?: UsageApi;
   apiBaseUrl?: string;
   onUnauthorized: () => Promise<void>;
+  communicationApi?: ReturnType<typeof createCommunicationApi>;
 }
 
 interface LoadProjectsOptions {
@@ -38,6 +41,7 @@ export function ProjectView({
   usageApi,
   apiBaseUrl,
   onUnauthorized,
+  communicationApi,
 }: ProjectViewProps) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project>();
@@ -169,6 +173,9 @@ export function ProjectView({
         policyUpdating={policyUpdating}
         onUpdatePolicy={selectedProject ? updatePolicy : undefined}
       />
+      {selectedProject?.enabledUtilities.includes("communication") && communicationApi && (
+        <ConnectionPanel projectId={selectedProject.projectId} api={communicationApi} />
+      )}
       {selectedProject && credentialApi && usageApi && apiBaseUrl && (
         <div className="project-experience">
           <ApiKeyPanel

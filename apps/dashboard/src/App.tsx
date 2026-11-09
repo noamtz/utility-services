@@ -5,6 +5,7 @@ import { SignInForm } from "./auth/SignInForm.js";
 import { useAuth } from "./auth/AuthProvider.js";
 import { ProjectView } from "./projects/ProjectView.js";
 import { createProjectApi, type ProjectApi } from "./projects/api.js";
+import { createCommunicationApi } from "./communication/api.js";
 import { createCredentialApi, type CredentialApi } from "./credentials/api.js";
 import { createUsageApi, type UsageApi } from "./usage/api.js";
 
@@ -35,6 +36,10 @@ export function App({
   const keys = useMemo(
     () => credentialApi ?? createCredentialApi(controlClient),
     [credentialApi, controlClient],
+  );
+  const communication = useMemo(
+    () => createCommunicationApi({ getAccessToken: () => auth.getAccessToken() }),
+    [auth],
   );
   const usage = useMemo(() => usageApi ?? createUsageApi(controlClient), [usageApi, controlClient]);
 
@@ -68,6 +73,7 @@ export function App({
       <ProjectView
         api={api}
         credentialApi={keys}
+        communicationApi={communication}
         usageApi={usage}
         apiBaseUrl={apiBaseUrl}
         onUnauthorized={() => auth.signOut()}
