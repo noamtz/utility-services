@@ -1,6 +1,6 @@
 # WCU-06: communication utility enablement and GREEN connection registration
 
-**Issue:** #32  
+**Issue:** #32
 **Branch:** `feature/wcu-06-communication-connections`
 
 ## Context
