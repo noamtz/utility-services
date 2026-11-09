@@ -630,11 +630,12 @@ describe("Dynamo file repository", () => {
     await expect(
       repository.claimPermanentRemoval(protectedFile, changedAt, true),
     ).rejects.toBeInstanceOf(FileStateConflictError);
-    expect(send.mock.calls[2]?.[0]).toMatchObject({
-      input: {
-        ConditionExpression: expect.stringContaining("attribute_not_exists(deletionProtectedAt)"),
-      },
-    });
+    const permanentRemovalCommand = send.mock.calls[2]?.[0] as {
+      input: Record<string, unknown>;
+    };
+    expect(permanentRemovalCommand.input["ConditionExpression"]).toEqual(
+      expect.stringContaining("attribute_not_exists(deletionProtectedAt)"),
+    );
   });
 
   it("defers a force claim until the upload capability plus skew has expired", async () => {
