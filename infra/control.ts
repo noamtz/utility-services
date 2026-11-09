@@ -7,6 +7,10 @@ import {
   USER_POOL_POLICY,
   controlTableDeletionProtection,
 } from "./config/control.js";
+import {
+  COMMUNICATION_CONNECTION_TABLE_COMPONENT_NAME,
+  COMMUNICATION_CONNECTION_TABLE_POLICY,
+} from "./config/communication.js";
 import { configureLeastPrivilegeDynamoLink } from "./dynamo-link.js";
 
 export function createControlResources(options: { production: boolean }) {
@@ -43,5 +47,11 @@ export function createControlResources(options: { production: boolean }) {
     ttl: CONTROL_TABLE_POLICY.ttl,
     deletionProtection: controlTableDeletionProtection(options.production),
   });
-  return { userPool, userPoolClient, table };
+  const communicationTable = new sst.aws.Dynamo(COMMUNICATION_CONNECTION_TABLE_COMPONENT_NAME, {
+    fields: COMMUNICATION_CONNECTION_TABLE_POLICY.fields,
+    primaryIndex: COMMUNICATION_CONNECTION_TABLE_POLICY.primaryIndex,
+    ttl: COMMUNICATION_CONNECTION_TABLE_POLICY.ttl,
+    deletionProtection: controlTableDeletionProtection(options.production),
+  });
+  return { userPool, userPoolClient, table, communicationTable };
 }

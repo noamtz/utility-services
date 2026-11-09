@@ -12,6 +12,7 @@ import { DASHBOARD_COMPONENT_NAME, DASHBOARD_CONFIG, createDashboard } from "./d
 import { DYNAMO_LINK_BASELINE_ACTIONS } from "./dynamo-link.js";
 import { USAGE_PRICING_TABLE_POLICY } from "./config/usage-pricing.js";
 import { FILE_BUCKET_POLICY, FILE_ROUTES, FILE_TABLE_POLICY } from "./config/file-management.js";
+import { COMMUNICATION_CONTROL_ROUTES } from "./config/communication.js";
 
 function output<T>(value: T): SstOutput<T> {
   return {
@@ -43,6 +44,7 @@ describe("SST composition contracts", () => {
       userPool: { id: output("eu-central-1_pool") },
       userPoolClient: { id: output("client-id") },
       table: { arn: output("table-arn") },
+      communicationTable: { arn: output("communication-table-arn") },
     } as unknown as Parameters<typeof createApi>[0];
     createApi(control, "eu-central-1");
     expect(issuer).toBe("https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool");
@@ -53,7 +55,7 @@ describe("SST composition contracts", () => {
     expect(source).toContain("resolveSstAppInstallation(input.stage, process.env)");
     expect(source).toContain("resolveInstallationEnvironment($app.stage, process.env)");
     expect(source).toContain("region: policy.provider.region");
-    expect(source).toContain("createApi(control, installation.region, usagePricing, files)");
+    expect(source).toContain("createApi(control, installation.region, usagePricing, files, $app.stage)");
     expect(source).toContain("installationTarget: installation.name");
   });
 
@@ -88,6 +90,17 @@ describe("SST composition contracts", () => {
     });
     expect(JSON.stringify(HEALTH_ROUTE)).not.toContain("*");
     expect(CONTROL_ROUTES).toHaveLength(9);
+  });
+
+  it("keeps communication owner-control routes scoped to their own table and parameter prefix", () => {
+    expect(COMMUNICATION_CONTROL_ROUTES.map((route) => route.route)).toEqual([
+      "POST /v1/control/projects/{projectId}/communication-connections",
+      "GET /v1/control/projects/{projectId}/communication-connections/{connectionId}",
+    ]);
+    const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+    expect(source).toContain("control.communicationTable");
+    expect(source).toContain("parameter/utility-services/${stage}/communication/*");
+    expect(source).not.toMatch(/ssm:\*/u);
   });
 
   it("keeps usage pricing independent with the same query-only link baseline", () => {
