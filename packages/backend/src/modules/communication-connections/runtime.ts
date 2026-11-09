@@ -14,7 +14,8 @@ import { createDynamoConnectionRepository } from "./repository.js";
 import { createCommunicationConnectionService } from "./service.js";
 import { createSsmConnectionSecretStore } from "./ssm-secret-store.js";
 
-const tableName = z.string().min(1).parse(Resource.CommunicationConnectionsTable.name);
+const resources = Resource as { CommunicationConnectionsTable: { name: unknown } };
+const tableName = z.string().min(1).parse(resources.CommunicationConnectionsTable.name);
 const stage = z
   .string()
   .regex(/^[a-z0-9-]{1,64}$/)

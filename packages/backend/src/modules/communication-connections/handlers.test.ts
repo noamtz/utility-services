@@ -35,7 +35,7 @@ describe("communication connection handlers", () => {
         provider: "green-api",
         instanceId: "instance-a",
         credential: "credential-material-that-is-long-enough",
-      }) as never,
+      }),
     );
     expect(response.statusCode).toBe(201);
     expect(response.body).not.toContain("credential-material-that-is-long-enough");
