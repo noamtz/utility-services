@@ -5,6 +5,7 @@ import { HttpError } from "../../../core/http/handler.js";
 import { toProjectMetadataItem, type InternalProject } from "./model.js";
 import {
   ProjectCollisionError,
+  StorageQuotaBelowAccountedError,
   type ListProjectsInput,
   type ProjectRepository,
 } from "./repository.js";
@@ -28,7 +29,13 @@ function project(ownerId: string, suffix = "0"): InternalProject {
     name: `Project ${suffix}`,
     status: "active",
     enabledUtilities: ["file-management"],
-    fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+    fileManagementPolicyVersion: 1,
+    fileManagement: {
+      uploadUrlLifetimeMinutes: 15,
+      downloadUrlLifetimeMinutes: 5,
+      storageQuotaBytes: 5 * 2 ** 30,
+      trashRetentionDays: 14,
+    },
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -40,11 +47,64 @@ function repository(overrides: Partial<ProjectRepository> = {}): ProjectReposito
     list: vi.fn().mockResolvedValue({ items: [] }),
     inspect: vi.fn().mockResolvedValue(undefined),
     setOperationalStatus: vi.fn().mockResolvedValue(undefined),
+    updateFileManagementPolicy: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
 
 describe("project service", () => {
+  it("lets only the owner update within stage limits", async () => {
+    const current = project("owner-a");
+    const inspect = vi
+      .fn()
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce({
+        ...current,
+        fileManagement: {
+          ...current.fileManagement,
+          storageQuotaBytes: 6 * 2 ** 30,
+          trashRetentionDays: 20,
+        },
+        fileManagementPolicyVersion: 2,
+      });
+    const updateFileManagementPolicy = vi.fn().mockResolvedValue(undefined);
+    const service = createProjectService({
+      repository: repository({ inspect, updateFileManagementPolicy }),
+    });
+    const result = await service.updateFileManagementPolicy(ownerA, current.publicProjectId, {
+      storageQuotaBytes: 6 * 2 ** 30,
+      trashRetentionDays: 20,
+    });
+    expect(result.fileManagement).toMatchObject({
+      storageQuotaBytes: 6 * 2 ** 30,
+      trashRetentionDays: 20,
+    });
+    expect(updateFileManagementPolicy).toHaveBeenCalledOnce();
+    await expect(
+      service.updateFileManagementPolicy(ownerB, current.publicProjectId, {
+        storageQuotaBytes: 6 * 2 ** 30,
+        trashRetentionDays: 20,
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("rejects a lower quota that conflicts with accounted bytes", async () => {
+    const current = project("owner-a");
+    const service = createProjectService({
+      repository: repository({
+        inspect: vi.fn().mockResolvedValue(current),
+        updateFileManagementPolicy: vi
+          .fn()
+          .mockRejectedValue(new StorageQuotaBelowAccountedError()),
+      }),
+    });
+    await expect(
+      service.updateFileManagementPolicy(ownerA, current.publicProjectId, {
+        storageQuotaBytes: 2 ** 30,
+        trashRetentionDays: 14,
+      }),
+    ).rejects.toMatchObject({ statusCode: 409, code: "STORAGE_QUOTA_BELOW_ACCOUNTED" });
+  });
   it("creates a server-identified project with parsed defaults and no internal fields", async () => {
     const create = vi.fn().mockResolvedValue(undefined);
     const repo = repository({ create });
@@ -65,7 +125,12 @@ describe("project service", () => {
       projectId: ids().publicProjectId,
       name: "My project",
       enabledUtilities: ["file-management"],
-      fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+      fileManagement: {
+        uploadUrlLifetimeMinutes: 15,
+        downloadUrlLifetimeMinutes: 5,
+        storageQuotaBytes: 5 * 2 ** 30,
+        trashRetentionDays: 14,
+      },
       createdAt: timestamp,
       updatedAt: timestamp,
     });

@@ -107,6 +107,8 @@ describe("file persisted model", () => {
       readyAt: createdAt,
       trashedAt,
       purgeAt,
+      trashRetentionDaysAtDeletion: 14,
+      fileManagementPolicyVersionAtDeletion: 7n,
       gsi2pk: TRASH_PURGE_INDEX_PARTITION,
       gsi2sk: trashPurgeSortKey(purgeAt, internalProjectId, fileId),
     });
@@ -117,6 +119,10 @@ describe("file persisted model", () => {
       gsi2pk: TRASH_PURGE_INDEX_PARTITION,
     });
     expect(() => parseFileItem({ ...trashed, purgeAt: trashedAt })).toThrow();
+    expect(() => parseFileItem({ ...trashed, trashRetentionDaysAtDeletion: 7 })).toThrow();
+    expect(parseFileItem({ ...trashed, trashRetentionDaysAtDeletion: undefined })).toMatchObject({
+      status: "trashed",
+    });
     expect(() =>
       parseFileItem({ ...trashed, purgeStartedAt: trashedAt, gsi2sk: "wrong" }),
     ).toThrow();

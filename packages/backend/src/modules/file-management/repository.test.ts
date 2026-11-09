@@ -14,6 +14,7 @@ import {
   createDynamoFileRepository,
   FileCollisionError,
   FileStateConflictError,
+  ProjectPolicyChangedError,
   StorageQuotaExceededError,
 } from "./repository.js";
 
@@ -128,7 +129,7 @@ function trashed(claimed = false, removed = false): FileItem {
   });
 }
 
-function fixture() {
+function fixture(controlTableName?: string) {
   const send = vi.fn();
   return {
     send,
@@ -137,6 +138,7 @@ function fixture() {
       tableName: "FileTable",
       publicIndexName: PUBLIC_FILE_INDEX_NAME,
       lifecycleIndexName: FILE_LIFECYCLE_INDEX_NAME,
+      ...(controlTableName ? { controlTableName } : {}),
     }),
   };
 }
@@ -146,6 +148,13 @@ function serializeBigInt(_key: string, value: unknown): unknown {
 }
 
 describe("Dynamo file repository", () => {
+  it("rejects the first file if it is larger than the configured project quota", async () => {
+    const { send, repository } = fixture();
+    await expect(repository.reservePending(pending(), 1n)).rejects.toBeInstanceOf(
+      StorageQuotaExceededError,
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
   it("reserves pending metadata and quota in one bounded transaction", async () => {
     const { send, repository } = fixture();
     send.mockResolvedValue({});
@@ -180,6 +189,24 @@ describe("Dynamo file repository", () => {
     await expect(
       collision.repository.reservePending(pending(), MAX_RETAINED_STORAGE_BYTES),
     ).rejects.toBeInstanceOf(FileCollisionError);
+  });
+
+  it("makes upload reservation conditional on the authenticated policy snapshot", async () => {
+    const protectedReservation = fixture("ControlTable");
+    protectedReservation.send.mockRejectedValue(
+      Object.assign(new Error("cancelled"), {
+        name: "TransactionCanceledException",
+        CancellationReasons: [{ Code: "ConditionalCheckFailed" }],
+      }),
+    );
+    await expect(
+      protectedReservation.repository.reservePending(pending(), MAX_RETAINED_STORAGE_BYTES, 1),
+    ).rejects.toBeInstanceOf(ProjectPolicyChangedError);
+    const transaction = (
+      protectedReservation.send.mock.calls[0]?.[0] as { input: { TransactItems: unknown[] } }
+    ).input.TransactItems;
+    expect(transaction).toHaveLength(3);
+    expect(transaction[0]).toHaveProperty("ConditionCheck");
   });
 
   it("queries only the trusted project partition and rejects cross-project records", async () => {
@@ -497,7 +524,7 @@ describe("Dynamo file repository", () => {
     const trashFixture = fixture();
     trashFixture.send.mockResolvedValueOnce({ Attributes: trashedFile });
     await expect(
-      trashFixture.repository.trash(source, trashedFile.trashedAt!, trashedFile.purgeAt!),
+      trashFixture.repository.trash(source, trashedFile.trashedAt!, trashedFile.purgeAt!, 14, 1),
     ).resolves.toEqual(trashedFile);
     const trashCommand = trashFixture.send.mock.calls[0]?.[0] as {
       input: Record<string, unknown>;

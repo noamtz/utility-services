@@ -315,3 +315,18 @@ Skills are invoked with `$skill-name`, for example `$prime-codebase` or
 MCP server and credential environment; that credential configuration is intentionally not
 committed. Validate optional Archon workflows with `archon validate workflows` when Archon is
 installed.
+
+# File Management project policy
+
+Project owners can set a storage quota and trash retention duration when creating a project and change them later in the dashboard. Existing projects retain the 5 GiB and 14-day defaults. Files already in trash keep the purge deadline recorded when they were deleted; trash continues to count against the quota until permanent removal.
+
+Each deployment stage may set the following environment variables before SST synthesis and deployment. They set the range shown to owners and enforced by the control API:
+
+| Variable                        | Default |
+| ------------------------------- | ------: |
+| `FILE_POLICY_MIN_STORAGE_BYTES` |   1 GiB |
+| `FILE_POLICY_MAX_STORAGE_BYTES` | 100 GiB |
+| `FILE_POLICY_MIN_TRASH_DAYS`    |   1 day |
+| `FILE_POLICY_MAX_TRASH_DAYS`    | 90 days |
+
+Values must be positive whole numbers, and the configured range must include the legacy defaults (5 GiB and 14 days). Raising the maximum storage or trash duration may increase retained S3 cost. A policy update that lowers the quota below accounted bytes, including pending uploads and trash, returns a conflict without changing the policy.

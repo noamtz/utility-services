@@ -57,7 +57,12 @@ export const FILE_ROUTES = [
     name: "AuthorizeFileUploadRoute",
     route: "POST /v1/files/uploads",
     handler: "packages/backend/src/functions/files/authorize-upload.handler",
-    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
+    controlTableActions: [
+      "dynamodb:GetItem",
+      "dynamodb:TransactGetItems",
+      "dynamodb:UpdateItem",
+      "dynamodb:TransactWriteItems",
+    ],
     fileTableActions: ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
     bucketActions: ["s3:PutObject"],
     usageTableActions: [],

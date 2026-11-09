@@ -23,6 +23,7 @@ export const InternalProjectSchema = z
     name: ProjectNameSchema,
     enabledUtilities: EnabledUtilitiesSchema,
     fileManagement: FileManagementSettingsSchema,
+    fileManagementPolicyVersion: z.number().int().positive().default(1),
     status: ProjectOperationalStatusSchema.default("active"),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
@@ -55,6 +56,9 @@ export const EnabledUtilityItemSchema = z
     utility: z.literal("file-management"),
     uploadUrlLifetimeMinutes: FileManagementSettingsSchema.shape.uploadUrlLifetimeMinutes,
     downloadUrlLifetimeMinutes: FileManagementSettingsSchema.shape.downloadUrlLifetimeMinutes,
+    storageQuotaBytes: FileManagementSettingsSchema.shape.storageQuotaBytes,
+    trashRetentionDays: FileManagementSettingsSchema.shape.trashRetentionDays,
+    fileManagementPolicyVersion: z.number().int().positive().default(1),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -112,6 +116,7 @@ export function toEnabledUtilityItem(
   settings: FileManagementSettings,
   createdAt: string,
   updatedAt: string,
+  fileManagementPolicyVersion = 1,
 ): EnabledUtilityItem {
   const parsedSettings = FileManagementSettingsSchema.parse(settings);
   return EnabledUtilityItemSchema.parse({
@@ -120,6 +125,7 @@ export function toEnabledUtilityItem(
     itemType: "enabled-utility",
     utility: "file-management",
     ...parsedSettings,
+    fileManagementPolicyVersion,
     createdAt,
     updatedAt,
   });
@@ -142,7 +148,10 @@ export function assembleProject(metadataInput: unknown, utilityInput: unknown): 
     fileManagement: {
       uploadUrlLifetimeMinutes: utility.uploadUrlLifetimeMinutes,
       downloadUrlLifetimeMinutes: utility.downloadUrlLifetimeMinutes,
+      storageQuotaBytes: utility.storageQuotaBytes,
+      trashRetentionDays: utility.trashRetentionDays,
     },
+    fileManagementPolicyVersion: utility.fileManagementPolicyVersion,
     createdAt: metadata.createdAt,
     updatedAt: metadata.updatedAt,
   });

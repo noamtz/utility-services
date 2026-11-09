@@ -20,7 +20,13 @@ const project: InternalProject = {
   name: "Auth project",
   status: "active",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
+  fileManagementPolicyVersion: 1,
   createdAt: timestamp,
   updatedAt: timestamp,
 };
@@ -73,6 +79,7 @@ describe("project authentication service", () => {
       keyId,
       enabledUtilities: ["file-management"],
       fileManagement: project.fileManagement,
+      fileManagementPolicyVersion: 1,
     });
     expect(Object.isFrozen(context)).toBe(true);
     expect(JSON.stringify(context)).not.toMatch(/secret|owner|\"pk\"/);

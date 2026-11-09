@@ -59,6 +59,16 @@ export function createApi(
       audiences: [control.userPoolClient.id],
     },
   });
+  const policyEnvironment = Object.fromEntries(
+    [
+      "FILE_POLICY_MIN_STORAGE_BYTES",
+      "FILE_POLICY_MAX_STORAGE_BYTES",
+      "FILE_POLICY_MIN_TRASH_DAYS",
+      "FILE_POLICY_MAX_TRASH_DAYS",
+    ]
+      .filter((name) => process.env[name] !== undefined)
+      .map((name) => [name, process.env[name] as string]),
+  );
   for (const route of CONTROL_ROUTES) {
     routes.push(
       api.route(
@@ -66,13 +76,22 @@ export function createApi(
         {
           handler: route.handler,
           runtime: "nodejs24.x",
-          link: [control.table],
+          environment: policyEnvironment,
+          link: [
+            control.table,
+            ...(route.name === "UpdateFileManagementPolicyRoute" && files ? [files.table] : []),
+          ],
           ...(route.additionalTableActions.length > 0
             ? {
                 permissions: [
                   {
                     actions: [...route.additionalTableActions],
-                    resources: [control.table.arn],
+                    resources: [
+                      control.table.arn,
+                      ...(route.name === "UpdateFileManagementPolicyRoute" && files
+                        ? [files.table.arn]
+                        : []),
+                    ],
                   },
                 ],
               }

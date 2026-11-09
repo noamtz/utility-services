@@ -18,7 +18,13 @@ const project = {
   name: "Operations project",
   status: "active",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
+  fileManagementPolicyVersion: 1,
   createdAt: "2026-08-25T00:00:00.000Z",
   updatedAt: "2026-08-25T00:00:00.000Z",
 } as const satisfies InternalProject;

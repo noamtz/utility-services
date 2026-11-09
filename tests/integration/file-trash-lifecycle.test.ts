@@ -31,7 +31,13 @@ const project: TrustedProjectContext = {
   publicProjectId,
   keyId: "key_0123456789abcdefghijkl",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagementPolicyVersion: 1,
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
 };
 
 function readyFile(uploadExpiresAt = "2026-08-01T08:15:00.000Z"): FileItem {

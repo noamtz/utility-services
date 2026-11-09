@@ -39,6 +39,11 @@ export interface ProjectRepository {
   create(project: InternalProject): Promise<void>;
   list(input: ListProjectsInput): Promise<ListProjectsResult>;
   inspect(publicProjectId: string): Promise<InternalProject | undefined>;
+  updateFileManagementPolicy(
+    project: InternalProject,
+    settings: { storageQuotaBytes: number; trashRetentionDays: number },
+    changedAt: string,
+  ): Promise<void>;
   setOperationalStatus(
     publicProjectId: string,
     expectedStatus: ProjectOperationalStatus,
@@ -74,6 +79,13 @@ export class ProjectStateConflictError extends Error {
   }
 }
 
+export class StorageQuotaBelowAccountedError extends Error {
+  public constructor() {
+    super("Storage quota is below accounted bytes");
+    this.name = "StorageQuotaBelowAccountedError";
+  }
+}
+
 function isConditionalFailure(error: unknown): boolean {
   if (error === null || typeof error !== "object") {
     return false;
@@ -106,8 +118,12 @@ function parseMetadataItems(items: unknown, expectedOwnerId: string): ProjectMet
 export function createDynamoProjectRepository(options: {
   readonly client: ProjectDocumentClient;
   readonly tableName: string;
+  readonly fileTableName?: string;
 }): ProjectRepository {
   const tableName = z.string().trim().min(1).parse(options.tableName);
+  const fileTableName = options.fileTableName
+    ? z.string().trim().min(1).parse(options.fileTableName)
+    : undefined;
 
   return {
     async create(project) {
@@ -117,6 +133,7 @@ export function createDynamoProjectRepository(options: {
         project.fileManagement,
         project.createdAt,
         project.updatedAt,
+        project.fileManagementPolicyVersion,
       );
 
       try {
@@ -214,6 +231,73 @@ export function createDynamoProjectRepository(options: {
         return assembleProject(metadata, utility);
       } catch {
         throw new CorruptProjectRecordError();
+      }
+    },
+
+    async updateFileManagementPolicy(project, settings, changedAt) {
+      if (!fileTableName) {
+        throw new Error("File table is required for policy updates");
+      }
+      const timestamp = z.iso.datetime({ offset: true }).parse(changedAt);
+      const quota = z.number().int().positive().safe().parse(settings.storageQuotaBytes);
+      const days = z.number().int().positive().safe().parse(settings.trashRetentionDays);
+      try {
+        await options.client.send(
+          new TransactWriteCommand({
+            TransactItems: [
+              {
+                ConditionCheck: {
+                  TableName: fileTableName,
+                  Key: { pk: `PROJECT#${project.internalProjectId}`, sk: "QUOTA" },
+                  ConditionExpression:
+                    "attribute_not_exists(pk) OR (itemType = :quotaType AND internalProjectId = :internal AND accountedBytes <= :limit)",
+                  ExpressionAttributeValues: {
+                    ":quotaType": "file-quota",
+                    ":internal": project.internalProjectId,
+                    ":limit": BigInt(quota),
+                  },
+                },
+              },
+              {
+                Update: {
+                  TableName: tableName,
+                  Key: {
+                    pk: projectPartitionKey(project.publicProjectId),
+                    sk: FILE_MANAGEMENT_SORT_KEY,
+                  },
+                  UpdateExpression:
+                    "SET storageQuotaBytes = :limit, trashRetentionDays = :days, fileManagementPolicyVersion = :nextVersion, updatedAt = :changedAt",
+                  ConditionExpression:
+                    "attribute_exists(pk) AND itemType = :utilityType AND utility = :utility AND (attribute_not_exists(fileManagementPolicyVersion) OR fileManagementPolicyVersion = :expectedVersion)",
+                  ExpressionAttributeValues: {
+                    ":limit": quota,
+                    ":days": days,
+                    ":nextVersion": project.fileManagementPolicyVersion + 1,
+                    ":expectedVersion": project.fileManagementPolicyVersion,
+                    ":utilityType": "enabled-utility",
+                    ":utility": "file-management",
+                    ":changedAt": timestamp,
+                  },
+                },
+              },
+            ],
+          }),
+        );
+      } catch (error) {
+        if (isConditionalFailure(error)) {
+          const reasons =
+            error && typeof error === "object" && "CancellationReasons" in error
+              ? error.CancellationReasons
+              : undefined;
+          if (
+            Array.isArray(reasons) &&
+            (reasons as ReadonlyArray<{ Code?: string }>)[0]?.Code === "ConditionalCheckFailed"
+          ) {
+            throw new StorageQuotaBelowAccountedError();
+          }
+          throw new ProjectStateConflictError();
+        }
+        throw error;
       }
     },
 

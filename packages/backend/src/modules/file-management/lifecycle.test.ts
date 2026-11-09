@@ -28,7 +28,13 @@ const context: TrustedProjectContext = {
   publicProjectId: "prj_0123456789abcdefghijkl",
   keyId: "key_0123456789abcdefghijkl",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
+  fileManagementPolicyVersion: 1,
 };
 
 function ready(projectId = internalProjectId): FileItem {
@@ -144,7 +150,7 @@ function usage() {
 }
 
 describe("file lifecycle service", () => {
-  it("trashes for exactly 14 days without touching object storage or usage", async () => {
+  it("trashes for the trusted project retention without touching object storage or usage", async () => {
     const source = ready();
     const trashedFile = trashed();
     const files = repository({
@@ -165,7 +171,7 @@ describe("file lifecycle service", () => {
       disposition: "trashed",
       purgeAt,
     });
-    expect(files.trash).toHaveBeenCalledWith(source, timestamp, purgeAt);
+    expect(files.trash).toHaveBeenCalledWith(source, timestamp, purgeAt, 14, 1);
     expect(objects.delete).not.toHaveBeenCalled();
     expect(storage.closeStorage).not.toHaveBeenCalled();
     expect(files.finalizePermanentRemoval).not.toHaveBeenCalled();
@@ -195,6 +201,40 @@ describe("file lifecycle service", () => {
       status: "ready",
     });
     expect(files.restore).toHaveBeenCalledWith(restored, timestamp);
+  });
+
+  it("snapshots the authenticated policy when trashing", async () => {
+    const source = ready();
+    const nonDefaultContext: TrustedProjectContext = {
+      ...context,
+      fileManagement: { ...context.fileManagement, trashRetentionDays: 3 },
+      fileManagementPolicyVersion: 4,
+    };
+    const nonDefaultPurgeAt = "2026-08-27T08:00:00.000Z";
+    const files = repository({
+      get: vi.fn().mockResolvedValue(source),
+      trash: vi.fn().mockResolvedValue(
+        parseFileItem({
+          ...source,
+          status: "trashed",
+          trashedAt: timestamp,
+          purgeAt: nonDefaultPurgeAt,
+          trashRetentionDaysAtDeletion: 3,
+          fileManagementPolicyVersionAtDeletion: 4n,
+          gsi2pk: TRASH_PURGE_INDEX_PARTITION,
+          gsi2sk: trashPurgeSortKey(nonDefaultPurgeAt, internalProjectId, fileId),
+        }),
+      ),
+    });
+    const service = createFileLifecycleService({
+      repository: files,
+      objectStore: objectStore(),
+      usage: usage(),
+      now: () => timestamp,
+    });
+
+    await service.delete(nonDefaultContext, fileId, { force: false });
+    expect(files.trash).toHaveBeenCalledWith(source, timestamp, nonDefaultPurgeAt, 3, 4);
   });
 
   it("maps missing, cross-project, and illegal states safely", async () => {

@@ -7,6 +7,7 @@ import { createPendingFile, type FileItem } from "./model.js";
 import type { UploadPresigner } from "./presigning.js";
 import {
   FileCollisionError,
+  ProjectPolicyChangedError,
   StorageQuotaExceededError,
   type FileRepository,
 } from "./repository.js";
@@ -17,7 +18,13 @@ const project: TrustedProjectContext = {
   publicProjectId: "prj_0123456789abcdefghijkl",
   keyId: "key_0123456789abcdefghijkl",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
+  fileManagementPolicyVersion: 1,
 };
 const timestamp = "2026-08-23T08:00:00.000Z";
 const fileId = "fil_0123456789abcdefghijkl";
@@ -105,6 +112,7 @@ describe("file service", () => {
       },
     });
     expect(repo.reservePending).toHaveBeenCalledOnce();
+    expect(repo.reservePending).toHaveBeenCalledWith(expect.anything(), 5n * 2n ** 30n, 1);
     expect(sign.authorizePut).toHaveBeenCalledWith(
       expect.objectContaining({ expiresInSeconds: 900, sizeBytes: 12n }),
     );
@@ -165,6 +173,21 @@ describe("file service", () => {
         visibility: "private",
       }),
     ).rejects.toMatchObject({ statusCode: 409, code: "STORAGE_QUOTA_EXCEEDED" });
+
+    const policyChanged = createFileService({
+      repository: repository({
+        reservePending: vi.fn().mockRejectedValue(new ProjectPolicyChangedError()),
+      }),
+      presigner: presigner(),
+    });
+    await expect(
+      policyChanged.authorizeUpload(project, {
+        name: "file.txt",
+        mediaType: "text/plain",
+        sizeBytes: 12,
+        visibility: "private",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409, code: "PROJECT_POLICY_CHANGED" });
   });
 
   it("maps an otherwise valid over-limit size to FILE_TOO_LARGE before reserving", async () => {

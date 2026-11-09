@@ -60,6 +60,7 @@ export function createFileApiRuntime(options: {
     tableName: fileTableName,
     publicIndexName: "PublicFiles",
     lifecycleIndexName: "FileLifecycle",
+    controlTableName,
   });
   const projects = createDynamoProjectRepository({
     client: controlClient,

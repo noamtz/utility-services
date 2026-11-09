@@ -27,7 +27,13 @@ const projectA: InternalProject = {
   name: "Protected A",
   status: "active",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagementPolicyVersion: 1,
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
   createdAt: timestamp,
   updatedAt: timestamp,
 };

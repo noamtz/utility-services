@@ -5,6 +5,7 @@ import {
   CorruptProjectRecordError,
   ProjectCollisionError,
   ProjectStateConflictError,
+  StorageQuotaBelowAccountedError,
   createDynamoProjectRepository,
   type ProjectDocumentClient,
 } from "./repository.js";
@@ -17,7 +18,13 @@ const project: InternalProject = {
   name: "Repository project",
   status: "active",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagementPolicyVersion: 1,
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
   createdAt: "2026-08-23T08:00:00.000Z",
   updatedAt: "2026-08-23T08:00:00.000Z",
 };
@@ -27,6 +34,50 @@ function clientWith(send: ReturnType<typeof vi.fn>): ProjectDocumentClient {
 }
 
 describe("Dynamo project repository", () => {
+  it("atomically guards a policy update against accounted bytes", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const repository = createDynamoProjectRepository({
+      client: clientWith(send),
+      tableName: "Control",
+      fileTableName: "Files",
+    });
+    await repository.updateFileManagementPolicy(
+      project,
+      { storageQuotaBytes: 6 * 2 ** 30, trashRetentionDays: 21 },
+      project.updatedAt,
+    );
+    const command = send.mock.calls[0]?.[0] as TransactWriteCommand;
+    expect(command.input.TransactItems?.[0]?.ConditionCheck).toMatchObject({
+      TableName: "Files",
+      Key: { pk: `PROJECT#${project.internalProjectId}`, sk: "QUOTA" },
+      ExpressionAttributeValues: { ":limit": 6n * 2n ** 30n },
+    });
+    expect(command.input.TransactItems?.[1]?.Update).toMatchObject({
+      TableName: "Control",
+      ExpressionAttributeValues: { ":nextVersion": 2, ":expectedVersion": 1 },
+    });
+  });
+
+  it("maps a failed quota condition to a safe domain conflict", async () => {
+    const send = vi.fn().mockRejectedValue(
+      Object.assign(new Error("secret"), {
+        name: "TransactionCanceledException",
+        CancellationReasons: [{ Code: "ConditionalCheckFailed" }, { Code: "None" }],
+      }),
+    );
+    const repository = createDynamoProjectRepository({
+      client: clientWith(send),
+      tableName: "Control",
+      fileTableName: "Files",
+    });
+    await expect(
+      repository.updateFileManagementPolicy(
+        project,
+        { storageQuotaBytes: 2 ** 30, trashRetentionDays: 14 },
+        project.updatedAt,
+      ),
+    ).rejects.toBeInstanceOf(StorageQuotaBelowAccountedError);
+  });
   it("creates metadata and utility atomically with collision conditions", async () => {
     const send = vi.fn().mockResolvedValue({});
     const repository = createDynamoProjectRepository({

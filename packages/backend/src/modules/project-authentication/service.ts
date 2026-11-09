@@ -93,6 +93,7 @@ export function createProjectAuthenticationService(
         keyId: snapshot.lookup.keyId,
         enabledUtilities: snapshot.project.enabledUtilities,
         fileManagement: snapshot.project.fileManagement,
+        fileManagementPolicyVersion: snapshot.project.fileManagementPolicyVersion,
       });
       if (!result.success) throw unauthorized();
       await dependencies.limiter?.admit(result.data.internalProjectId);

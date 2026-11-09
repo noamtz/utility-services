@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { CreateProjectRequest, Project, ProjectSummary } from "@utility-services/contracts";
+import type {
+  CreateProjectRequest,
+  FileManagementPolicyLimits,
+  Project,
+  ProjectSummary,
+  UpdateFileManagementPolicyRequest,
+} from "@utility-services/contracts";
 
 import { CreateProjectForm } from "./CreateProjectForm.js";
 import { ApiKeyPanel } from "../credentials/ApiKeyPanel.js";
@@ -38,6 +44,8 @@ export function ProjectView({
   const [nextCursor, setNextCursor] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [policyUpdating, setPolicyUpdating] = useState(false);
+  const [policyLimits, setPolicyLimits] = useState<FileManagementPolicyLimits>();
   const [error, setError] = useState<string>();
   const listGeneration = useRef(0);
   const inspectGeneration = useRef(0);
@@ -86,6 +94,21 @@ export function ProjectView({
     void loadProjects();
   }, [loadProjects]);
 
+  useEffect(() => {
+    let active = true;
+    void api
+      .getFileManagementPolicyLimits()
+      .then((limits) => {
+        if (active) setPolicyLimits(limits);
+      })
+      .catch(async (failure: unknown) => {
+        if (active) await handleFailure(failure);
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, handleFailure]);
+
   async function create(input: CreateProjectRequest) {
     setCreating(true);
     setError(undefined);
@@ -112,9 +135,25 @@ export function ProjectView({
     }
   }
 
+  async function updatePolicy(input: UpdateFileManagementPolicyRequest) {
+    if (!selectedProject) return;
+    setPolicyUpdating(true);
+    setError(undefined);
+    try {
+      const updated = await api.updateFileManagementPolicy(selectedProject.projectId, input);
+      setSelectedProject(updated);
+      await loadProjects(undefined, { supersede: true });
+    } catch (failure) {
+      await handleFailure(failure);
+      throw failure;
+    } finally {
+      setPolicyUpdating(false);
+    }
+  }
+
   return (
     <div className="project-workspace">
-      <CreateProjectForm busy={creating} onCreate={create} />
+      <CreateProjectForm busy={creating} policyLimits={policyLimits} onCreate={create} />
       <ProjectList
         projects={projects}
         selectedProjectId={selectedProject?.projectId}
@@ -124,7 +163,12 @@ export function ProjectView({
         onSelect={(projectId) => void select(projectId)}
         onLoadMore={() => void loadProjects(nextCursor)}
       />
-      <ProjectDetails project={selectedProject} />
+      <ProjectDetails
+        project={selectedProject}
+        policyLimits={policyLimits}
+        policyUpdating={policyUpdating}
+        onUpdatePolicy={selectedProject ? updatePolicy : undefined}
+      />
       {selectedProject && credentialApi && usageApi && apiBaseUrl && (
         <div className="project-experience">
           <ApiKeyPanel

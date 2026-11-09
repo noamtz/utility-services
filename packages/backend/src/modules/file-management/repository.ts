@@ -12,6 +12,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { DEFAULT_STORAGE_QUOTA_BYTES } from "@utility-services/contracts";
 
 import {
   FILE_SORT_PREFIX,
@@ -54,7 +55,11 @@ export interface FileRepository {
   get(internalProjectId: string, fileId: string): Promise<FileItem | undefined>;
   getPublic(publicProjectId: string, publicFileId: string): Promise<FileItem | undefined>;
   list(input: ListFilesInput): Promise<ListFilesResult>;
-  reservePending(file: FileItem, quotaLimitBytes: bigint): Promise<void>;
+  reservePending(
+    file: FileItem,
+    quotaLimitBytes: bigint,
+    fileManagementPolicyVersion?: number,
+  ): Promise<void>;
   claimCompletion(file: FileItem, evidence: CompletionEvidence, now: string): Promise<FileItem>;
   finalizeReady(file: FileItem, now: string): Promise<FileItem>;
   claimFailure(
@@ -70,7 +75,13 @@ export interface FileRepository {
     limit: number,
     startKey?: Record<string, unknown>,
   ): Promise<DuePendingResult>;
-  trash(file: FileItem, trashedAt: string, purgeAt: string): Promise<FileItem>;
+  trash(
+    file: FileItem,
+    trashedAt: string,
+    purgeAt: string,
+    trashRetentionDays?: number,
+    fileManagementPolicyVersion?: number,
+  ): Promise<FileItem>;
   restore(file: FileItem, now: string): Promise<FileItem>;
   claimPermanentRemoval(file: FileItem, now: string, force: boolean): Promise<FileItem>;
   recordObjectRemoved(file: FileItem, removedAt: string): Promise<FileItem>;
@@ -99,6 +110,12 @@ export class StorageQuotaExceededError extends Error {
   public constructor() {
     super("Project retained storage quota exceeded");
     this.name = "StorageQuotaExceededError";
+  }
+}
+export class ProjectPolicyChangedError extends Error {
+  public constructor() {
+    super("Project file management policy changed");
+    this.name = "ProjectPolicyChangedError";
   }
 }
 export class FileStateConflictError extends Error {
@@ -204,10 +221,15 @@ export function createDynamoFileRepository(options: {
   readonly tableName: string;
   readonly publicIndexName: string;
   readonly lifecycleIndexName: string;
+  /** Required in deployed runtimes; omitted only by isolated file-table tests. */
+  readonly controlTableName?: string;
 }): FileRepository {
   const tableName = z.string().trim().min(1).parse(options.tableName);
   const publicIndexName = z.string().trim().min(1).parse(options.publicIndexName);
   const lifecycleIndexName = z.string().trim().min(1).parse(options.lifecycleIndexName);
+  const controlTableName = options.controlTableName
+    ? z.string().trim().min(1).parse(options.controlTableName)
+    : undefined;
 
   async function get(internalProjectId: string, fileId: string): Promise<FileItem | undefined> {
     const output = await options.client.send(
@@ -282,9 +304,16 @@ export function createDynamoFileRepository(options: {
       return { items, ...(last ? { nextFileId: last.fileId } : {}) };
     },
 
-    async reservePending(fileInput, quotaLimitBytes) {
+    async reservePending(fileInput, quotaLimitBytes, fileManagementPolicyVersion) {
       const file = parseFileItem(fileInput);
       const quotaLimit = z.bigint().positive().parse(quotaLimitBytes);
+      if (file.sizeBytes > quotaLimit) {
+        throw new StorageQuotaExceededError();
+      }
+      const policyVersion =
+        fileManagementPolicyVersion === undefined
+          ? undefined
+          : z.number().int().positive().parse(fileManagementPolicyVersion);
       if (file.status !== "pending" || file.failureCode !== undefined) {
         throw new FileStateConflictError();
       }
@@ -293,6 +322,31 @@ export function createDynamoFileRepository(options: {
           new TransactWriteCommand({
             ClientRequestToken: transactionToken("reserve", file.fileId),
             TransactItems: [
+              ...(controlTableName && policyVersion !== undefined
+                ? [
+                    {
+                      ConditionCheck: {
+                        TableName: controlTableName,
+                        Key: {
+                          pk: `PROJECT#${file.publicProjectId}`,
+                          sk: "UTILITY#file-management",
+                        },
+                        ConditionExpression:
+                          "itemType = :utilityItemType AND utility = :utility AND ((fileManagementPolicyVersion = :policyVersion AND storageQuotaBytes = :quotaLimit)" +
+                          (policyVersion === 1 && quotaLimit === BigInt(DEFAULT_STORAGE_QUOTA_BYTES)
+                            ? " OR (attribute_not_exists(fileManagementPolicyVersion) AND attribute_not_exists(storageQuotaBytes))"
+                            : "") +
+                          ")",
+                        ExpressionAttributeValues: {
+                          ":utilityItemType": "enabled-utility",
+                          ":utility": "file-management",
+                          ":policyVersion": policyVersion,
+                          ":quotaLimit": quotaLimit,
+                        },
+                      },
+                    },
+                  ]
+                : []),
               {
                 Update: {
                   TableName: tableName,
@@ -324,10 +378,17 @@ export function createDynamoFileRepository(options: {
         );
       } catch (error) {
         const reasons = cancellationReasons(error);
-        if (reasons?.[0]?.Code === "ConditionalCheckFailed") {
+        const policyCheckEnabled = controlTableName !== undefined && policyVersion !== undefined;
+        const quotaReasonIndex = policyCheckEnabled ? 1 : 0;
+        const fileReasonIndex = policyCheckEnabled ? 2 : 1;
+        if (policyCheckEnabled && reasons?.[0]?.Code === "ConditionalCheckFailed") {
+          throw new ProjectPolicyChangedError();
+        }
+        if (reasons?.[quotaReasonIndex]?.Code === "ConditionalCheckFailed") {
           throw new StorageQuotaExceededError();
         }
-        if (reasons?.[1]?.Code === "ConditionalCheckFailed") throw new FileCollisionError();
+        if (reasons?.[fileReasonIndex]?.Code === "ConditionalCheckFailed")
+          throw new FileCollisionError();
         if (isConditionalFailure(error)) throw new FileStateConflictError();
         throw error;
       }
@@ -619,7 +680,13 @@ export function createDynamoFileRepository(options: {
       };
     },
 
-    async trash(fileInput, trashedAtInput, purgeAtInput) {
+    async trash(
+      fileInput,
+      trashedAtInput,
+      purgeAtInput,
+      trashRetentionDaysInput,
+      fileManagementPolicyVersionInput,
+    ) {
       const file = parseFileItem(fileInput);
       if (file.status === "trashed") {
         if (file.purgeStartedAt === undefined) return file;
@@ -628,14 +695,21 @@ export function createDynamoFileRepository(options: {
       if (file.status !== "ready") throw new FileStateConflictError();
       const trashedAt = z.iso.datetime({ offset: true }).parse(trashedAtInput);
       const purgeAt = z.iso.datetime({ offset: true }).parse(purgeAtInput);
+      const trashRetentionDays =
+        trashRetentionDaysInput === undefined
+          ? undefined
+          : z.number().int().positive().parse(trashRetentionDaysInput);
+      const policyVersion =
+        fileManagementPolicyVersionInput === undefined
+          ? undefined
+          : z.number().int().positive().parse(fileManagementPolicyVersionInput);
       const lifecycleSortKey = trashPurgeSortKey(purgeAt, file.internalProjectId, file.fileId);
       try {
         const output = await options.client.send(
           new UpdateCommand({
             TableName: tableName,
             Key: { pk: file.pk, sk: file.sk },
-            UpdateExpression:
-              "SET #status = :trashed, trashedAt = :trashedAt, purgeAt = :purgeAt, gsi2pk = :lifecyclePk, gsi2sk = :lifecycleSk, updatedAt = :updatedAt, revision = revision + :one",
+            UpdateExpression: `SET #status = :trashed, trashedAt = :trashedAt, purgeAt = :purgeAt${trashRetentionDays === undefined ? "" : ", trashRetentionDaysAtDeletion = :trashRetentionDays"}${policyVersion === undefined ? "" : ", fileManagementPolicyVersionAtDeletion = :policyVersion"}, gsi2pk = :lifecyclePk, gsi2sk = :lifecycleSk, updatedAt = :updatedAt, revision = revision + :one`,
             ConditionExpression:
               "attribute_exists(pk) AND #status = :ready AND revision = :revision AND internalProjectId = :internal AND fileId = :file",
             ExpressionAttributeNames: { "#status": "status" },
@@ -644,6 +718,10 @@ export function createDynamoFileRepository(options: {
               ":ready": "ready",
               ":trashedAt": trashedAt,
               ":purgeAt": purgeAt,
+              ...(trashRetentionDays === undefined
+                ? {}
+                : { ":trashRetentionDays": trashRetentionDays }),
+              ...(policyVersion === undefined ? {} : { ":policyVersion": policyVersion }),
               ":lifecyclePk": TRASH_PURGE_INDEX_PARTITION,
               ":lifecycleSk": lifecycleSortKey,
               ":updatedAt": trashedAt,
@@ -681,7 +759,7 @@ export function createDynamoFileRepository(options: {
             TableName: tableName,
             Key: { pk: file.pk, sk: file.sk },
             UpdateExpression:
-              "SET #status = :ready, updatedAt = :updatedAt, revision = revision + :one REMOVE gsi2pk, gsi2sk, trashedAt, purgeAt, purgeStartedAt, objectRemovedAt",
+              "SET #status = :ready, updatedAt = :updatedAt, revision = revision + :one REMOVE gsi2pk, gsi2sk, trashedAt, purgeAt, trashRetentionDaysAtDeletion, fileManagementPolicyVersionAtDeletion, purgeStartedAt, objectRemovedAt",
             ConditionExpression:
               "attribute_exists(pk) AND #status = :trashed AND revision = :revision AND internalProjectId = :internal AND fileId = :file AND purgeAt > :now AND attribute_not_exists(purgeStartedAt)",
             ExpressionAttributeNames: { "#status": "status" },

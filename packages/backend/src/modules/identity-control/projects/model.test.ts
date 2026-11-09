@@ -20,7 +20,13 @@ const project: InternalProject = {
   name: "Control project",
   status: "active",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
+  fileManagementPolicyVersion: 1,
   createdAt: "2026-08-23T08:00:00.000Z",
   updatedAt: "2026-08-23T08:00:00.000Z",
 };
@@ -41,6 +47,7 @@ describe("project model", () => {
       project.fileManagement,
       project.createdAt,
       project.updatedAt,
+      project.fileManagementPolicyVersion,
     );
 
     expect(metadata).toMatchObject({
@@ -57,6 +64,9 @@ describe("project model", () => {
       utility: "file-management",
       uploadUrlLifetimeMinutes: 15,
       downloadUrlLifetimeMinutes: 5,
+      storageQuotaBytes: 5 * 2 ** 30,
+      trashRetentionDays: 14,
+      fileManagementPolicyVersion: 1,
     });
     expect(utility).not.toHaveProperty("ownerId");
     expect(assembleProject(metadata, utility)).toEqual(project);
@@ -126,5 +136,27 @@ describe("project model", () => {
       assembleProject({ ...metadata, internalProjectId: "caller-id" }, utility),
     ).toThrow();
     expect(() => assembleProject(metadata, { ...utility, uploadUrlLifetimeMinutes: 61 })).toThrow();
+  });
+
+  it("supplies defaults and a policy version for pre-policy utility records", () => {
+    const metadata = toProjectMetadataItem(project);
+    const utility = toEnabledUtilityItem(
+      project.publicProjectId,
+      project.fileManagement,
+      project.createdAt,
+      project.updatedAt,
+    );
+    const legacy = structuredClone(utility) as Record<string, unknown>;
+    delete legacy["storageQuotaBytes"];
+    delete legacy["trashRetentionDays"];
+    delete legacy["fileManagementPolicyVersion"];
+
+    expect(assembleProject(metadata, legacy)).toMatchObject({
+      fileManagement: {
+        storageQuotaBytes: 5 * 2 ** 30,
+        trashRetentionDays: 14,
+      },
+      fileManagementPolicyVersion: 1,
+    });
   });
 });

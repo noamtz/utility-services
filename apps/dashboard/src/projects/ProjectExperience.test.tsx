@@ -12,7 +12,12 @@ const project = {
   projectId: "prj_0123456789abcdefghijkl",
   name: "Documents",
   enabledUtilities: ["file-management"] as const,
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
   createdAt: "2026-08-24T10:00:00.000Z",
   updatedAt: "2026-08-24T10:00:00.000Z",
 };
@@ -45,6 +50,13 @@ describe("selected project experience", () => {
           list: vi.fn().mockResolvedValue({ items: [project] }),
           inspect: vi.fn().mockResolvedValue(project),
           create: vi.fn(),
+          getFileManagementPolicyLimits: vi.fn().mockResolvedValue({
+            minStorageQuotaBytes: 1,
+            maxStorageQuotaBytes: 10 * 2 ** 30,
+            minTrashRetentionDays: 1,
+            maxTrashRetentionDays: 90,
+          }),
+          updateFileManagementPolicy: vi.fn(),
         }}
         credentialApi={{ list: listKeys, issue: vi.fn(), revoke: vi.fn(), replace: vi.fn() }}
         usageApi={{ currentMonth }}

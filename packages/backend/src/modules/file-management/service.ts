@@ -15,12 +15,13 @@ import {
 import { HttpError } from "../../core/http/handler.js";
 import { decodeFileCursor, encodeFileCursor, InvalidFileCursorError } from "./cursor.js";
 import { generateFileIds, type FileIds } from "./ids.js";
-import { createPendingFile, FILE_STORAGE_QUOTA_BYTES, type FileItem } from "./model.js";
+import { createPendingFile, type FileItem } from "./model.js";
 import type { UploadPresigner } from "./presigning.js";
 import {
   FileCollisionError,
   FileStateConflictError,
   StorageQuotaExceededError,
+  ProjectPolicyChangedError,
   type FileRepository,
 } from "./repository.js";
 
@@ -41,7 +42,6 @@ export interface FileServiceDependencies {
   readonly generateIds?: () => FileIds;
   readonly now?: () => Date;
   readonly collisionAttempts?: number;
-  readonly quotaLimitBytes?: bigint;
 }
 
 export function toPublicFile(item: FileItem): File {
@@ -67,7 +67,6 @@ export function createFileService(dependencies: FileServiceDependencies): FileSe
   const generateIds = dependencies.generateIds ?? generateFileIds;
   const now = dependencies.now ?? (() => new Date());
   const collisionAttempts = dependencies.collisionAttempts ?? 3;
-  const quotaLimitBytes = dependencies.quotaLimitBytes ?? FILE_STORAGE_QUOTA_BYTES;
   if (!Number.isInteger(collisionAttempts) || collisionAttempts < 1 || collisionAttempts > 10) {
     throw new RangeError("collisionAttempts must be an integer between 1 and 10");
   }
@@ -103,10 +102,21 @@ export function createFileService(dependencies: FileServiceDependencies): FileSe
           createdAt: timestamp,
         });
         try {
-          await dependencies.repository.reservePending(file, quotaLimitBytes);
+          await dependencies.repository.reservePending(
+            file,
+            BigInt(project.fileManagement.storageQuotaBytes),
+            project.fileManagementPolicyVersion,
+          );
         } catch (error) {
           if (error instanceof StorageQuotaExceededError) {
             throw new HttpError(409, "STORAGE_QUOTA_EXCEEDED", "Storage quota exceeded");
+          }
+          if (error instanceof ProjectPolicyChangedError) {
+            throw new HttpError(
+              409,
+              "PROJECT_POLICY_CHANGED",
+              "Project policy changed; retry request",
+            );
           }
           if (error instanceof FileCollisionError || error instanceof FileStateConflictError) {
             if (attempt < collisionAttempts) continue;
