@@ -96,6 +96,8 @@ describe("SST composition contracts", () => {
     expect(COMMUNICATION_CONTROL_ROUTES.map((route) => route.route)).toEqual([
       "POST /v1/control/projects/{projectId}/communication-connections",
       "GET /v1/control/projects/{projectId}/communication-connections/{connectionId}",
+      "POST /v1/control/projects/{projectId}/communication-connections/{connectionId}/rotate",
+      "DELETE /v1/control/projects/{projectId}/communication-connections/{connectionId}",
     ]);
     const source = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
     expect(source).toContain("control.communicationTable");

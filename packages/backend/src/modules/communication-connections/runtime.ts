@@ -4,7 +4,7 @@ import { Resource } from "sst";
 import { z } from "zod";
 
 import { safeLogger } from "../../core/observability/powertools.js";
-import { createInspectCommunicationConnectionHandler, createRegisterCommunicationConnectionHandler } from "./handlers.js";
+import { createDisableCommunicationConnectionHandler, createInspectCommunicationConnectionHandler, createRegisterCommunicationConnectionHandler, createRotateCommunicationConnectionHandler } from "./handlers.js";
 import { createDynamoConnectionRepository } from "./repository.js";
 import { createCommunicationConnectionService } from "./service.js";
 import { createSsmConnectionSecretStore } from "./ssm-secret-store.js";
@@ -18,3 +18,5 @@ const service = createCommunicationConnectionService({
 });
 export const registerCommunicationConnectionHandler = createRegisterCommunicationConnectionHandler(service, safeLogger);
 export const inspectCommunicationConnectionHandler = createInspectCommunicationConnectionHandler(service, safeLogger);
+export const rotateCommunicationConnectionHandler = createRotateCommunicationConnectionHandler(service, safeLogger);
+export const disableCommunicationConnectionHandler = createDisableCommunicationConnectionHandler(service, safeLogger);
