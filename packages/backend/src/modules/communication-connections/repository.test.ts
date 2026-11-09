@@ -34,8 +34,8 @@ describe("Dynamo communication connection repository", () => {
     if (!(command instanceof TransactWriteCommand)) throw new Error("Expected transaction command");
     const items = command.input.TransactItems;
     expect(items).toHaveLength(3);
-    expect(items?.[1]?.Put?.Item?.pk).toBe("PROJECT#prj_1234567890123456789012#COMMUNICATION");
-    expect(items?.[2]?.Put?.Item?.pk).toBe("PROVIDER#green-api#INSTANCE#instance-a");
+    expect(items?.[1]?.Put?.Item?.["pk"]).toBe("PROJECT#prj_1234567890123456789012#COMMUNICATION");
+    expect(items?.[2]?.Put?.Item?.["pk"]).toBe("PROVIDER#green-api#INSTANCE#instance-a");
     expect(
       items?.every((item) => item.Put?.ConditionExpression === "attribute_not_exists(pk)"),
     ).toBe(true);
@@ -105,6 +105,7 @@ describe("Dynamo communication connection repository", () => {
       client: { send },
       tableName: "connections",
     });
+    if (!repository.listForProject) throw new Error("Expected project list repository");
     await expect(repository.listForProject(record.projectId)).resolves.toHaveLength(1);
     expect(send.mock.calls[0]?.[0]).toBeInstanceOf(QueryCommand);
     expect((send.mock.calls[0]?.[0] as QueryCommand).input).toMatchObject({
@@ -119,6 +120,7 @@ describe("Dynamo communication connection repository", () => {
       client: { send },
       tableName: "connections",
     });
+    if (!repository.updateLifecycle) throw new Error("Expected lifecycle repository");
     await repository.updateLifecycle(record.connectionId, 1, {
       secretReference: "ref-v2",
       secretVersion: 2,
