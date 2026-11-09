@@ -86,6 +86,19 @@ describe("project authentication service", () => {
     expect(limiter.admit).toHaveBeenCalledWith(project.internalProjectId);
   });
 
+  it("authenticates a communication-only project for its enabled utility", async () => {
+    const communicationOnly: InternalProject = { ...project, enabledUtilities: ["communication"] };
+    const context = await createProjectAuthenticationService({
+      repository: repository({
+        getVerificationSnapshot: vi
+          .fn()
+          .mockResolvedValue({ ...snapshot, project: communicationOnly }),
+      }),
+    }).authenticate({ keyId, secret });
+
+    expect(context.enabledUtilities).toEqual(["communication"]);
+  });
+
   it("uses a fixed-size dummy comparison for an unknown parseable key", async () => {
     const compare = vi.fn((left: Buffer, right: Buffer) => left.length + right.length === 0);
     const repo = repository({ getLookup: vi.fn().mockResolvedValue(undefined) });

@@ -133,6 +133,24 @@ export function toEnabledUtilityItem(
 
 export function assembleProject(metadataInput: unknown, utilityInput: unknown): InternalProject {
   const metadata = parseProjectMetadataItem(metadataInput);
+  if (!metadata.enabledUtilities.includes("file-management")) {
+    if (utilityInput !== undefined) {
+      throw new Error("Project has an unexpected File Management utility record");
+    }
+    return InternalProjectSchema.parse({
+      internalProjectId: metadata.internalProjectId,
+      publicProjectId: metadata.publicProjectId,
+      ownerId: metadata.ownerId,
+      name: metadata.name,
+      enabledUtilities: metadata.enabledUtilities,
+      status: metadata.status,
+      // Internal callers retain a complete policy shape. This is never persisted or
+      // exposed for a project which has not enabled File Management.
+      fileManagement: FileManagementSettingsSchema.parse({}),
+      createdAt: metadata.createdAt,
+      updatedAt: metadata.updatedAt,
+    });
+  }
   const utility = EnabledUtilityItemSchema.parse(utilityInput);
   if (utility.pk !== projectPartitionKey(metadata.publicProjectId)) {
     throw new Error("Project items belong to different partitions");

@@ -106,6 +106,23 @@ describe("Dynamo project repository", () => {
     );
   });
 
+  it("creates a communication-only project without a File Management item", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const repository = createDynamoProjectRepository({
+      client: clientWith(send),
+      tableName: "Control",
+    });
+    const communicationOnly: InternalProject = { ...project, enabledUtilities: ["communication"] };
+
+    await repository.create(communicationOnly);
+
+    const command = send.mock.calls[0]?.[0] as TransactWriteCommand;
+    expect(command.input.TransactItems).toHaveLength(1);
+    expect(command.input.TransactItems?.[0]?.Put?.Item).toEqual(
+      toProjectMetadataItem(communicationOnly),
+    );
+  });
+
   it("classifies transaction condition failures without exposing AWS details", async () => {
     const send = vi
       .fn()

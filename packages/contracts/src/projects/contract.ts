@@ -22,8 +22,10 @@ export const EnabledUtilitiesSchema = z
   .min(1)
   .max(2)
   .superRefine((utilities, context) => {
-    if (new Set(utilities).size !== utilities.length) context.addIssue({ code: "custom", message: "Enabled utilities must be unique" });
-    if (utilities.length === 2 && utilities[0] !== FILE_MANAGEMENT_UTILITY) context.addIssue({ code: "custom", message: "Utilities must use canonical order" });
+    if (new Set(utilities).size !== utilities.length)
+      context.addIssue({ code: "custom", message: "Enabled utilities must be unique" });
+    if (utilities.length === 2 && utilities[0] !== FILE_MANAGEMENT_UTILITY)
+      context.addIssue({ code: "custom", message: "Utilities must use canonical order" });
   });
 
 const UrlLifetimeMinutesSchema = z.number().int().min(1).max(60);
@@ -114,7 +116,7 @@ export const ProjectSummarySchema = z
   .strict();
 
 export const ProjectSchema = ProjectSummarySchema.extend({
-  fileManagement: FileManagementSettingsSchema,
+  fileManagement: FileManagementSettingsSchema.optional(),
 }).strict();
 
 export const ProjectListPayloadSchema = z

@@ -89,4 +89,19 @@ describe("project authorization adapter", () => {
     expect(response.statusCode).toBe(401);
     expect(JSON.stringify(body(response))).not.toContain(apiKey);
   });
+
+  it("rejects a credential at a route for a utility the project has not enabled", async () => {
+    const communicationContext = { ...context, enabledUtilities: ["communication"] as const };
+    const handler = createHttpHandler({
+      schemas: { response: TrustedProjectContextSchema },
+      deriveAuthorization: createProjectAuthorization(
+        { authenticate: vi.fn().mockResolvedValue(communicationContext) },
+        "file-management",
+      ),
+      callback: ({ authorization }) => authorization,
+    });
+
+    const response = await handler(event(`Bearer ${apiKey}`));
+    expect(response.statusCode).toBe(401);
+  });
 });

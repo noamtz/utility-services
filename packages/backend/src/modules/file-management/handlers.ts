@@ -34,7 +34,7 @@ export function createAuthorizeUploadHandler(
 ) {
   return createHttpHandler({
     schemas: { body: CreateUploadBoundaryRequestSchema, response: UploadAuthorizationSchema },
-    deriveAuthorization: createProjectAuthorization(authentication),
+    deriveAuthorization: createProjectAuthorization(authentication, "file-management"),
     successStatusCode: 201,
     callback: ({ authorization, body }) => service.authorizeUpload(authorization, body),
     ...(logger ? { logger } : {}),
@@ -48,7 +48,7 @@ export function createListFilesHandler(
 ) {
   return createHttpHandler({
     schemas: { query: FileListQuerySchema, response: FileListPayloadSchema },
-    deriveAuthorization: createProjectAuthorization(authentication),
+    deriveAuthorization: createProjectAuthorization(authentication, "file-management"),
     callback: ({ authorization, query }) => service.list(authorization, query),
     ...(logger ? { logger } : {}),
   });
@@ -61,7 +61,7 @@ export function createInspectFileHandler(
 ) {
   return createHttpHandler({
     schemas: { path: FilePathSchema, response: FileSchema },
-    deriveAuthorization: createProjectAuthorization(authentication),
+    deriveAuthorization: createProjectAuthorization(authentication, "file-management"),
     callback: ({ authorization, path }) => service.inspect(authorization, path.fileId),
     ...(logger ? { logger } : {}),
   });
@@ -74,7 +74,7 @@ export function createAuthorizeDownloadHandler(
 ) {
   return createHttpHandler({
     schemas: { path: FilePathSchema, response: DownloadAuthorizationSchema },
-    deriveAuthorization: createProjectAuthorization(authentication),
+    deriveAuthorization: createProjectAuthorization(authentication, "file-management"),
     callback: ({ authorization, path }) => service.authorizePrivate(authorization, path.fileId),
     ...(logger ? { logger } : {}),
   });
@@ -99,7 +99,7 @@ export function createDeleteFileHandler(
       query: DeleteFileQuerySchema,
       response: DeleteFileResultSchema,
     },
-    deriveAuthorization: createProjectAuthorization(authentication),
+    deriveAuthorization: createProjectAuthorization(authentication, "file-management"),
     callback: ({ authorization, path, query }) => service.delete(authorization, path.fileId, query),
     ...(logger ? { logger } : {}),
   });
@@ -112,7 +112,7 @@ export function createRestoreFileHandler(
 ) {
   return createHttpHandler({
     schemas: { path: FilePathSchema, response: FileSchema },
-    deriveAuthorization: createProjectAuthorization(authentication),
+    deriveAuthorization: createProjectAuthorization(authentication, "file-management"),
     callback: ({ authorization, path }) => service.restore(authorization, path.fileId),
     ...(logger ? { logger } : {}),
   });
