@@ -267,6 +267,30 @@ class MemoryFiles implements FileRepository {
     this.items.set(this.key(next.internalProjectId, next.fileId), next);
     return next;
   }
+  public async updateDeletionProtection(
+    file: FileItem,
+    deletionProtected: boolean,
+    changedAt: string,
+    changedByKeyId: string,
+  ) {
+    const current = (await this.get(file.internalProjectId, file.fileId))!;
+    if (current.revision !== file.revision || current.purgeStartedAt !== undefined) {
+      throw new FileStateConflictError();
+    }
+    if ((current.deletionProtectedAt !== undefined) === deletionProtected) return current;
+    const { deletionProtectedAt: _protectedAt, ...withoutProtection } = current;
+    void _protectedAt;
+    const parsed = parseFileItem({
+      ...withoutProtection,
+      ...(deletionProtected ? { deletionProtectedAt: changedAt } : {}),
+      deletionProtectionChangedAt: changedAt,
+      deletionProtectionChangedByKeyId: changedByKeyId,
+      updatedAt: changedAt,
+      revision: current.revision + 1n,
+    });
+    this.items.set(this.key(parsed.internalProjectId, parsed.fileId), parsed);
+    return parsed;
+  }
   public async claimPermanentRemoval(file: FileItem, now: string, force: boolean) {
     const current = (await this.get(file.internalProjectId, file.fileId))!;
     if (current.status === "trashed" && current.purgeStartedAt !== undefined) return current;

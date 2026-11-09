@@ -158,6 +158,28 @@ function memoryRepository(initial: FileItem) {
       });
       return state.item;
     },
+    async updateDeletionProtection(
+      file: FileItem,
+      deletionProtected: boolean,
+      changedAt: string,
+      changedByKeyId: string,
+    ) {
+      if (state.item?.revision !== file.revision || state.item.purgeStartedAt !== undefined) {
+        throw new FileStateConflictError();
+      }
+      if ((state.item.deletionProtectedAt !== undefined) === deletionProtected) return state.item;
+      const { deletionProtectedAt: _protectedAt, ...withoutProtection } = state.item;
+      void _protectedAt;
+      state.item = parseFileItem({
+        ...withoutProtection,
+        ...(deletionProtected ? { deletionProtectedAt: changedAt } : {}),
+        deletionProtectionChangedAt: changedAt,
+        deletionProtectionChangedByKeyId: changedByKeyId,
+        updatedAt: changedAt,
+        revision: state.item.revision + 1n,
+      });
+      return state.item;
+    },
     async claimPermanentRemoval(file: FileItem, now: string, force: boolean) {
       if (
         state.item?.revision !== file.revision ||
