@@ -85,7 +85,7 @@ export function createCommunicationConnectionService(dependencies: {
       };
       try {
         await dependencies.repository.reserveAndCreate(record);
-      } catch (error) {
+      } catch {
         await dependencies.secretStore.remove(storedSecret.reference).catch(() => undefined);
         if (error instanceof DuplicateProviderInstanceError) {
           throw new HttpError(
@@ -123,7 +123,7 @@ export function createCommunicationConnectionService(dependencies: {
           status: "active",
           updatedAt,
         });
-      } catch (error) {
+      } catch {
         throw new HttpError(409, "CONNECTION_CHANGED", "Communication connection changed; retry");
       }
       return toPublicConnection({
