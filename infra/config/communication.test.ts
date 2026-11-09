@@ -19,6 +19,10 @@ describe("communication infrastructure policy", () => {
       "ssm:PutParameter",
       "ssm:DeleteParameter",
     ]);
+    expect(COMMUNICATION_CONTROL_ROUTES[3]?.parameterActions).toEqual([
+      "ssm:PutParameter",
+      "ssm:DeleteParameter",
+    ]);
     expect(JSON.stringify(COMMUNICATION_CONTROL_ROUTES)).not.toContain("*");
   });
 });

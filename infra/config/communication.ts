@@ -34,7 +34,7 @@ export const COMMUNICATION_CONTROL_ROUTES = [
     route: "POST /v1/control/projects/{projectId}/communication-connections/{connectionId}/rotate",
     handler: "packages/backend/src/functions/control/rotate-communication-connection.handler",
     connectionTableActions: ["dynamodb:UpdateItem", "dynamodb:GetItem"],
-    parameterActions: ["ssm:PutParameter"],
+    parameterActions: ["ssm:PutParameter", "ssm:DeleteParameter"],
   },
   {
     name: "DisableCommunicationConnectionRoute",
