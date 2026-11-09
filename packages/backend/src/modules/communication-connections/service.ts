@@ -85,7 +85,7 @@ export function createCommunicationConnectionService(dependencies: {
       };
       try {
         await dependencies.repository.reserveAndCreate(record);
-      } catch {
+      } catch (error) {
         await dependencies.secretStore.remove(storedSecret.reference).catch(() => undefined);
         if (error instanceof DuplicateProviderInstanceError) {
           throw new HttpError(
