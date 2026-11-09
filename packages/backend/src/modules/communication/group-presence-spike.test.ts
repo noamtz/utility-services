@@ -46,6 +46,35 @@ describe("observeGroupPresence", () => {
       ),
     ).resolves.toMatchObject({ reason: "provider-error" });
   });
+
+  it("records delayed synchronization as unknown before a later confirmed present scan", async () => {
+    const fake: GroupPresenceProvider = {
+      getChats: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "fixture-group-a", type: "group" }]),
+      getGroupData: vi.fn().mockResolvedValue({ groupId: "fixture-group-a" }),
+    };
+    await expect(observeGroupPresence("fixture-group-a", fake, now)).resolves.toMatchObject({
+      state: "unknown",
+      reason: "missing-from-scan",
+    });
+    await expect(observeGroupPresence("fixture-group-a", fake, now)).resolves.toMatchObject({
+      state: "present",
+      reason: "confirmed-by-group-data",
+    });
+  });
+
+  it("keeps a rejected group-data lookup unknown", async () => {
+    const fake: GroupPresenceProvider = {
+      getChats: vi.fn().mockResolvedValue([{ id: "fixture-group-a", type: "group" }]),
+      getGroupData: vi.fn().mockRejectedValue(new Error("safe fixture failure")),
+    };
+    await expect(observeGroupPresence("fixture-group-a", fake, now)).resolves.toMatchObject({
+      state: "unknown",
+      reason: "provider-error",
+    });
+  });
   it("keeps malformed and duplicate chats unknown", async () => {
     await expect(
       observeGroupPresence("fixture-group-a", provider({}, undefined), now),
