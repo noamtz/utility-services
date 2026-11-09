@@ -1,4 +1,5 @@
 import {
+  CommunicationConnectionListResponseSchema,
   CommunicationConnectionResponseSchema,
   CreateCommunicationConnectionRequestSchema,
   RotateCommunicationCredentialRequestSchema,
@@ -31,6 +32,8 @@ export function createCommunicationApi(dependencies: {
           CommunicationConnectionResponseSchema,
         )
       ).data,
+    list: async (id: string): Promise<readonly CommunicationConnection[]> =>
+      (await client.request(base(id), CommunicationConnectionListResponseSchema)).data.items,
     rotate: async (
       id: string,
       connectionId: string,

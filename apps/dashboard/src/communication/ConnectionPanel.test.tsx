@@ -14,6 +14,7 @@ describe("ConnectionPanel", () => {
   it("clears credential and renders only redacted connection state", async () => {
     const api = {
       register: vi.fn().mockResolvedValue(connection),
+      list: vi.fn().mockResolvedValue([]),
       disable: vi.fn(),
       inspect: vi.fn(),
       rotate: vi.fn(),
@@ -31,6 +32,7 @@ describe("ConnectionPanel", () => {
   it("disables an active connection", async () => {
     const api = {
       register: vi.fn().mockResolvedValue(connection),
+      list: vi.fn().mockResolvedValue([]),
       disable: vi.fn().mockResolvedValue({ ...connection, status: "disabled" }),
       inspect: vi.fn(),
       rotate: vi.fn(),
@@ -45,5 +47,31 @@ describe("ConnectionPanel", () => {
     fireEvent.click(screen.getByText("Disable connection"));
     await screen.findByText("Status: disabled");
     expect(api.disable).toHaveBeenCalledWith(connection.projectId, connection.connectionId);
+  });
+  it("loads an active redacted connection after reload", async () => {
+    const api = {
+      register: vi.fn(),
+      list: vi.fn().mockResolvedValue([connection]),
+      disable: vi.fn(),
+      inspect: vi.fn(),
+      rotate: vi.fn(),
+    };
+    render(<ConnectionPanel projectId={connection.projectId} api={api as never} />);
+    await screen.findByText("GREEN instance: instance-a");
+    expect(api.list).toHaveBeenCalledWith(connection.projectId);
+    expect(screen.queryByLabelText("Credential")).toBeNull();
+  });
+  it("loads a disabled connection after reload without lifecycle controls", async () => {
+    const api = {
+      register: vi.fn(),
+      list: vi.fn().mockResolvedValue([{ ...connection, status: "disabled" }]),
+      disable: vi.fn(),
+      inspect: vi.fn(),
+      rotate: vi.fn(),
+    };
+    render(<ConnectionPanel projectId={connection.projectId} api={api as never} />);
+    await screen.findByText("Status: disabled");
+    expect(screen.queryByText("Rotate credential")).toBeNull();
+    expect(screen.queryByText("Disable connection")).toBeNull();
   });
 });

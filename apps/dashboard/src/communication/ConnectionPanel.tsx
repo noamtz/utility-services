@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CommunicationConnection } from "@utility-services/contracts";
 import { type createCommunicationApi } from "./api.js";
 type Api = ReturnType<typeof createCommunicationApi>;
@@ -8,6 +8,24 @@ export function ConnectionPanel({ projectId, api }: { projectId: string; api: Ap
   const [credential, setCredential] = useState("");
   const [rotationCredential, setRotationCredential] = useState("");
   const [error, setError] = useState<string>();
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [existing] = await api.list(projectId);
+        if (!cancelled) {
+          setConnection(existing);
+          setError(undefined);
+        }
+      } catch {
+        if (!cancelled) setError("Connection state could not be loaded.");
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, projectId]);
   async function register() {
     try {
       const value = await api.register(projectId, {
