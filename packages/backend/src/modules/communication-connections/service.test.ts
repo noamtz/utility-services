@@ -123,4 +123,10 @@ describe("communication connection service", () => {
       expect.objectContaining({ secretVersion: 2 }),
     );
   });
+
+  it("refuses to rotate a disabled connection", async () => {
+    const current: ConnectionRecord = { connectionId: "con_1234567890123456789012", projectId: "prj_1234567890123456789012", provider: "green-api", instanceId: "instance-a", status: "disabled", ownerId: "owner-a", secretReference: "ref", secretVersion: 1, createdAt: "2026-11-09T00:00:00.000Z", updatedAt: "2026-11-09T00:00:00.000Z" };
+    const service = createCommunicationConnectionService({ repository: { reserveAndCreate: async () => undefined, inspect: async () => current }, secretStore: { store: async () => ({ reference: "ref", version: 2 }), remove: async () => undefined } });
+    await expect(service.rotate(owner, current.connectionId, input.credential)).rejects.toMatchObject({ code: "CONNECTION_DISABLED" });
+  });
 });

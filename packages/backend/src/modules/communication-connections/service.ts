@@ -113,6 +113,8 @@ export function createCommunicationConnectionService(dependencies: {
       const current = await dependencies.repository.inspect(connectionId);
       if (!current || current.ownerId !== owner.ownerId)
         throw new HttpError(404, "NOT_FOUND", "Communication connection not found");
+      if (current.status === "disabled")
+        throw new HttpError(409, "CONNECTION_DISABLED", "Communication connection is disabled");
       const stored = await dependencies.secretStore.store({ connectionId, credential });
       const updatedAt = now().toISOString();
       try {
