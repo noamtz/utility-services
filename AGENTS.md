@@ -2,7 +2,7 @@
 
 ## What this is
 
-This greenfield product provides reusable, language-agnostic utility services to independent applications. The MVP is an invite-only File Management service: an owner creates a project in a React dashboard, issues a server-side API key, integrates through REST, manages private or public files, and sees project-attributable AWS-equivalent usage cost. The approved stack is TypeScript, React/Vite, SST, and managed serverless AWS services in `il-central-1`.
+This greenfield product provides reusable, language-agnostic utility services to independent applications. The MVP is an invite-only File Management service: an owner creates a project in a React dashboard, issues a server-side API key, integrates through REST, manages private or public files, and sees project-attributable AWS-equivalent usage cost. The approved stack is TypeScript, React/Vite, SST, and managed serverless AWS services in explicitly approved installations (currently Israel, `il-central-1`).
 
 ## Sources of truth and repository map
 
@@ -19,13 +19,15 @@ This greenfield product provides reusable, language-agnostic utility services to
 
 ## AWS target and authentication continuity
 
-- The only AWS target for this repository is account `162067902192` in `il-central-1`. The required local IAM principal is `arn:aws:iam::162067902192:user/ntz-cli`, configured under AWS CLI profile `ntz-cli`. Never fall back to `default`, `ntz-mgmt`, `taxflow-sst`, or another configured profile.
+- `infra/config/installation-target.ts` is the immutable, secret-free installation registry. Every wrapper requires exactly one `--installation-target` and one `--stage`; no environment/default target selection is allowed. New targets require explicit owner-approved account, region, full principal ARN, profile alias, and disjoint stage bindings. Never change an existing target's region or reuse its stage for another installation.
+- The only currently approved target is `israel`: account `162067902192` in `il-central-1`. The required local IAM principal is `arn:aws:iam::162067902192:user/ntz-cli`, configured under AWS CLI profile `ntz-cli`. Never fall back to `default`, `ntz-mgmt`, `taxflow-sst`, or another configured profile.
 - On this Windows machine, AWS CLI calls for this profile require `AWS_CA_BUNDLE=C:\Program Files\Amazon\AWSCLIV2\awscli\botocore\cacert.pem`; omitting it can misleadingly produce `InvalidClientTokenId`. Do not diagnose or rotate credentials until retrying with that CA bundle.
-- Before any direct AWS read or an authorized mutation, set `AWS_PROFILE=ntz-cli`, `AWS_REGION=il-central-1`, and the CA bundle, then run `aws sts get-caller-identity`. Continue only when both the account and full principal ARN exactly match the values above; otherwise stop and report the mismatch without probing unrelated profiles.
-- `tooling/run-sst.mjs` applies this environment and performs the exact identity preflight before `diff`, `dev`, or `deploy`; `install` remains local. Never bypass the wrapper. RUS-01 was deployed as stage `dev-plan`, but this record is context, not authorization to change or remove it.
+- Before any direct AWS read or an authorized mutation, resolve the explicit installation and stage, use `createAwsEnvironment` from `tooling/aws-access.mjs` to clear ambient AWS credential/endpoint overrides and pin its profile, both region variables, and the CA bundle, then run exact account/principal STS preflight through that module. Continue only when both the account and full principal ARN exactly match the values above; otherwise stop and report the mismatch without probing unrelated profiles.
+- `tooling/run-sst.mjs` consumes `--installation-target`, rejects configuration/profile/region overrides, applies this environment, and performs the exact identity preflight before `diff`, `dev`, or `deploy`; `install` remains local. Never bypass the wrapper. RUS-01 was deployed as stage `dev-plan`, but this record is context, not authorization to change or remove it.
+- Israel binds existing `dev-plan`, `dev-rus02`, and `production` names; new development stages use `dev-israel-<slug>` and PR stages use `pr-<number>`. These bindings are local policy, not permission to access or create any stage.
 - `dev-rus02` is the owner-approved shared development environment for sequential work after RUS-02. Its ticket-shaped name is historical: reuse this stage for the next single active development branch instead of recreating the Cognito, API, DynamoDB, dashboard, and CloudFront foundation.
-- Before changing `dev-rus02`, inspect relevant existing state and run a fresh `npm run infra:diff -- --stage dev-rus02`. A successful prior deployment or this continuity record is not authorization to deploy, create users or credentials, mutate data, or remove resources; each external mutation still requires explicit owner authorization.
-- Never deploy two branches to `dev-rus02` concurrently. Use a separate `dev-<slug>` or `pr-<number>` stage when work is parallel, destructive, migration-heavy, or needs isolated data. Do not assume the shared stage is empty: it can retain development users, projects, logs, and other fixtures, but their credentials must never be recorded.
+- Before changing `dev-rus02`, inspect relevant existing state and run a fresh `npm run infra:diff -- --installation-target israel --stage dev-rus02`. A successful prior deployment or this continuity record is not authorization to deploy, create users or credentials, mutate data, or remove resources; each external mutation still requires explicit owner authorization.
+- Never deploy two branches to `dev-rus02` concurrently. Use a separate `dev-israel-<slug>` or `pr-<number>` stage when work is parallel, destructive, migration-heavy, or needs isolated data. Do not assume the shared stage is empty: it can retain development users, projects, logs, and other fixtures, but their credentials must never be recorded.
 - Routine post-merge cleanup updates local `main` and removes merged Git branches; it does not remove `dev-rus02`. Remove the shared stage only after an explicit owner decision that weighs reuse against accumulated cost, stale data, and security exposure.
 - AWS access keys stay only in the local AWS shared credentials file. Never print, copy into chat, log, commit, or store credential values in project instructions, plans, issues, reports, or evidence.
 
@@ -33,7 +35,7 @@ This greenfield product provides reusable, language-agnostic utility services to
 
 - Build one modular SST application, not independently deployed microservices. Future utilities reuse project authentication and usage contracts while owning their domain models.
 - Use TypeScript across infrastructure, Lambda code, dashboard code, and shared contracts. Validate every external/runtime input with schemas; select the concrete schema library during implementation planning.
-- Deploy regional resources to `il-central-1`. Use isolated SST stages for developers, pull requests, and production. Production data resources must be retained if the production stack is removed.
+- Deploy regional resources only to the selected approved installation region; currently `israel` / `il-central-1`. Regional pricing and metering for additional installations require WCU-02 before access or deployment. Use isolated SST stages for developers, pull requests, and production. Production data resources must be retained if the production stack is removed.
 - Host the React/Vite dashboard with `sst.aws.StaticSite` on private S3 assets behind CloudFront. Use API Gateway HTTP API with Node.js Lambda integrations and AWS-generated domains for the MVP.
 - Use DynamoDB on-demand tables separated by bounded context for core/control, file metadata, and usage/pricing. Do not couple future utilities to the File Management data model.
 - Use one private file bucket per stage. Object keys are server-generated as `projects/{internalProjectId}/files/{fileId}`; callers never choose bucket keys or project prefixes.
@@ -103,11 +105,11 @@ npm run check
 Generate ignored SST provider artifacts locally and preview a required explicit non-production stage:
 
 ```powershell
-npm run infra:install -- --stage dev-<slug>
-npm run infra:diff -- --stage dev-<slug>
+npm run infra:install -- --installation-target israel --stage dev-israel-<slug>
+npm run infra:diff -- --installation-target israel --stage dev-israel-<slug>
 ```
 
-`infra:diff` requires valid AWS credentials and is preview-only. After explicit owner authorization and a successful preview, deploy the same non-production stage with `npm run infra:deploy -- --stage dev-<slug>`. Production deployment is intentionally rejected by the RUS-01 wrapper. Never bypass the wrapper or run `sst dev`, deploy, modify AWS resources, or create credentials without explicit authorization.
+`infra:diff` is an AWS read, requires valid AWS credentials and explicit owner authorization, and is preview-only. After explicit owner authorization and a successful preview, deploy the same non-production stage with `npm run infra:deploy -- --installation-target israel --stage dev-israel-<slug>`. Production deployment is intentionally rejected by the RUS-01 wrapper. Never bypass the wrapper or run `sst dev`, deploy, modify AWS resources, or create credentials without explicit authorization.
 
 Validate the Codex layer after changing instructions, skills, agents, hooks, or MCP configuration:
 

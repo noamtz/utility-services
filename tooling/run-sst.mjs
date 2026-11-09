@@ -2,10 +2,8 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { classifyStage } from "../infra/config/stage.ts";
+import { parseInstallationArguments } from "./installation-arguments.mjs";
 import { createAwsEnvironment, verifyAwsIdentity } from "./aws-access.mjs";
-
-export { AWS_ACCESS_POLICY, createAwsEnvironment } from "./aws-access.mjs";
 
 const ALLOWED_COMMANDS = new Set(["install", "diff", "deploy", "dev"]);
 const NETWORKED_COMMANDS = new Set(["diff", "deploy", "dev"]);
@@ -19,27 +17,12 @@ export function parseSstInvocation(argv) {
     throw new Error(`Unsupported SST command "${command ?? ""}".`);
   }
 
-  const stages = [];
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
-    if (argument === "--stage") {
-      stages.push(args[index + 1]);
-      index += 1;
-    } else if (argument?.startsWith("--stage=")) {
-      stages.push(argument.slice("--stage=".length));
-    }
-  }
-
-  if (stages.length !== 1) {
-    throw new Error("Exactly one explicit --stage must be provided.");
-  }
-
-  const stage = classifyStage(stages[0]);
+  const { installation, stage, args: toolArgs } = parseInstallationArguments(args);
   if ((command === "dev" || command === "deploy") && stage.kind === "production") {
     throw new Error(`SST ${command} cannot target production through the foundation workflow.`);
   }
 
-  return { command, args, stage };
+  return { command, args: [...toolArgs, "--stage", stage.name], stage, installation };
 }
 
 /**
@@ -52,18 +35,14 @@ function spawnSstProcess(command, args, options) {
 }
 
 /**
- * @param {NodeJS.ProcessEnv} environment
- * @param {NodeJS.Platform} platform
- */
-/**
  * @param {string[]} argv
  * @param {(command: string, args: string[], options: import("node:child_process").SpawnSyncOptions) => { error?: Error, status: number | null, stdout?: string | Buffer }} [spawn]
  */
 export function runSst(argv, spawn = spawnSstProcess) {
   const invocation = parseSstInvocation(argv);
-  const environment = createAwsEnvironment();
+  const environment = createAwsEnvironment(invocation.installation);
   if (NETWORKED_COMMANDS.has(invocation.command)) {
-    verifyAwsIdentity(spawn, environment, REPOSITORY_ROOT);
+    verifyAwsIdentity(invocation.installation, spawn, environment, REPOSITORY_ROOT);
   }
   const result = spawn(process.execPath, [SST_ENTRYPOINT, invocation.command, ...invocation.args], {
     cwd: REPOSITORY_ROOT,

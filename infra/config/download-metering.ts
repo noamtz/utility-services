@@ -1,8 +1,10 @@
 import { z } from "zod";
 
-import { AWS_REGION } from "./app.js";
 import { FILE_OBJECT_PREFIX } from "./file-management.js";
 import { classifyStage } from "./stage.js";
+
+// WCU-02 owns regional metering; this existing deployment policy remains Israel-only.
+export const DOWNLOAD_METERING_REGION = "il-central-1";
 
 export const DOWNLOAD_LOG_BUCKET_COMPONENT_NAME = "DownloadMeteringLogBucket";
 export const DOWNLOAD_METERING_DLQ_COMPONENT_NAME = "DownloadMeteringDeadLetterQueue";
@@ -72,7 +74,7 @@ export function downloadMeteringTrailArn(input: {
 
 export function cloudTrailRegionalLogPrefix(accountIdInput: string): string {
   const accountId = AwsAccountIdSchema.parse(accountIdInput);
-  return `AWSLogs/${accountId}/CloudTrail/${AWS_REGION}/`;
+  return `AWSLogs/${accountId}/CloudTrail/${DOWNLOAD_METERING_REGION}/`;
 }
 
 export function cloudTrailAccountLogPrefix(accountIdInput: string): string {

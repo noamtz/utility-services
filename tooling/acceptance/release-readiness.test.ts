@@ -7,7 +7,7 @@ import {
   RELEASE_CASE_NAMES,
   requireAuthorizedReleaseEnvironment,
 } from "../../tests/e2e/support/release-config.js";
-import { AWS_ACCESS_POLICY } from "../aws-access.mjs";
+import { AWS_CLI_POLICY } from "../aws-access.mjs";
 import {
   parseReleaseArguments,
   parseReleaseResult,
@@ -18,11 +18,13 @@ import {
 
 const args = [
   "--stage",
-  "dev-rus11-e2e",
+  "dev-israel-rus11-e2e",
   "--dashboard-url",
   "https://dashboard.example.com",
   "--api-url",
   "https://api.example.com",
+  "--installation-target",
+  "israel",
   "--run-label",
   "release-one",
 ];
@@ -45,11 +47,11 @@ function identity() {
 }
 
 function stageOutputs(
-  stage = "dev-rus11-e2e",
+  stage = "dev-israel-rus11-e2e",
   dashboardUrl = "https://dashboard.example.com",
   apiUrl = "https://api.example.com",
 ) {
-  return JSON.stringify({ stage, dashboardUrl, apiUrl });
+  return JSON.stringify({ installationTarget: "israel", stage, dashboardUrl, apiUrl });
 }
 
 const readStageOutputs = () => stageOutputs();
@@ -57,15 +59,19 @@ const readStageOutputs = () => stageOutputs();
 function authorizedEnvironment() {
   return {
     ...secrets,
+    RUS_INSTALLATION_TARGET: "israel",
     [RELEASE_ENVIRONMENT_KEYS.execute]: RELEASE_EXECUTION_MARKER,
-    [RELEASE_ENVIRONMENT_KEYS.stage]: "dev-rus11-e2e",
+    [RELEASE_ENVIRONMENT_KEYS.stage]: "dev-israel-rus11-e2e",
     [RELEASE_ENVIRONMENT_KEYS.dashboardUrl]: "https://dashboard.example.com",
     [RELEASE_ENVIRONMENT_KEYS.apiUrl]: "https://api.example.com",
-    [RELEASE_ENVIRONMENT_KEYS.confirmStage]: "dev-rus11-e2e",
+    [RELEASE_ENVIRONMENT_KEYS.confirmStage]: "dev-israel-rus11-e2e",
   };
 }
 
-function sentinel(stage = "dev-rus11-e2e", caseNames: readonly string[] = RELEASE_CASE_NAMES) {
+function sentinel(
+  stage = "dev-israel-rus11-e2e",
+  caseNames: readonly string[] = RELEASE_CASE_NAMES,
+) {
   return `RUS_RELEASE_RESULT:${JSON.stringify({
     decision: "pass",
     stage,
@@ -89,7 +95,7 @@ describe("release readiness acceptance policy", () => {
     await expect(runReleaseReadiness(args, { spawnSync, execFile, env: {} })).resolves.toEqual({
       decision: "not-run",
       plan: {
-        stage: "dev-rus11-e2e",
+        stage: "dev-israel-rus11-e2e",
         mode: "dry-run",
         externalMutation: false,
         runLabel: "release-one",
@@ -103,7 +109,7 @@ describe("release readiness acceptance policy", () => {
     });
     expect(spawnSync).not.toHaveBeenCalled();
     expect(execFile).not.toHaveBeenCalled();
-    expect(() => parseReleaseArguments(args.slice(2))).toThrow("Missing required --stage");
+    expect(() => parseReleaseArguments(args.slice(2))).toThrow("explicit --stage");
   });
 
   it("rejects unsafe stages, origins, flags, bounds, and confirmations", () => {
@@ -112,9 +118,9 @@ describe("release readiness acceptance policy", () => {
       "HTTPS origin",
     );
     expect(() => parseReleaseArguments([...args, "--unknown"])).toThrow("Unknown");
-    expect(() => parseReleaseArguments([...args, "--confirm-stage", "dev-rus11-e2e"])).toThrow(
-      "only with --execute",
-    );
+    expect(() =>
+      parseReleaseArguments([...args, "--confirm-stage", "dev-israel-rus11-e2e"]),
+    ).toThrow("only with --execute");
     expect(() =>
       parseReleaseArguments([...args, "--execute", "--confirm-stage", "dev-other"]),
     ).toThrow("matching --stage");
@@ -126,7 +132,7 @@ describe("release readiness acceptance policy", () => {
   it("requires an exact marker, confirmation, and two distinct invited owners", () => {
     const environment = authorizedEnvironment();
     expect(requireAuthorizedReleaseEnvironment(environment)).toMatchObject({
-      stage: "dev-rus11-e2e",
+      stage: "dev-israel-rus11-e2e",
       runLabel: "rus11",
       expiryTimeoutSeconds: 420,
     });
@@ -183,7 +189,7 @@ describe("release readiness acceptance policy", () => {
       return Promise.resolve({ stdout: sentinel(), stderr: "ignored" });
     });
     const result = await runReleaseReadiness(
-      [...args, "--execute", "--confirm-stage", "dev-rus11-e2e"],
+      [...args, "--execute", "--confirm-stage", "dev-israel-rus11-e2e"],
       {
         spawnSync,
         execFile,
@@ -194,7 +200,7 @@ describe("release readiness acceptance policy", () => {
     );
     expect(result).toMatchObject({ decision: "pass", activationSeconds: 42.5 });
     expect(readFile.mock.calls[0]?.[0]).toMatch(/[\\/]\.sst[\\/]outputs\.json$/u);
-    expect(spawnSync.mock.calls[0]?.[0]).toBe(AWS_ACCESS_POLICY.windowsCliPath);
+    expect(spawnSync.mock.calls[0]?.[0]).toBe(AWS_CLI_POLICY.windowsCliPath);
     const preflightOptions = spawnSync.mock.calls[0]?.[2] as SpawnSyncOptions | undefined;
     expect(preflightOptions).toMatchObject({ shell: false });
     expect(preflightOptions?.env).not.toHaveProperty(RELEASE_ENVIRONMENT_KEYS.ownerAEmail);
@@ -223,7 +229,7 @@ describe("release readiness acceptance policy", () => {
   it("binds execution origins to the exact confirmed SST stage outputs", async () => {
     const spawnSync = vi.fn();
     const execFile = vi.fn();
-    const executeArgs = [...args, "--execute", "--confirm-stage", "dev-rus11-e2e"];
+    const executeArgs = [...args, "--execute", "--confirm-stage", "dev-israel-rus11-e2e"];
 
     await expect(
       runReleaseReadiness(executeArgs, {
@@ -239,7 +245,7 @@ describe("release readiness acceptance policy", () => {
         execFile,
         readFile: () =>
           stageOutputs(
-            "dev-rus11-e2e",
+            "dev-israel-rus11-e2e",
             "https://production.example.com",
             "https://api.example.com",
           ),
@@ -290,7 +296,7 @@ describe("release readiness acceptance policy", () => {
       status: 0,
       stdout: JSON.stringify({ Account: "000000000000", Arn: "arn:aws:iam::000:user/wrong" }),
     });
-    const executeArgs = [...args, "--execute", "--confirm-stage", "dev-rus11-e2e"];
+    const executeArgs = [...args, "--execute", "--confirm-stage", "dev-israel-rus11-e2e"];
     await expect(
       runReleaseReadiness(executeArgs, {
         spawnSync: wrongIdentity,
@@ -342,15 +348,80 @@ describe("release readiness acceptance policy", () => {
       "invalid safe result",
     );
     expect(() =>
-      parseReleaseResult(sentinel("dev-rus11-e2e", RELEASE_CASE_NAMES.slice(0, -1))),
-    ).toThrow("invalid safe result");
-    expect(() =>
-      parseReleaseResult(sentinel("dev-rus11-e2e", [...RELEASE_CASE_NAMES, "unexpected-case"])),
+      parseReleaseResult(sentinel("dev-israel-rus11-e2e", RELEASE_CASE_NAMES.slice(0, -1))),
     ).toThrow("invalid safe result");
     expect(() =>
       parseReleaseResult(
-        sentinel("dev-rus11-e2e", [...RELEASE_CASE_NAMES.slice(0, -1), RELEASE_CASE_NAMES[0]!]),
+        sentinel("dev-israel-rus11-e2e", [...RELEASE_CASE_NAMES, "unexpected-case"]),
       ),
     ).toThrow("invalid safe result");
+    expect(() =>
+      parseReleaseResult(
+        sentinel("dev-israel-rus11-e2e", [
+          ...RELEASE_CASE_NAMES.slice(0, -1),
+          RELEASE_CASE_NAMES[0]!,
+        ]),
+      ),
+    ).toThrow("invalid safe result");
+  });
+});
+
+describe("release installation binding", () => {
+  it("requires a target even for a dry run and rejects duplicates or overrides before any process", async () => {
+    const spawnSync = vi.fn();
+    const execFile = vi.fn();
+    for (const argv of [
+      args.filter((value) => !["--installation-target", "israel"].includes(value)),
+      [...args, "--installation-target=israel"],
+      [...args, "--region=eu-central-1"],
+    ]) {
+      await expect(runReleaseReadiness(argv, { spawnSync, execFile, env: {} })).rejects.toThrow();
+    }
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
+    expect(
+      parseReleaseArguments(
+        args
+          .filter((value) => !["--installation-target", "israel"].includes(value))
+          .concat("--installation-target=israel"),
+      ).installation.name,
+    ).toBe("israel");
+  });
+
+  it("rejects a foreign installation in outputs before STS or browser execution", async () => {
+    const spawnSync = vi.fn();
+    const execFile = vi.fn();
+    await expect(
+      runReleaseReadiness([...args, "--execute", "--confirm-stage", "dev-israel-rus11-e2e"], {
+        env: secrets,
+        spawnSync,
+        execFile,
+        readFile: () =>
+          JSON.stringify({ ...JSON.parse(stageOutputs()), installationTarget: "other" }),
+      }),
+    ).rejects.toThrow("do not match");
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy Israel dev-rus02 outputs usable without deployment", () => {
+    const spawnSync = vi.fn().mockReturnValue(identity());
+    const environment = {
+      ...authorizedEnvironment(),
+      RUS_RELEASE_STAGE: "dev-rus02",
+      RUS_RELEASE_CONFIRM_STAGE: "dev-rus02",
+    };
+    expect(
+      verifyReleaseExecutionBoundary(environment, {
+        spawnSync,
+        readFile: () =>
+          JSON.stringify({
+            stage: "dev-rus02",
+            dashboardUrl: "https://dashboard.example.com",
+            apiUrl: "https://api.example.com",
+          }),
+      }).installation.name,
+    ).toBe("israel");
+    expect(spawnSync).toHaveBeenCalledOnce();
   });
 });

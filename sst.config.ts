@@ -3,7 +3,9 @@
 export default $config({
   async app(input) {
     const { createAppPolicy } = await import("./infra/config/app.js");
-    const policy = createAppPolicy(input.stage);
+    const { resolveSstAppInstallation } = await import("./infra/config/installation-target.js");
+    const installation = resolveSstAppInstallation(input.stage, process.env);
+    const policy = createAppPolicy(installation.name, installation.stage.name);
     return {
       name: policy.name,
       home: policy.home,
@@ -18,6 +20,9 @@ export default $config({
     };
   },
   async run() {
+    const { resolveInstallationEnvironment } =
+      await import("./infra/config/installation-target.js");
+    const installation = resolveInstallationEnvironment($app.stage, process.env);
     const [
       { createApi },
       { createControlResources },
@@ -47,7 +52,7 @@ export default $config({
       fileBucket: files.bucket,
       usageTable: usagePricing.table,
     });
-    const api = createApi(control, usagePricing, files);
+    const api = createApi(control, installation.region, usagePricing, files);
     const dashboard = createDashboard({
       apiUrl: api.url,
       userPoolId: control.userPool.id,
@@ -94,6 +99,7 @@ export default $config({
     });
     return {
       stage: $app.stage,
+      installationTarget: installation.name,
       apiUrl: api.url,
       dashboardUrl: dashboard.url,
       ownerUserPoolId: control.userPool.id,

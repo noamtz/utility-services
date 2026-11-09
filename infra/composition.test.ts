@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
-import { API_COMPONENT_NAME, API_CORS, HEALTH_ROUTE } from "./api.js";
+import { API_COMPONENT_NAME, API_CORS, HEALTH_ROUTE, createApi } from "./api.js";
 import {
   CONTROL_CACHE_POLICY_NAME,
   CONTROL_ORIGIN_REQUEST_POLICY_NAME,
@@ -24,6 +24,39 @@ function output<T>(value: T): SstOutput<T> {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SST composition contracts", () => {
+  it("derives the Cognito issuer from the installation region", () => {
+    let issuer: unknown;
+    class ApiGatewayV2 {
+      public readonly url = output("https://api.example.com");
+      public route() {
+        return {};
+      }
+      public addAuthorizer(args: { jwt: { issuer: SstOutput<string> } }) {
+        args.jwt.issuer.apply((value) => {
+          issuer = value;
+        });
+        return { id: output("authorizer-id") };
+      }
+    }
+    vi.stubGlobal("sst", { aws: { ApiGatewayV2 } });
+    const control = {
+      userPool: { id: output("eu-central-1_pool") },
+      userPoolClient: { id: output("client-id") },
+      table: { arn: output("table-arn") },
+    } as unknown as Parameters<typeof createApi>[0];
+    createApi(control, "eu-central-1");
+    expect(issuer).toBe("https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool");
+  });
+
+  it("binds app and run to the same wrapper installation and exports its identity", () => {
+    const source = readFileSync(new URL("../sst.config.ts", import.meta.url), "utf8");
+    expect(source).toContain("resolveSstAppInstallation(input.stage, process.env)");
+    expect(source).toContain("resolveInstallationEnvironment($app.stage, process.env)");
+    expect(source).toContain("region: policy.provider.region");
+    expect(source).toContain("createApi(control, installation.region, usagePricing, files)");
+    expect(source).toContain("installationTarget: installation.name");
+  });
+
   it("composes metering after the file bucket and exposes only safe operator identifiers", () => {
     const source = readFileSync(new URL("../sst.config.ts", import.meta.url), "utf8");
     const filesAt = source.indexOf("const files = createFileManagementResources");

@@ -64,37 +64,47 @@ npm run check
 ## SST stages and previews
 
 Every config-evaluating SST command goes through `tooling/run-sst.mjs` and requires exactly one
-explicit stage:
+explicit `--installation-target` and `--stage`. The reviewed registry is
+`infra/config/installation-target.ts`; currently only `israel` is approved, with these stage bindings:
 
 - `production`
 - `pr-<positive-integer>`, such as `pr-12`
-- `dev-<lowercase-slug>`, such as `dev-noam`
+- Existing `dev-rus02` and `dev-plan` (same app, account, region, and data)
+- New `dev-israel-<lowercase-slug>`, such as `dev-israel-noam`
 
 Networked SST commands are pinned to AWS CLI profile `ntz-cli`, account `162067902192`, and region
 `il-central-1`. On Windows the wrapper also supplies the installed AWS CLI CA bundle, then verifies
 the exact `ntz-cli` caller identity before `diff`, `dev`, or `deploy`; it will not fall back to
-another local profile. Credential values remain only in the local AWS shared credentials file.
+another local profile. The wrapper clears ambient credential, endpoint, profile-file and SST overrides,
+then pins the selected target in the child environment. `--installation-target` never reaches SST.
+SST configuration also rejects credential-source and endpoint overrides loaded from `.env` or
+`.env.<stage>` after preflight, before initializing its AWS provider.
+The operator's business `--target project` option remains unchanged. Credential values remain only
+in the local AWS shared credentials file. A new account/region requires a new approved registry entry
+with disjoint stage bindings; changing an existing entry is not a migration. No Frankfurt target or
+credentials have been provisioned. WCU-02 must regionalize pricing/metering before another
+installation is used. Download-metering acceptance currently permits execution only for Israel.
 
 Generate the ignored local provider declarations after installation or a provider change:
 
 ```powershell
-npm run infra:install -- --stage dev-noam
+npm run infra:install -- --installation-target israel --stage dev-israel-noam
 ```
 
 Preview a non-production stage without deploying:
 
 ```powershell
-npm run infra:diff -- --stage dev-noam
+npm run infra:diff -- --installation-target israel --stage dev-israel-noam
 ```
 
 After explicit owner authorization and a successful preview, deploy that same non-production stage:
 
 ```powershell
-npm run infra:deploy -- --stage dev-noam
+npm run infra:deploy -- --installation-target israel --stage dev-israel-noam
 ```
 
 > [!WARNING]
-> `infra:diff` requires valid AWS credentials and is preview-only. If SST requests remote bootstrap
+> `infra:diff` reads AWS and requires explicit owner authorization and valid credentials; it is preview-only. If SST requests remote bootstrap
 > or another external write, stop and obtain owner authorization. `infra:deploy`, `sst dev`, AWS
 > resource changes, credential creation, and remote Git/GitHub changes require explicit owner
 > authorization. Production deployment is intentionally rejected by the RUS-01 wrapper. Do not
@@ -125,11 +135,11 @@ by default. They still require the exact AWS identity preflight, an explicit sta
 authorization before applying a mutation:
 
 ```powershell
-npm run ops:suspension -- --stage dev-rus02 --target project --project-id <project-id> --action suspend
-npm run ops:suspension -- --stage dev-rus02 --target project --project-id <project-id> --action suspend --apply --confirm APPLY:dev-rus02:project:suspend
+npm run ops:suspension -- --installation-target israel --stage dev-rus02 --target project --project-id <project-id> --action suspend
+npm run ops:suspension -- --installation-target israel --stage dev-rus02 --target project --project-id <project-id> --action suspend --apply --confirm APPLY:dev-rus02:project:suspend
 
-npm run ops:backfill-watermarks -- --stage dev-rus02
-npm run ops:backfill-watermarks -- --stage dev-rus02 --apply --confirm APPLY:dev-rus02:watermark-index
+npm run ops:backfill-watermarks -- --installation-target israel --stage dev-rus02
+npm run ops:backfill-watermarks -- --installation-target israel --stage dev-rus02 --apply --confirm APPLY:dev-rus02:watermark-index
 ```
 
 Never run either apply form without explicit owner authorization. Suspension blocks fresh private
@@ -187,7 +197,7 @@ authorized:
 
 ```powershell
 $env:DOWNLOAD_METERING_PROJECT_KEY = '<disposable-server-side-key>'
-npm run acceptance:download-metering -- --stage dev-rus02 --api-url <https-api-url> --file-id <file-id> --log-bucket <log-bucket> --processor-function <processor-function> --main-queue-url <https-main-queue-url> --dlq-url <https-dlq-url>
+npm run acceptance:download-metering -- --installation-target israel --stage dev-rus02 --api-url <https-api-url> --file-id <file-id> --log-bucket <log-bucket> --processor-function <processor-function> --main-queue-url <https-main-queue-url> --dlq-url <https-dlq-url>
 ```
 
 Add `--execute` only for the authorized transfer exercise. After inspecting and correcting a
@@ -213,7 +223,7 @@ The operator harness is also dry-run by default. It validates the stage and HTTP
 the intended cases, and neither checks AWS identity nor launches a browser without `--execute`:
 
 ```powershell
-npm run acceptance:release -- --stage dev-rus11-e2e --dashboard-url https://dashboard.example.com --api-url https://api.example.com
+npm run acceptance:release -- --installation-target israel --stage dev-israel-rus11-e2e --dashboard-url https://dashboard.example.com --api-url https://api.example.com
 ```
 
 Execute mode additionally requires the ignored `.sst/outputs.json` produced by the successful
@@ -233,7 +243,7 @@ $env:RUS_RELEASE_OWNER_A_PASSWORD = '<owner-a-password>'
 $env:RUS_RELEASE_OWNER_B_EMAIL = '<owner-b-email>'
 $env:RUS_RELEASE_OWNER_B_PASSWORD = '<owner-b-password>'
 
-npm run acceptance:release -- --stage dev-rus11-e2e --dashboard-url https://dashboard.example.com --api-url https://api.example.com --execute --confirm-stage dev-rus11-e2e
+npm run acceptance:release -- --installation-target israel --stage dev-israel-rus11-e2e --dashboard-url https://dashboard.example.com --api-url https://api.example.com --execute --confirm-stage dev-israel-rus11-e2e
 ```
 
 For an owner's first Cognito login, set the matching optional
