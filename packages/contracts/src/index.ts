@@ -51,6 +51,20 @@ export {
   type UpdateFileManagementPolicyRequest,
 } from "./projects/contract.js";
 export {
+  COMMUNICATION_UTILITY,
+  CommunicationConnectionPathSchema,
+  CommunicationConnectionResponseSchema,
+  CommunicationConnectionSchema,
+  ConnectionIdSchema,
+  ConnectionStatusSchema,
+  CreateCommunicationConnectionRequestSchema,
+  ProviderCredentialSchema,
+  ProviderInstanceIdSchema,
+  type CommunicationConnection,
+  type CommunicationConnectionPath,
+  type CreateCommunicationConnectionRequest,
+} from "./communication/contract.js";
+export {
   ApiKeyCursorSchema,
   ApiKeyIdSchema,
   ApiKeyListPayloadSchema,
