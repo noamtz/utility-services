@@ -113,9 +113,20 @@ decision the reviewer should not flag):
 {Anything notable, or "none".}
 ```
 
-### Ready for the next step
-- Confirm all changes are complete and validations pass.
-- Next: `piv-commit` the work, then `piv-create-pr` to open the PR (the report fills the PR body), then `piv-review-pr`.
+## Complete delivery
+
+After the implementation report is written and all required validation passes:
+
+1. Run `piv-commit` from `.agents/skills/piv-commit/SKILL.md` to commit the completed implementation.
+2. Run `piv-create-pr` from `.agents/skills/piv-create-pr/SKILL.md` to push the branch and open the pull request.
+3. Add the commit SHA and pull request URL to the implementation report.
+
+If the commit or pull request cannot be completed, do not report the workstream as complete. Return the blocker and the recoverable state instead.
+
+Return the implementation outcome, validation evidence, report path, commit SHA, and pull request URL.
+
+Do not run `piv-review-pr`. Review belongs to a separate workstream so it can be performed with fresh context.
+
 
 ## Notes
 
