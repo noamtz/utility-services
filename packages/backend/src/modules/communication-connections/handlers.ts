@@ -5,14 +5,47 @@ import {
   RotateCommunicationCredentialRequestSchema,
 } from "@utility-services/contracts";
 
-import { createHttpHandler, type SafeLogger } from "../../core/http/handler.js";
+import { createHttpHandler, HttpError, type SafeLogger } from "../../core/http/handler.js";
 import { extractOwnerContext } from "../identity-control/auth/owner-context.js";
+import type { OwnerContext } from "../identity-control/auth/owner-context.js";
+import type { InternalProject } from "../identity-control/projects/model.js";
 import type { createCommunicationConnectionService } from "./service.js";
 
 type CommunicationConnectionService = ReturnType<typeof createCommunicationConnectionService>;
+type ProjectInspector = {
+  inspect(projectId: string): Promise<InternalProject | undefined>;
+};
+
+async function authorizeCommunicationProject(
+  projects: ProjectInspector,
+  owner: OwnerContext,
+  projectId: string,
+): Promise<void> {
+  const project = await projects.inspect(projectId);
+  if (
+    !project ||
+    project.ownerId !== owner.ownerId ||
+    !project.enabledUtilities.includes("communication")
+  ) {
+    throw new HttpError(404, "NOT_FOUND", "Project not found");
+  }
+}
+
+async function authorizeConnectionPath(
+  service: CommunicationConnectionService,
+  owner: OwnerContext,
+  projectId: string,
+  connectionId: string,
+): Promise<void> {
+  const connection = await service.inspect(owner, connectionId);
+  if (connection.projectId !== projectId) {
+    throw new HttpError(404, "NOT_FOUND", "Communication connection not found");
+  }
+}
 
 export function createRegisterCommunicationConnectionHandler(
   service: CommunicationConnectionService,
+  projects: ProjectInspector,
   logger?: SafeLogger,
 ) {
   return createHttpHandler({
@@ -23,26 +56,34 @@ export function createRegisterCommunicationConnectionHandler(
     },
     deriveAuthorization: extractOwnerContext,
     successStatusCode: 201,
-    callback: ({ authorization, path, body }) =>
-      service.create(authorization, path.projectId, body),
+    callback: async ({ authorization, path, body }) => {
+      await authorizeCommunicationProject(projects, authorization, path.projectId);
+      return service.create(authorization, path.projectId, body);
+    },
     ...(logger ? { logger } : {}),
   });
 }
 
 export function createInspectCommunicationConnectionHandler(
   service: CommunicationConnectionService,
+  projects: ProjectInspector,
   logger?: SafeLogger,
 ) {
   return createHttpHandler({
     schemas: { path: CommunicationConnectionPathSchema, response: CommunicationConnectionSchema },
     deriveAuthorization: extractOwnerContext,
-    callback: ({ authorization, path }) => service.inspect(authorization, path.connectionId),
+    callback: async ({ authorization, path }) => {
+      await authorizeCommunicationProject(projects, authorization, path.projectId);
+      await authorizeConnectionPath(service, authorization, path.projectId, path.connectionId);
+      return service.inspect(authorization, path.connectionId);
+    },
     ...(logger ? { logger } : {}),
   });
 }
 
 export function createRotateCommunicationConnectionHandler(
   service: CommunicationConnectionService,
+  projects: ProjectInspector,
   logger?: SafeLogger,
 ) {
   return createHttpHandler({
@@ -52,20 +93,28 @@ export function createRotateCommunicationConnectionHandler(
       response: CommunicationConnectionSchema,
     },
     deriveAuthorization: extractOwnerContext,
-    callback: ({ authorization, path, body }) =>
-      service.rotate(authorization, path.connectionId, body.credential),
+    callback: async ({ authorization, path, body }) => {
+      await authorizeCommunicationProject(projects, authorization, path.projectId);
+      await authorizeConnectionPath(service, authorization, path.projectId, path.connectionId);
+      return service.rotate(authorization, path.connectionId, body.credential);
+    },
     ...(logger ? { logger } : {}),
   });
 }
 
 export function createDisableCommunicationConnectionHandler(
   service: CommunicationConnectionService,
+  projects: ProjectInspector,
   logger?: SafeLogger,
 ) {
   return createHttpHandler({
     schemas: { path: CommunicationConnectionPathSchema, response: CommunicationConnectionSchema },
     deriveAuthorization: extractOwnerContext,
-    callback: ({ authorization, path }) => service.disable(authorization, path.connectionId),
+    callback: async ({ authorization, path }) => {
+      await authorizeCommunicationProject(projects, authorization, path.projectId);
+      await authorizeConnectionPath(service, authorization, path.projectId, path.connectionId);
+      return service.disable(authorization, path.connectionId);
+    },
     ...(logger ? { logger } : {}),
   });
 }

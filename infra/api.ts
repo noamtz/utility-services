@@ -108,6 +108,10 @@ export function createApi(
   const communicationParameterArn = `arn:aws:ssm:${region}:*:parameter/utility-services/${stage}/communication/*`;
   for (const route of COMMUNICATION_CONTROL_ROUTES) {
     const permissions = [
+      {
+        actions: ["dynamodb:Query"],
+        resources: [control.table.arn],
+      },
       ...(route.connectionTableActions.length > 0
         ? [
             {
@@ -126,7 +130,7 @@ export function createApi(
         {
           handler: route.handler,
           runtime: "nodejs24.x",
-          link: [control.communicationTable],
+          link: [control.table, control.communicationTable],
           ...(permissions.length > 0 ? { permissions } : {}),
           environment: { SST_STAGE: stage },
           transform: { function: { tracingConfig: { mode: "Active" } } },
