@@ -50,6 +50,7 @@ export function createControlResources(options: { production: boolean }) {
   const communicationTable = new sst.aws.Dynamo(COMMUNICATION_CONNECTION_TABLE_COMPONENT_NAME, {
     fields: COMMUNICATION_CONNECTION_TABLE_POLICY.fields,
     primaryIndex: COMMUNICATION_CONNECTION_TABLE_POLICY.primaryIndex,
+    globalIndexes: COMMUNICATION_CONNECTION_TABLE_POLICY.globalIndexes,
     ttl: COMMUNICATION_CONNECTION_TABLE_POLICY.ttl,
     deletionProtection: controlTableDeletionProtection(options.production),
   });

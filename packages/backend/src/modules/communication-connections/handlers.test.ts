@@ -5,6 +5,7 @@ import type { InternalProject } from "../identity-control/projects/model.js";
 import {
   createDisableCommunicationConnectionHandler,
   createInspectCommunicationConnectionHandler,
+  createListCommunicationConnectionsHandler,
   createRegisterCommunicationConnectionHandler,
   createRotateCommunicationConnectionHandler,
 } from "./handlers.js";
@@ -43,6 +44,37 @@ const event = (body: unknown, pathParameters: Record<string, string> = { project
 });
 
 describe("communication connection handlers", () => {
+  it("lists only redacted connections for an authorized communication project", async () => {
+    const service = createCommunicationConnectionService({
+      repository: {
+        reserveAndCreate: async () => undefined,
+        inspect: async () => undefined,
+        listForProject: async () => [
+          {
+            connectionId,
+            projectId,
+            provider: "green-api" as const,
+            instanceId: "instance-a",
+            status: "active" as const,
+            createdAt: "2026-11-09T00:00:00.000Z",
+            updatedAt: "2026-11-09T00:00:00.000Z",
+            ownerId: "owner-a",
+            secretReference: "private-parameter",
+            secretVersion: 1,
+          },
+        ],
+      },
+      secretStore: { store: vi.fn(), remove: async () => undefined },
+    });
+    const response = await createListCommunicationConnectionsHandler(service, {
+      inspect: async () => project,
+    })(event(undefined));
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain(connectionId);
+    expect(response.body).not.toContain("private-parameter");
+  });
+
   it("redacts registration credentials from handler logs and response", async () => {
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
     const service = createCommunicationConnectionService({

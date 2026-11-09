@@ -7,6 +7,7 @@ import { safeLogger } from "../../core/observability/powertools.js";
 import {
   createDisableCommunicationConnectionHandler,
   createInspectCommunicationConnectionHandler,
+  createListCommunicationConnectionsHandler,
   createRegisterCommunicationConnectionHandler,
   createRotateCommunicationConnectionHandler,
 } from "./handlers.js";
@@ -34,6 +35,11 @@ const service = createCommunicationConnectionService({
 });
 const projects = createDynamoProjectRepository({ client, tableName: controlTableName });
 export const registerCommunicationConnectionHandler = createRegisterCommunicationConnectionHandler(
+  service,
+  projects,
+  safeLogger,
+);
+export const listCommunicationConnectionsHandler = createListCommunicationConnectionsHandler(
   service,
   projects,
   safeLogger,

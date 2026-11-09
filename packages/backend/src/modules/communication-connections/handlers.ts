@@ -1,5 +1,6 @@
 import {
   CommunicationConnectionPathSchema,
+  CommunicationConnectionListSchema,
   CommunicationConnectionSchema,
   CreateCommunicationConnectionRequestSchema,
   RotateCommunicationCredentialRequestSchema,
@@ -59,6 +60,25 @@ export function createRegisterCommunicationConnectionHandler(
     callback: async ({ authorization, path, body }) => {
       await authorizeCommunicationProject(projects, authorization, path.projectId);
       return service.create(authorization, path.projectId, body);
+    },
+    ...(logger ? { logger } : {}),
+  });
+}
+
+export function createListCommunicationConnectionsHandler(
+  service: CommunicationConnectionService,
+  projects: ProjectInspector,
+  logger?: SafeLogger,
+) {
+  return createHttpHandler({
+    schemas: {
+      path: CommunicationConnectionPathSchema.pick({ projectId: true }),
+      response: CommunicationConnectionListSchema,
+    },
+    deriveAuthorization: extractOwnerContext,
+    callback: async ({ authorization, path }) => {
+      await authorizeCommunicationProject(projects, authorization, path.projectId);
+      return { items: await service.list(authorization, path.projectId) };
     },
     ...(logger ? { logger } : {}),
   });

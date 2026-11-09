@@ -96,6 +96,7 @@ describe("SST composition contracts", () => {
 
   it("keeps communication owner-control routes scoped to their own table and parameter prefix", () => {
     expect(COMMUNICATION_CONTROL_ROUTES.map((route) => route.route)).toEqual([
+      "GET /v1/control/projects/{projectId}/communication-connections",
       "POST /v1/control/projects/{projectId}/communication-connections",
       "GET /v1/control/projects/{projectId}/communication-connections/{connectionId}",
       "POST /v1/control/projects/{projectId}/communication-connections/{connectionId}/rotate",
