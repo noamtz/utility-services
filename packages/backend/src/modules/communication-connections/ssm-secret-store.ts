@@ -21,12 +21,21 @@ export function createSsmConnectionSecretStore(options: {
     async store({ connectionId, credential }) {
       const reference = connectionCredentialParameterName(stage, connectionId);
       const output = await client.send(
-        new PutParameterCommand({ Name: reference, Value: credential, Type: "SecureString", Overwrite: true }),
+        new PutParameterCommand({
+          Name: reference,
+          Value: credential,
+          Type: "SecureString",
+          Overwrite: true,
+        }),
       );
       return { reference, version: z.number().int().positive().parse(output.Version) };
     },
     async remove(reference) {
-      await client.send(new DeleteParameterCommand({ Name: z.string().startsWith(`/utility-services/${stage}/communication/`).parse(reference) }));
+      await client.send(
+        new DeleteParameterCommand({
+          Name: z.string().startsWith(`/utility-services/${stage}/communication/`).parse(reference),
+        }),
+      );
     },
   };
 }

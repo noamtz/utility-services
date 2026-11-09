@@ -19,12 +19,22 @@ describe("communication connection handlers", () => {
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
     const service = createCommunicationConnectionService({
       repository: { reserveAndCreate: async () => undefined, inspect: async () => undefined },
-      secretStore: { store: async () => ({ reference: "secret-reference", version: 1 }), remove: async () => undefined },
+      secretStore: {
+        store: async () => ({ reference: "secret-reference", version: 1 }),
+        remove: async () => undefined,
+      },
       generateId: () => "con_1234567890123456789012",
       now: () => new Date("2026-11-09T00:00:00.000Z"),
     });
-    const response = await createRegisterCommunicationConnectionHandler(service, logger)(
-      event({ provider: "green-api", instanceId: "instance-a", credential: "credential-material-that-is-long-enough" }) as never,
+    const response = await createRegisterCommunicationConnectionHandler(
+      service,
+      logger,
+    )(
+      event({
+        provider: "green-api",
+        instanceId: "instance-a",
+        credential: "credential-material-that-is-long-enough",
+      }) as never,
     );
     expect(response.statusCode).toBe(201);
     expect(response.body).not.toContain("credential-material-that-is-long-enough");

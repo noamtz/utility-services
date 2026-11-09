@@ -21,6 +21,18 @@ export const COMMUNICATION_CONTROL_ROUTES = [
     connectionTableActions: ["dynamodb:GetItem"],
     parameterActions: [],
   },
-  { name: "RotateCommunicationConnectionRoute", route: "POST /v1/control/projects/{projectId}/communication-connections/{connectionId}/rotate", handler: "packages/backend/src/functions/control/rotate-communication-connection.handler", connectionTableActions: ["dynamodb:UpdateItem", "dynamodb:GetItem"], parameterActions: ["ssm:PutParameter"] },
-  { name: "DisableCommunicationConnectionRoute", route: "DELETE /v1/control/projects/{projectId}/communication-connections/{connectionId}", handler: "packages/backend/src/functions/control/disable-communication-connection.handler", connectionTableActions: ["dynamodb:UpdateItem", "dynamodb:GetItem"], parameterActions: [] },
+  {
+    name: "RotateCommunicationConnectionRoute",
+    route: "POST /v1/control/projects/{projectId}/communication-connections/{connectionId}/rotate",
+    handler: "packages/backend/src/functions/control/rotate-communication-connection.handler",
+    connectionTableActions: ["dynamodb:UpdateItem", "dynamodb:GetItem"],
+    parameterActions: ["ssm:PutParameter"],
+  },
+  {
+    name: "DisableCommunicationConnectionRoute",
+    route: "DELETE /v1/control/projects/{projectId}/communication-connections/{connectionId}",
+    handler: "packages/backend/src/functions/control/disable-communication-connection.handler",
+    connectionTableActions: ["dynamodb:UpdateItem", "dynamodb:GetItem"],
+    parameterActions: [],
+  },
 ] as const;

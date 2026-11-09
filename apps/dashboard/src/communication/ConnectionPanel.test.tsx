@@ -1,5 +1,49 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ConnectionPanel } from "./ConnectionPanel.js";
-const connection={connectionId:"con_1234567890123456789012",projectId:"prj_1234567890123456789012",provider:"green-api" as const,instanceId:"instance-a",status:"active" as const,createdAt:"2026-11-09T00:00:00.000Z",updatedAt:"2026-11-09T00:00:00.000Z"};
-describe("ConnectionPanel",()=>{it("clears credential and renders only redacted connection state",async()=>{const api={register:vi.fn().mockResolvedValue(connection),disable:vi.fn(),inspect:vi.fn(),rotate:vi.fn()};render(<ConnectionPanel projectId={connection.projectId} api={api as never}/>);fireEvent.change(screen.getByLabelText("Instance ID"),{target:{value:"instance-a"}});fireEvent.change(screen.getByLabelText("Credential"),{target:{value:"credential-material-that-is-long-enough"}});fireEvent.click(screen.getByText("Connect GREEN"));await screen.findByText("GREEN instance: instance-a");expect(screen.queryByDisplayValue("credential-material-that-is-long-enough")).toBeNull();expect(document.body.textContent).not.toContain("credential-material-that-is-long-enough");});it("disables an active connection",async()=>{const api={register:vi.fn().mockResolvedValue(connection),disable:vi.fn().mockResolvedValue({...connection,status:"disabled"}),inspect:vi.fn(),rotate:vi.fn()};render(<ConnectionPanel projectId={connection.projectId} api={api as never}/>);fireEvent.change(screen.getByLabelText("Instance ID"),{target:{value:"instance-a"}});fireEvent.change(screen.getByLabelText("Credential"),{target:{value:"credential-material-that-is-long-enough"}});fireEvent.click(screen.getByText("Connect GREEN"));await screen.findByText("Disable connection");fireEvent.click(screen.getByText("Disable connection"));await screen.findByText("Status: disabled");expect(api.disable).toHaveBeenCalledWith(connection.projectId,connection.connectionId);});});
+const connection = {
+  connectionId: "con_1234567890123456789012",
+  projectId: "prj_1234567890123456789012",
+  provider: "green-api" as const,
+  instanceId: "instance-a",
+  status: "active" as const,
+  createdAt: "2026-11-09T00:00:00.000Z",
+  updatedAt: "2026-11-09T00:00:00.000Z",
+};
+describe("ConnectionPanel", () => {
+  it("clears credential and renders only redacted connection state", async () => {
+    const api = {
+      register: vi.fn().mockResolvedValue(connection),
+      disable: vi.fn(),
+      inspect: vi.fn(),
+      rotate: vi.fn(),
+    };
+    render(<ConnectionPanel projectId={connection.projectId} api={api as never} />);
+    fireEvent.change(screen.getByLabelText("Instance ID"), { target: { value: "instance-a" } });
+    fireEvent.change(screen.getByLabelText("Credential"), {
+      target: { value: "credential-material-that-is-long-enough" },
+    });
+    fireEvent.click(screen.getByText("Connect GREEN"));
+    await screen.findByText("GREEN instance: instance-a");
+    expect(screen.queryByDisplayValue("credential-material-that-is-long-enough")).toBeNull();
+    expect(document.body.textContent).not.toContain("credential-material-that-is-long-enough");
+  });
+  it("disables an active connection", async () => {
+    const api = {
+      register: vi.fn().mockResolvedValue(connection),
+      disable: vi.fn().mockResolvedValue({ ...connection, status: "disabled" }),
+      inspect: vi.fn(),
+      rotate: vi.fn(),
+    };
+    render(<ConnectionPanel projectId={connection.projectId} api={api as never} />);
+    fireEvent.change(screen.getByLabelText("Instance ID"), { target: { value: "instance-a" } });
+    fireEvent.change(screen.getByLabelText("Credential"), {
+      target: { value: "credential-material-that-is-long-enough" },
+    });
+    fireEvent.click(screen.getByText("Connect GREEN"));
+    await screen.findByText("Disable connection");
+    fireEvent.click(screen.getByText("Disable connection"));
+    await screen.findByText("Status: disabled");
+    expect(api.disable).toHaveBeenCalledWith(connection.projectId, connection.connectionId);
+  });
+});
