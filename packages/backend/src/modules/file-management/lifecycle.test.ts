@@ -136,6 +136,7 @@ function repository(overrides: Partial<FileRepository> = {}) {
     claimPermanentRemoval: vi.fn(),
     recordObjectRemoved: vi.fn(),
     finalizePermanentRemoval: vi.fn(),
+    updateDeletionProtection: vi.fn(),
     listDuePurge: vi.fn(),
     ...overrides,
   } satisfies FileRepository;
@@ -269,6 +270,35 @@ describe("file lifecycle service", () => {
       statusCode: 409,
       code: "FILE_STATE_CONFLICT",
     });
+  });
+
+  it("blocks normal and force deletion for a protected file before any object or usage action", async () => {
+    const protectedFile = parseFileItem({
+      ...ready(),
+      deletionProtectedAt: timestamp,
+      deletionProtectionChangedAt: timestamp,
+      deletionProtectionChangedByKeyId: context.keyId,
+    });
+    const files = repository({ get: vi.fn().mockResolvedValue(protectedFile) });
+    const objects = objectStore();
+    const storage = usage();
+    const service = createFileLifecycleService({
+      repository: files,
+      objectStore: objects,
+      usage: storage,
+    });
+    await expect(service.delete(context, fileId, { force: false })).rejects.toMatchObject({
+      statusCode: 409,
+      code: "FILE_STATE_CONFLICT",
+    });
+    await expect(service.delete(context, fileId, { force: true })).rejects.toMatchObject({
+      statusCode: 409,
+      code: "FILE_STATE_CONFLICT",
+    });
+    expect(files.trash).not.toHaveBeenCalled();
+    expect(files.claimPermanentRemoval).not.toHaveBeenCalled();
+    expect(objects.delete).not.toHaveBeenCalled();
+    expect(storage.closeStorage).not.toHaveBeenCalled();
   });
 
   it("forces deletion through object removal, stable storage closure, then finalization", async () => {

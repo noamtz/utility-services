@@ -8,6 +8,7 @@ import {
   type File,
   type FileListPayload,
   type FileListQuery,
+  type UpdateFileDeletionProtectionRequest,
   type TrustedProjectContext,
   type UploadAuthorization,
 } from "@utility-services/contracts";
@@ -34,6 +35,11 @@ export interface FileService {
   ): Promise<UploadAuthorization>;
   list(project: TrustedProjectContext, query: FileListQuery): Promise<FileListPayload>;
   inspect(project: TrustedProjectContext, fileId: string): Promise<File>;
+  updateDeletionProtection(
+    project: TrustedProjectContext,
+    fileId: string,
+    request: UpdateFileDeletionProtectionRequest,
+  ): Promise<File>;
 }
 
 export interface FileServiceDependencies {
@@ -53,6 +59,7 @@ export function toPublicFile(item: FileItem): File {
     sizeBytes: Number(item.sizeBytes),
     visibility: item.visibility,
     status: item.status,
+    deletionProtected: item.deletionProtectedAt !== undefined,
     ...(item.status === "trashed" ? { trashedAt: item.trashedAt, purgeAt: item.purgeAt } : {}),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -193,6 +200,30 @@ export function createFileService(dependencies: FileServiceDependencies): FileSe
       const item = await dependencies.repository.get(project.internalProjectId, fileId);
       if (!item || item.internalProjectId !== project.internalProjectId) throw fileNotFound();
       return toPublicFile(item);
+    },
+
+    async updateDeletionProtection(project, fileId, request) {
+      const item = await dependencies.repository.get(project.internalProjectId, fileId);
+      if (!item || item.internalProjectId !== project.internalProjectId) throw fileNotFound();
+      try {
+        return toPublicFile(
+          await dependencies.repository.updateDeletionProtection(
+            item,
+            request.deletionProtected,
+            now().toISOString(),
+            project.keyId,
+          ),
+        );
+      } catch (error) {
+        if (error instanceof FileStateConflictError) {
+          throw new HttpError(
+            409,
+            "FILE_STATE_CONFLICT",
+            "File state does not allow this operation",
+          );
+        }
+        throw error;
+      }
     },
   };
 }

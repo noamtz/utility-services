@@ -109,6 +109,7 @@ export {
   UploadAuthorizationResponseSchema,
   UploadAuthorizationSchema,
   UploadRequiredHeadersSchema,
+  UpdateFileDeletionProtectionRequestSchema,
   type CreateUploadRequest,
   type DeleteFileQuery,
   type DeleteFileResult,
@@ -126,6 +127,7 @@ export {
   type PublicFilePath,
   type UploadAuthorization,
   type UploadRequiredHeaders,
+  type UpdateFileDeletionProtectionRequest,
 } from "./files/contract.js";
 export {
   CanonicalUnsignedDecimalSchema,

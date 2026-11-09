@@ -17,6 +17,7 @@ import {
   createListFilesHandler,
   createPublicDownloadHandler,
   createRestoreFileHandler,
+  createUpdateFileDeletionProtectionHandler,
 } from "./handlers.js";
 import { createFileLifecycleService, type LifecycleUsageService } from "./lifecycle.js";
 import { createS3ObjectStore, type ObjectStore } from "./object-store.js";
@@ -200,6 +201,11 @@ export function getFileHandlers() {
     ),
     listFiles: createListFilesHandler(composed.service, composed.authentication, safeLogger),
     inspectFile: createInspectFileHandler(composed.service, composed.authentication, safeLogger),
+    updateFileDeletionProtection: createUpdateFileDeletionProtectionHandler(
+      composed.service,
+      composed.authentication,
+      safeLogger,
+    ),
     authorizeDownload: createAuthorizeDownloadHandler(
       composed.downloads,
       composed.authentication,

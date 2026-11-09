@@ -51,6 +51,7 @@ describe("file management infrastructure policy", () => {
       "POST /v1/files/uploads",
       "GET /v1/files",
       "GET /v1/files/{fileId}",
+      "PUT /v1/files/{fileId}/deletion-protection",
       "POST /v1/files/{fileId}/downloads",
       "DELETE /v1/files/{fileId}",
       "POST /v1/files/{fileId}/restore",
@@ -60,6 +61,7 @@ describe("file management infrastructure policy", () => {
       "AuthorizeFileUploadRoute",
       "ListFilesRoute",
       "InspectFileRoute",
+      "UpdateFileDeletionProtectionRoute",
       "AuthorizeFileDownloadRoute",
       "DeleteFileRoute",
       "RestoreFileRoute",
@@ -68,14 +70,20 @@ describe("file management infrastructure policy", () => {
     expect(FILE_ROUTES[0]).toMatchObject({
       fileTableActions: ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:TransactWriteItems"],
     });
-    const privateDownload = FILE_ROUTES[3];
+    const protection = FILE_ROUTES[3];
+    expect(protection).toMatchObject({
+      handler: "packages/backend/src/functions/files/update-file-deletion-protection.handler",
+      fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+      bucketActions: [],
+    });
+    const privateDownload = FILE_ROUTES[4];
     expect(privateDownload).toMatchObject({
       handler: "packages/backend/src/functions/files/authorize-download.handler",
       controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
       fileTableActions: ["dynamodb:GetItem"],
       bucketActions: ["s3:GetObject"],
     });
-    const deletion = FILE_ROUTES[4];
+    const deletion = FILE_ROUTES[5];
     expect(deletion).toMatchObject({
       handler: "packages/backend/src/functions/files/delete-file.handler",
       fileTableActions: [
@@ -88,14 +96,14 @@ describe("file management infrastructure policy", () => {
     });
     expect(deletion?.usageTableActions).toContain("dynamodb:GetItem");
     expect(deletion?.usageTableActions).toContain("dynamodb:TransactWriteItems");
-    const restore = FILE_ROUTES[5];
+    const restore = FILE_ROUTES[6];
     expect(restore).toMatchObject({
       handler: "packages/backend/src/functions/files/restore-file.handler",
       fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
       bucketActions: [],
       usageTableActions: [],
     });
-    const publicDownload = FILE_ROUTES[6];
+    const publicDownload = FILE_ROUTES[7];
     expect(publicDownload).toMatchObject({
       handler: "packages/backend/src/functions/files/public-download.handler",
       controlTableActions: [],

@@ -44,6 +44,9 @@ describe("IntegrationGuide", () => {
     expect(canonicalExamples).toContain("/v1/files/$FILE_ID/downloads");
     expect(canonicalExamples).toContain("/files/public/$PUBLIC_PROJECT_ID/$PUBLIC_FILE_ID");
     expect(canonicalExamples).toContain("/v1/files/$FILE_ID/restore");
+    expect(canonicalExamples).toContain("/v1/files/$FILE_ID/deletion-protection");
+    expect(canonicalExamples).toContain('"deletionProtected":true');
+    expect(canonicalExamples).toContain('"deletionProtected":false');
     expect(canonicalExamples).toContain("/v1/files/$FILE_ID?force=true");
     expect(canonicalExamples).toContain("Authorization: Bearer $RUS_API_KEY");
     expect(canonicalExamples).toContain("Content-Type: application/pdf");

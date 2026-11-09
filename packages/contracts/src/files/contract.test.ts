@@ -10,6 +10,7 @@ import {
   MAX_FILE_SIZE_BYTES,
   PublicFilePathSchema,
   UploadAuthorizationSchema,
+  UpdateFileDeletionProtectionRequestSchema,
 } from "./contract.js";
 
 const timestamp = "2026-08-23T08:00:00.000Z";
@@ -20,6 +21,7 @@ const privateFile = {
   sizeBytes: 1024,
   visibility: "private",
   status: "pending",
+  deletionProtected: false,
   createdAt: timestamp,
   updatedAt: timestamp,
 } as const;
@@ -82,6 +84,15 @@ describe("file contracts", () => {
     expect(FileSchema.safeParse({ ...privateFile, internalProjectId: "private" }).success).toBe(
       false,
     );
+  });
+
+  it("accepts only an explicit boolean deletion protection update", () => {
+    expect(UpdateFileDeletionProtectionRequestSchema.parse({ deletionProtected: true })).toEqual({
+      deletionProtected: true,
+    });
+    expect(
+      UpdateFileDeletionProtectionRequestSchema.safeParse({ deletionProtected: "true" }).success,
+    ).toBe(false);
   });
 
   it("exposes lifecycle timestamps only for trashed files", () => {

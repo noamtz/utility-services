@@ -92,6 +92,7 @@ export function createFileLifecycleService(
       const file = await ownedFile(project, fileId);
       const timestamp = now();
       try {
+        if (file.deletionProtectedAt !== undefined) throw new FileStateConflictError();
         if (query.force) {
           const claimed = await dependencies.repository.claimPermanentRemoval(
             file,
@@ -157,6 +158,7 @@ export function createFileLifecycleService(
         const page = await dependencies.repository.listDuePurge(dueThrough, pageSize, startKey);
         pages += 1;
         for (const due of page.items) {
+          if (due.deletionProtectedAt !== undefined) continue;
           const claimed =
             due.purgeStartedAt !== undefined
               ? due

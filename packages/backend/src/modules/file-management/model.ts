@@ -71,6 +71,12 @@ export const FileItemSchema = z
     fileManagementPolicyVersionAtDeletion: DynamoIntegerSchema.optional(),
     purgeStartedAt: TimestampSchema.optional(),
     objectRemovedAt: TimestampSchema.optional(),
+    deletionProtectedAt: TimestampSchema.optional(),
+    deletionProtectionChangedAt: TimestampSchema.optional(),
+    deletionProtectionChangedByKeyId: z
+      .string()
+      .regex(/^key_[A-Za-z0-9_-]{22}$/u)
+      .optional(),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
     revision: DynamoIntegerSchema,
@@ -176,6 +182,13 @@ export function parseFileItem(input: unknown): FileItem {
     throw new Error("File keys or expiry are inconsistent");
   }
   assertPublicKeys(item);
+  if (
+    (item.deletionProtectionChangedAt === undefined) !==
+      (item.deletionProtectionChangedByKeyId === undefined) ||
+    (item.deletionProtectedAt !== undefined && item.deletionProtectionChangedAt === undefined)
+  ) {
+    throw new Error("File deletion protection audit state is inconsistent");
+  }
   if (item.status === "pending") {
     if (
       item.gsi2pk !== PENDING_UPLOAD_INDEX_PARTITION ||

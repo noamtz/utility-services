@@ -51,6 +51,9 @@ export const FileListQuerySchema = z
   .strict();
 
 export const FilePathSchema = z.object({ fileId: FileIdSchema }).strict();
+export const UpdateFileDeletionProtectionRequestSchema = z
+  .object({ deletionProtected: z.boolean() })
+  .strict();
 export const DeleteFileQuerySchema = z
   .object({
     force: z
@@ -77,6 +80,7 @@ export const FileSchema = z
     sizeBytes: FileSizeBytesSchema,
     visibility: FileVisibilitySchema,
     status: FileStatusSchema,
+    deletionProtected: z.boolean().default(false),
     trashedAt: TimestampSchema.optional(),
     purgeAt: TimestampSchema.optional(),
     createdAt: TimestampSchema,
@@ -217,6 +221,9 @@ export type FileVisibility = z.infer<typeof FileVisibilitySchema>;
 export type FileStatus = z.infer<typeof FileStatusSchema>;
 export type File = z.infer<typeof FileSchema>;
 export type CreateUploadRequest = z.infer<typeof CreateUploadRequestSchema>;
+export type UpdateFileDeletionProtectionRequest = z.infer<
+  typeof UpdateFileDeletionProtectionRequestSchema
+>;
 export type UploadRequiredHeaders = z.infer<typeof UploadRequiredHeadersSchema>;
 export type UploadAuthorization = z.infer<typeof UploadAuthorizationSchema>;
 export type DownloadTransfer = z.infer<typeof DownloadTransferSchema>;

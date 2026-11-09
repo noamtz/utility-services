@@ -43,9 +43,17 @@ curl --fail-with-body "$API_BASE_URL/v1/files/$FILE_ID" -H "Authorization: Beare
 curl --fail-with-body "$DOWNLOAD_URL" --output downloaded-file`,
     },
     {
-      title: "5. Public access and lifecycle",
+      title: "5. Protect files, public access, and lifecycle",
       value: `# A public file's stable service URL redirects to a fresh temporary S3 URL.
 curl --fail-with-body "$API_BASE_URL/files/public/$PUBLIC_PROJECT_ID/$PUBLIC_FILE_ID"
+
+# Any server-side key for this project may protect or unprotect its file.
+curl --fail-with-body -X PUT "$API_BASE_URL/v1/files/$FILE_ID/deletion-protection" \\
+  -H "Authorization: Bearer $RUS_API_KEY" -H "Content-Type: application/json" \\
+  --data '{"deletionProtected":true}'
+curl --fail-with-body -X PUT "$API_BASE_URL/v1/files/$FILE_ID/deletion-protection" \\
+  -H "Authorization: Bearer $RUS_API_KEY" -H "Content-Type: application/json" \\
+  --data '{"deletionProtected":false}'
 
 # Trash for 14 days, or restore while preserving identity.
 curl --fail-with-body -X DELETE "$API_BASE_URL/v1/files/$FILE_ID" -H "Authorization: Bearer $RUS_API_KEY"

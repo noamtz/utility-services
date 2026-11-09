@@ -596,6 +596,47 @@ describe("Dynamo file repository", () => {
     expect(send).toHaveBeenCalledOnce();
   });
 
+  it("records the project key audit fields and uses conditional writes for deletion protection", async () => {
+    const source = ready();
+    const changedAt = "2026-08-23T10:00:00.000Z";
+    const protectedFile = parseFileItem({
+      ...source,
+      deletionProtectedAt: changedAt,
+      deletionProtectionChangedAt: changedAt,
+      deletionProtectionChangedByKeyId: "key_0123456789abcdefghijkl",
+      updatedAt: changedAt,
+      revision: source.revision + 1n,
+    });
+    const { send, repository } = fixture();
+    send.mockResolvedValueOnce({ Attributes: protectedFile });
+    await expect(
+      repository.updateDeletionProtection(source, true, changedAt, "key_0123456789abcdefghijkl"),
+    ).resolves.toEqual(protectedFile);
+    const command = send.mock.calls[0]?.[0] as { input: Record<string, unknown> };
+    expect(command.input["ConditionExpression"]).toMatch(/revision.*internalProjectId.*fileId/u);
+    expect(command.input["UpdateExpression"]).toContain("deletionProtectionChangedByKeyId");
+
+    send.mockRejectedValueOnce(
+      Object.assign(new Error("conditional"), { name: "ConditionalCheckFailedException" }),
+    );
+    await expect(
+      repository.updateDeletionProtection(source, true, changedAt, "key_0123456789abcdefghijkl"),
+    ).rejects.toBeInstanceOf(FileStateConflictError);
+    send
+      .mockRejectedValueOnce(
+        Object.assign(new Error("conditional"), { name: "ConditionalCheckFailedException" }),
+      )
+      .mockResolvedValueOnce({ Item: protectedFile });
+    await expect(
+      repository.claimPermanentRemoval(protectedFile, changedAt, true),
+    ).rejects.toBeInstanceOf(FileStateConflictError);
+    expect(send.mock.calls[2]?.[0]).toMatchObject({
+      input: {
+        ConditionExpression: expect.stringContaining("attribute_not_exists(deletionProtectedAt)"),
+      },
+    });
+  });
+
   it("defers a force claim until the upload capability plus skew has expired", async () => {
     const forceAt = "2026-08-23T10:00:00.000Z";
     const source = parseFileItem({

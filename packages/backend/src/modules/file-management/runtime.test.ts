@@ -83,6 +83,7 @@ describe("file management runtime", () => {
     expect(getFileHandlers().authorizeUpload).toBeTypeOf("function");
     expect(getFileHandlers().listFiles).toBeTypeOf("function");
     expect(getFileHandlers().inspectFile).toBeTypeOf("function");
+    expect(getFileHandlers().updateFileDeletionProtection).toBeTypeOf("function");
     expect(getFileHandlers().authorizeDownload).toBeTypeOf("function");
     expect(getFileHandlers().publicDownload).toBeTypeOf("function");
     expect(getFileLifecycleHandlers().deleteFile).toBeTypeOf("function");
