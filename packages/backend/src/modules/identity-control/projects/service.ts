@@ -14,11 +14,22 @@ import { InvalidProjectCursorError, decodeProjectCursor, encodeProjectCursor } f
 import { generateProjectIds, type ProjectIds } from "./ids.js";
 import { InternalProjectSchema, type InternalProject, type ProjectMetadataItem } from "./model.js";
 import { ProjectCollisionError, type ProjectRepository } from "./repository.js";
+import { ProjectStateConflictError, StorageQuotaBelowAccountedError } from "./repository.js";
+import {
+  readFileManagementPolicyLimits,
+  type FileManagementPolicyLimits,
+} from "./policy-limits.js";
 
 export interface ProjectService {
   create(owner: OwnerContext, request: CreateProjectRequest): Promise<Project>;
   list(owner: OwnerContext, query: ProjectListQuery): Promise<ProjectListPayload>;
   inspect(owner: OwnerContext, publicProjectId: string): Promise<Project>;
+  updateFileManagementPolicy(
+    owner: OwnerContext,
+    publicProjectId: string,
+    request: { storageQuotaBytes: number; trashRetentionDays: number },
+  ): Promise<Project>;
+  policyLimits(): FileManagementPolicyLimits;
 }
 
 export interface ProjectServiceDependencies {
@@ -26,6 +37,7 @@ export interface ProjectServiceDependencies {
   readonly generateIds?: () => ProjectIds;
   readonly now?: () => Date;
   readonly collisionAttempts?: number;
+  readonly policyLimits?: FileManagementPolicyLimits;
 }
 
 function toPublicProject(project: InternalProject): Project {
@@ -57,12 +69,21 @@ export function createProjectService(dependencies: ProjectServiceDependencies): 
   const generateIds = dependencies.generateIds ?? generateProjectIds;
   const now = dependencies.now ?? (() => new Date());
   const collisionAttempts = dependencies.collisionAttempts ?? 3;
+  const policyLimits = dependencies.policyLimits ?? readFileManagementPolicyLimits();
   if (!Number.isInteger(collisionAttempts) || collisionAttempts < 1 || collisionAttempts > 10) {
     throw new RangeError("collisionAttempts must be an integer between 1 and 10");
   }
 
   return {
     async create(owner, request) {
+      if (
+        request.fileManagement.storageQuotaBytes < policyLimits.minStorageQuotaBytes ||
+        request.fileManagement.storageQuotaBytes > policyLimits.maxStorageQuotaBytes ||
+        request.fileManagement.trashRetentionDays < policyLimits.minTrashRetentionDays ||
+        request.fileManagement.trashRetentionDays > policyLimits.maxTrashRetentionDays
+      ) {
+        throw new HttpError(400, "VALIDATION_ERROR", "Project policy is outside allowed limits");
+      }
       const timestamp = now().toISOString();
       for (let attempt = 1; attempt <= collisionAttempts; attempt += 1) {
         const ids = generateIds();
@@ -129,6 +150,47 @@ export function createProjectService(dependencies: ProjectServiceDependencies): 
         throw notFound();
       }
       return toPublicProject(project);
+    },
+    policyLimits() {
+      return policyLimits;
+    },
+    async updateFileManagementPolicy(owner, publicProjectId, request) {
+      const project = await dependencies.repository.inspect(publicProjectId);
+      if (!project || project.ownerId !== owner.ownerId) {
+        throw notFound();
+      }
+      if (
+        request.storageQuotaBytes < policyLimits.minStorageQuotaBytes ||
+        request.storageQuotaBytes > policyLimits.maxStorageQuotaBytes ||
+        request.trashRetentionDays < policyLimits.minTrashRetentionDays ||
+        request.trashRetentionDays > policyLimits.maxTrashRetentionDays
+      ) {
+        throw new HttpError(400, "VALIDATION_ERROR", "Project policy is outside allowed limits");
+      }
+      try {
+        await dependencies.repository.updateFileManagementPolicy(
+          project,
+          request,
+          now().toISOString(),
+        );
+      } catch (error) {
+        if (error instanceof StorageQuotaBelowAccountedError) {
+          throw new HttpError(
+            409,
+            "STORAGE_QUOTA_BELOW_ACCOUNTED",
+            "Storage quota is below current usage",
+          );
+        }
+        if (error instanceof ProjectStateConflictError) {
+          throw new HttpError(409, "PROJECT_POLICY_CHANGED", "Project policy changed; retry");
+        }
+        throw error;
+      }
+      const updated = await dependencies.repository.inspect(publicProjectId);
+      if (!updated || updated.ownerId !== owner.ownerId) {
+        throw notFound();
+      }
+      return toPublicProject(updated);
     },
   };
 }

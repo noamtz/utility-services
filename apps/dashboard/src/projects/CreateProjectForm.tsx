@@ -1,16 +1,31 @@
 import { useState, type FormEvent } from "react";
 
-import { CreateProjectRequestSchema, type CreateProjectRequest } from "@utility-services/contracts";
+import {
+  CreateProjectRequestSchema,
+  DEFAULT_STORAGE_QUOTA_BYTES,
+  DEFAULT_TRASH_RETENTION_DAYS,
+  type CreateProjectRequest,
+  type FileManagementPolicyLimits,
+} from "@utility-services/contracts";
 
 interface CreateProjectFormProps {
   busy?: boolean;
+  policyLimits?: FileManagementPolicyLimits | undefined;
   onCreate: (input: CreateProjectRequest) => Promise<void>;
 }
 
-export function CreateProjectForm({ busy = false, onCreate }: CreateProjectFormProps) {
+export function CreateProjectForm({
+  busy = false,
+  policyLimits,
+  onCreate,
+}: CreateProjectFormProps) {
   const [name, setName] = useState("");
   const [uploadLifetime, setUploadLifetime] = useState("15");
   const [downloadLifetime, setDownloadLifetime] = useState("5");
+  const [storageQuotaBytes, setStorageQuotaBytes] = useState(String(DEFAULT_STORAGE_QUOTA_BYTES));
+  const [trashRetentionDays, setTrashRetentionDays] = useState(
+    String(DEFAULT_TRASH_RETENTION_DAYS),
+  );
   const [error, setError] = useState<string>();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -21,10 +36,14 @@ export function CreateProjectForm({ busy = false, onCreate }: CreateProjectFormP
       fileManagement: {
         uploadUrlLifetimeMinutes: Number(uploadLifetime),
         downloadUrlLifetimeMinutes: Number(downloadLifetime),
+        storageQuotaBytes: Number(storageQuotaBytes),
+        trashRetentionDays: Number(trashRetentionDays),
       },
     });
     if (!parsed.success) {
-      setError("Enter a project name and whole-number lifetimes from 1 to 60 minutes.");
+      setError(
+        "Enter whole-number lifetimes from 1 to 60 minutes and valid File Management settings.",
+      );
       return;
     }
     setError(undefined);
@@ -38,6 +57,38 @@ export function CreateProjectForm({ busy = false, onCreate }: CreateProjectFormP
         <p className="eyebrow">New project</p>
         <h2>Create a project</h2>
       </div>
+      <div className="field-grid">
+        <label htmlFor="storage-quota-bytes">
+          Storage quota (bytes)
+          <input
+            id="storage-quota-bytes"
+            type="number"
+            min={policyLimits?.minStorageQuotaBytes}
+            max={policyLimits?.maxStorageQuotaBytes}
+            step={1}
+            required
+            value={storageQuotaBytes}
+            onChange={(event) => setStorageQuotaBytes(event.target.value)}
+          />
+        </label>
+        <label htmlFor="trash-retention-days">
+          Trash retention (days)
+          <input
+            id="trash-retention-days"
+            type="number"
+            min={policyLimits?.minTrashRetentionDays}
+            max={policyLimits?.maxTrashRetentionDays}
+            step={1}
+            required
+            value={trashRetentionDays}
+            onChange={(event) => setTrashRetentionDays(event.target.value)}
+          />
+        </label>
+      </div>
+      <p className="field-note">
+        Deleted files remain in trash for the selected period. They still count toward storage quota
+        and can affect usage cost.
+      </p>
       <label htmlFor="project-name">Project name</label>
       <input
         id="project-name"

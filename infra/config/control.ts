@@ -51,6 +51,18 @@ export const CONTROL_ROUTES = [
     additionalTableActions: [],
   },
   {
+    name: "FileManagementPolicyLimitsRoute",
+    route: "GET /v1/control/file-management-policy-limits",
+    handler: "packages/backend/src/functions/control/file-management-policy-limits.handler",
+    additionalTableActions: [],
+  },
+  {
+    name: "UpdateFileManagementPolicyRoute",
+    route: "PATCH /v1/control/projects/{projectId}/file-management-policy",
+    handler: "packages/backend/src/functions/control/update-file-management-policy.handler",
+    additionalTableActions: ["dynamodb:TransactWriteItems"],
+  },
+  {
     name: "IssueProjectApiKeyRoute",
     route: "POST /v1/control/projects/{projectId}/api-keys",
     handler: "packages/backend/src/functions/control/issue-project-api-key.handler",

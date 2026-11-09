@@ -6,7 +6,12 @@ const project = {
   projectId: "prj_0123456789abcdefghijkl",
   name: "Documents",
   enabledUtilities: ["file-management"] as const,
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
   createdAt: "2026-08-23T08:00:00.000Z",
   updatedAt: "2026-08-23T08:00:00.000Z",
 };
@@ -26,7 +31,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("project API", () => {
-  it("gets a fresh access token and calls same-origin create/list/inspect paths", async () => {
+  it("gets a fresh access token and calls same-origin project paths", async () => {
     const getAccessToken = vi.fn().mockResolvedValue("access-token");
     const fetch = vi
       .fn<typeof globalThis.fetch>()
@@ -34,22 +39,43 @@ describe("project API", () => {
       .mockResolvedValueOnce(
         jsonResponse({ data: { items: [summary], nextCursor: "next_1" }, requestId: "req-2" }),
       )
-      .mockResolvedValueOnce(jsonResponse({ data: project, requestId: "req-3" }));
+      .mockResolvedValueOnce(jsonResponse({ data: project, requestId: "req-3" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: {
+            minStorageQuotaBytes: 1,
+            maxStorageQuotaBytes: 10 * 2 ** 30,
+            minTrashRetentionDays: 1,
+            maxTrashRetentionDays: 90,
+          },
+          requestId: "req-4",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ data: project, requestId: "req-5" }));
     const api = createProjectApi({ getAccessToken, fetch });
 
     await expect(
       api.create({
         name: " Documents ",
         enabledUtilities: ["file-management"],
-        fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+        fileManagement: project.fileManagement,
       }),
     ).resolves.toMatchObject({ name: "Documents" });
     await expect(api.list({ limit: 10, cursor: "next_1" })).resolves.toMatchObject({
       items: [summary],
     });
     await expect(api.inspect(project.projectId)).resolves.toEqual(project);
+    await expect(api.getFileManagementPolicyLimits()).resolves.toMatchObject({
+      maxTrashRetentionDays: 90,
+    });
+    await expect(
+      api.updateFileManagementPolicy(project.projectId, {
+        storageQuotaBytes: 5 * 2 ** 30,
+        trashRetentionDays: 14,
+      }),
+    ).resolves.toEqual(project);
 
-    expect(getAccessToken).toHaveBeenCalledTimes(3);
+    expect(getAccessToken).toHaveBeenCalledTimes(5);
     expect(fetch).toHaveBeenNthCalledWith(
       1,
       "/v1/control/projects",
@@ -60,6 +86,12 @@ describe("project API", () => {
     );
     expect(fetch.mock.calls[1]?.[0]).toBe("/v1/control/projects?limit=10&cursor=next_1");
     expect(fetch.mock.calls[2]?.[0]).toBe(`/v1/control/projects/${project.projectId}`);
+    expect(fetch.mock.calls[3]?.[0]).toBe("/v1/control/file-management-policy-limits");
+    expect(fetch).toHaveBeenNthCalledWith(
+      5,
+      `/v1/control/projects/${project.projectId}/file-management-policy`,
+      expect.objectContaining({ method: "PATCH" }),
+    );
   });
 
   it("rejects malformed success responses and safely maps error envelopes", async () => {

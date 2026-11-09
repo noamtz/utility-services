@@ -19,6 +19,13 @@ function renderApp(authOverrides: Partial<AuthClient> = {}) {
     create: vi.fn(),
     list: vi.fn().mockResolvedValue({ items: [] }),
     inspect: vi.fn(),
+    getFileManagementPolicyLimits: vi.fn().mockResolvedValue({
+      minStorageQuotaBytes: 1,
+      maxStorageQuotaBytes: 10 * 2 ** 30,
+      minTrashRetentionDays: 1,
+      maxTrashRetentionDays: 90,
+    }),
+    updateFileManagementPolicy: vi.fn(),
   };
   const rendered = render(
     <AuthProvider client={authClient}>

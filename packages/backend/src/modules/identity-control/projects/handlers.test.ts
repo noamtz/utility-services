@@ -14,7 +14,12 @@ const publicProject: Project = {
   projectId: "prj_0123456789abcdefghijkl",
   name: "Handler project",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
   createdAt: timestamp,
   updatedAt: timestamp,
 };
@@ -39,6 +44,13 @@ function service(overrides: Partial<ProjectService> = {}): ProjectService {
     create: vi.fn().mockResolvedValue(publicProject),
     list: vi.fn().mockResolvedValue({ items: [] } satisfies ProjectListPayload),
     inspect: vi.fn().mockResolvedValue(publicProject),
+    updateFileManagementPolicy: vi.fn().mockResolvedValue(publicProject),
+    policyLimits: vi.fn().mockReturnValue({
+      minStorageQuotaBytes: 2 ** 30,
+      maxStorageQuotaBytes: 100 * 2 ** 30,
+      minTrashRetentionDays: 1,
+      maxTrashRetentionDays: 90,
+    }),
     ...overrides,
   };
 }
@@ -67,7 +79,12 @@ describe("project handlers", () => {
       {
         name: "Handler project",
         enabledUtilities: ["file-management"],
-        fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+        fileManagement: {
+          uploadUrlLifetimeMinutes: 15,
+          downloadUrlLifetimeMinutes: 5,
+          storageQuotaBytes: 5 * 2 ** 30,
+          trashRetentionDays: 14,
+        },
       },
     );
     expect(body(response)).toEqual({ data: publicProject, requestId: "handler-request-1" });

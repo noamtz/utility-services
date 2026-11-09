@@ -5,6 +5,8 @@ import { createSuccessEnvelopeSchema } from "../http/envelope.js";
 export const FILE_MANAGEMENT_UTILITY = "file-management" as const;
 export const DEFAULT_UPLOAD_URL_LIFETIME_MINUTES = 15;
 export const DEFAULT_DOWNLOAD_URL_LIFETIME_MINUTES = 5;
+export const DEFAULT_STORAGE_QUOTA_BYTES = 5 * 2 ** 30;
+export const DEFAULT_TRASH_RETENTION_DAYS = 14;
 export const DEFAULT_PROJECT_LIST_LIMIT = 20;
 export const MAX_PROJECT_LIST_LIMIT = 50;
 
@@ -17,6 +19,8 @@ export const ProjectNameSchema = z.string().trim().min(1).max(100);
 export const EnabledUtilitiesSchema = z.tuple([z.literal(FILE_MANAGEMENT_UTILITY)]);
 
 const UrlLifetimeMinutesSchema = z.number().int().min(1).max(60);
+const StorageQuotaBytesSchema = z.number().int().safe().positive();
+const TrashRetentionDaysSchema = z.number().int().positive();
 
 export const FileManagementSettingsSchema = z
   .object({
@@ -24,8 +28,42 @@ export const FileManagementSettingsSchema = z
     downloadUrlLifetimeMinutes: UrlLifetimeMinutesSchema.default(
       DEFAULT_DOWNLOAD_URL_LIFETIME_MINUTES,
     ),
+    storageQuotaBytes: StorageQuotaBytesSchema.default(DEFAULT_STORAGE_QUOTA_BYTES),
+    trashRetentionDays: TrashRetentionDaysSchema.default(DEFAULT_TRASH_RETENTION_DAYS),
   })
   .strict();
+
+export const UpdateFileManagementPolicyRequestSchema = z
+  .object({
+    storageQuotaBytes: StorageQuotaBytesSchema,
+    trashRetentionDays: TrashRetentionDaysSchema,
+  })
+  .strict();
+
+export const FileManagementPolicyLimitsSchema = z
+  .object({
+    minStorageQuotaBytes: StorageQuotaBytesSchema,
+    maxStorageQuotaBytes: StorageQuotaBytesSchema,
+    minTrashRetentionDays: TrashRetentionDaysSchema,
+    maxTrashRetentionDays: TrashRetentionDaysSchema,
+  })
+  .strict()
+  .superRefine((limits, context) => {
+    if (limits.minStorageQuotaBytes > limits.maxStorageQuotaBytes) {
+      context.addIssue({
+        code: "custom",
+        path: ["minStorageQuotaBytes"],
+        message: "Minimum storage quota cannot exceed maximum storage quota",
+      });
+    }
+    if (limits.minTrashRetentionDays > limits.maxTrashRetentionDays) {
+      context.addIssue({
+        code: "custom",
+        path: ["minTrashRetentionDays"],
+        message: "Minimum trash retention cannot exceed maximum trash retention",
+      });
+    }
+  });
 
 export const CreateProjectRequestSchema = z
   .object({
@@ -80,8 +118,18 @@ export const ProjectListPayloadSchema = z
 
 export const ProjectResponseSchema = createSuccessEnvelopeSchema(ProjectSchema);
 export const ProjectListResponseSchema = createSuccessEnvelopeSchema(ProjectListPayloadSchema);
+export const FileManagementPolicyLimitsResponseSchema = createSuccessEnvelopeSchema(
+  FileManagementPolicyLimitsSchema,
+);
 
 export type FileManagementSettings = z.infer<typeof FileManagementSettingsSchema>;
+export type UpdateFileManagementPolicyRequest = z.infer<
+  typeof UpdateFileManagementPolicyRequestSchema
+>;
+export type FileManagementPolicyLimits = z.infer<typeof FileManagementPolicyLimitsSchema>;
+export type FileManagementPolicyLimitsResponse = z.infer<
+  typeof FileManagementPolicyLimitsResponseSchema
+>;
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export type ProjectListQuery = z.infer<typeof ProjectListQuerySchema>;
 export type ProjectPath = z.infer<typeof ProjectPathSchema>;

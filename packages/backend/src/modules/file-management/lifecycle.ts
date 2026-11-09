@@ -8,7 +8,7 @@ import {
 import { z } from "zod";
 
 import { HttpError } from "../../core/http/handler.js";
-import { TRASH_RETENTION_MILLISECONDS, type FileItem } from "./model.js";
+import { type FileItem } from "./model.js";
 import type { ObjectStore } from "./object-store.js";
 import { FileStateConflictError, type FileRepository } from "./repository.js";
 import { toPublicFile } from "./service.js";
@@ -116,10 +116,17 @@ export function createFileLifecycleService(
             purgeAt: file.purgeAt,
           });
         }
+        const trashRetentionDays = project.fileManagement.trashRetentionDays;
         const purgeAt = new Date(
-          new Date(timestamp).getTime() + TRASH_RETENTION_MILLISECONDS,
+          new Date(timestamp).getTime() + trashRetentionDays * 24 * 60 * 60 * 1_000,
         ).toISOString();
-        const trashed = await dependencies.repository.trash(file, timestamp, purgeAt);
+        const trashed = await dependencies.repository.trash(
+          file,
+          timestamp,
+          purgeAt,
+          trashRetentionDays,
+          project.fileManagementPolicyVersion,
+        );
         return DeleteFileResultSchema.parse({
           fileId: trashed.fileId,
           disposition: "trashed",

@@ -88,7 +88,13 @@ const project: InternalProject = {
   name: "Upload project",
   status: "active",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagementPolicyVersion: 1,
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
   createdAt: timestamp,
   updatedAt: timestamp,
 };
@@ -600,7 +606,6 @@ describe("assembled direct upload file lifecycle", () => {
     const service = createFileService({
       repository: files,
       presigner,
-      quotaLimitBytes: 12n,
       generateIds: (() => {
         let count = 0;
         return () => ({
@@ -628,18 +633,30 @@ describe("assembled direct upload file lifecycle", () => {
     expect(files.items).toHaveLength(0);
 
     const results = await Promise.allSettled([
-      service.authorizeUpload(projectContext(), {
-        name: "one.txt",
-        mediaType: "text/plain",
-        sizeBytes: 12,
-        visibility: "private",
-      }),
-      service.authorizeUpload(projectContext(), {
-        name: "two.txt",
-        mediaType: "text/plain",
-        sizeBytes: 12,
-        visibility: "private",
-      }),
+      service.authorizeUpload(
+        {
+          ...projectContext(),
+          fileManagement: { ...project.fileManagement, storageQuotaBytes: 12 },
+        },
+        {
+          name: "one.txt",
+          mediaType: "text/plain",
+          sizeBytes: 12,
+          visibility: "private",
+        },
+      ),
+      service.authorizeUpload(
+        {
+          ...projectContext(),
+          fileManagement: { ...project.fileManagement, storageQuotaBytes: 12 },
+        },
+        {
+          name: "two.txt",
+          mediaType: "text/plain",
+          sizeBytes: 12,
+          visibility: "private",
+        },
+      ),
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
@@ -883,5 +900,6 @@ function projectContext(): TrustedProjectContext {
     keyId,
     enabledUtilities: ["file-management"],
     fileManagement: project.fileManagement,
+    fileManagementPolicyVersion: 1,
   };
 }

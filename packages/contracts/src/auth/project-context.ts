@@ -14,6 +14,7 @@ export const TrustedProjectContextSchema = z
     keyId: ApiKeyIdSchema,
     enabledUtilities: EnabledUtilitiesSchema,
     fileManagement: FileManagementSettingsSchema,
+    fileManagementPolicyVersion: z.number().int().positive(),
   })
   .strict();
 

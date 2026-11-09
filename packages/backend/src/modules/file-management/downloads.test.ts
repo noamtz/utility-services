@@ -25,7 +25,13 @@ const project: TrustedProjectContext = {
   publicProjectId: "prj_0123456789abcdefghijkl",
   keyId: "key_0123456789abcdefghijkl",
   enabledUtilities: ["file-management"],
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
+  fileManagementPolicyVersion: 1,
 };
 
 function pending(visibility: "private" | "public" = "private"): FileItem {

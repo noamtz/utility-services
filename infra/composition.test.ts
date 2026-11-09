@@ -54,7 +54,7 @@ describe("SST composition contracts", () => {
       tracingMode: "Active",
     });
     expect(JSON.stringify(HEALTH_ROUTE)).not.toContain("*");
-    expect(CONTROL_ROUTES).toHaveLength(7);
+    expect(CONTROL_ROUTES).toHaveLength(9);
   });
 
   it("keeps usage pricing independent with the same query-only link baseline", () => {
@@ -62,7 +62,7 @@ describe("SST composition contracts", () => {
     expect(USAGE_PRICING_TABLE_POLICY.globalIndexes).toHaveProperty("UsageWatermarkFreshness");
     expect(DYNAMO_LINK_BASELINE_ACTIONS).toEqual(["dynamodb:Query"]);
     expect(JSON.stringify(DYNAMO_LINK_BASELINE_ACTIONS)).not.toMatch(/Put|Update|Get|Scan|\*/u);
-    expect(CONTROL_ROUTES).toHaveLength(7);
+    expect(CONTROL_ROUTES).toHaveLength(9);
   });
 
   it("keeps file utility routes separate and storage private", () => {

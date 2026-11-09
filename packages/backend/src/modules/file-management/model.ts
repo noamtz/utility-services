@@ -14,9 +14,10 @@ export const FILE_SORT_PREFIX = "FILE#" as const;
 export const QUOTA_SORT_KEY = "QUOTA" as const;
 export const PENDING_UPLOAD_INDEX_PARTITION = "UPLOAD#PENDING" as const;
 export const TRASH_PURGE_INDEX_PARTITION = "TRASH#PENDING_PURGE" as const;
-export const TRASH_RETENTION_MILLISECONDS = 14 * 24 * 60 * 60 * 1_000;
+/** Historical retention used when reading a trash record created before policy snapshots. */
+export const LEGACY_TRASH_RETENTION_DAYS = 14;
+export const TRASH_RETENTION_MILLISECONDS = LEGACY_TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
 export const UPLOAD_CAPABILITY_EXPIRY_SKEW_MILLISECONDS = 5 * 60 * 1_000;
-export const FILE_STORAGE_QUOTA_BYTES = 5n * 2n ** 30n;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 const PositiveBytesSchema = z.bigint().min(1n).max(BigInt(MAX_FILE_SIZE_BYTES));
@@ -66,6 +67,8 @@ export const FileItemSchema = z
     failedAt: TimestampSchema.optional(),
     trashedAt: TimestampSchema.optional(),
     purgeAt: TimestampSchema.optional(),
+    trashRetentionDaysAtDeletion: z.number().int().positive().optional(),
+    fileManagementPolicyVersionAtDeletion: DynamoIntegerSchema.optional(),
     purgeStartedAt: TimestampSchema.optional(),
     objectRemovedAt: TimestampSchema.optional(),
     createdAt: TimestampSchema,
@@ -182,6 +185,8 @@ export function parseFileItem(input: unknown): FileItem {
       item.failedAt !== undefined ||
       item.trashedAt !== undefined ||
       item.purgeAt !== undefined ||
+      item.trashRetentionDaysAtDeletion !== undefined ||
+      item.fileManagementPolicyVersionAtDeletion !== undefined ||
       item.purgeStartedAt !== undefined ||
       item.objectRemovedAt !== undefined ||
       (item.failureCode === undefined) !== (item.cleanupRequired === undefined)
@@ -199,6 +204,8 @@ export function parseFileItem(input: unknown): FileItem {
       item.cleanupRequired !== undefined ||
       item.trashedAt !== undefined ||
       item.purgeAt !== undefined ||
+      item.trashRetentionDaysAtDeletion !== undefined ||
+      item.fileManagementPolicyVersionAtDeletion !== undefined ||
       item.purgeStartedAt !== undefined ||
       item.objectRemovedAt !== undefined
     ) {
@@ -214,6 +221,8 @@ export function parseFileItem(input: unknown): FileItem {
       item.readyAt !== undefined ||
       item.trashedAt !== undefined ||
       item.purgeAt !== undefined ||
+      item.trashRetentionDaysAtDeletion !== undefined ||
+      item.fileManagementPolicyVersionAtDeletion !== undefined ||
       item.purgeStartedAt !== undefined ||
       item.objectRemovedAt !== undefined
     ) {
@@ -241,7 +250,13 @@ export function parseFileItem(input: unknown): FileItem {
       !Number.isFinite(trashedAt) ||
       !Number.isFinite(purgeAt) ||
       purgeAt < trashedAt ||
-      (purgeStartedAt === undefined && purgeAt - trashedAt !== TRASH_RETENTION_MILLISECONDS) ||
+      (purgeStartedAt === undefined &&
+        purgeAt - trashedAt !==
+          (item.trashRetentionDaysAtDeletion ?? LEGACY_TRASH_RETENTION_DAYS) *
+            24 *
+            60 *
+            60 *
+            1_000) ||
       (purgeStartedAt !== undefined && purgeStartedAt < trashedAt) ||
       (objectRemovedAt !== undefined &&
         (purgeStartedAt === undefined ||

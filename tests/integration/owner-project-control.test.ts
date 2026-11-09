@@ -47,6 +47,15 @@ function parsed(response: { body?: string | undefined }): unknown {
 function createMemoryRepository(): ProjectRepository {
   const projects = new Map<string, InternalProject>();
   return {
+    updateFileManagementPolicy(project, settings, changedAt) {
+      projects.set(project.publicProjectId, {
+        ...project,
+        fileManagement: { ...project.fileManagement, ...settings },
+        fileManagementPolicyVersion: project.fileManagementPolicyVersion + 1,
+        updatedAt: changedAt,
+      });
+      return Promise.resolve();
+    },
     create(project) {
       if (projects.has(project.publicProjectId)) throw new Error("test ID collision");
       projects.set(project.publicProjectId, structuredClone(project));
@@ -141,10 +150,14 @@ describe("owner project control integration", () => {
     expect(ProjectResponseSchema.parse(parsed(createA1)).data.fileManagement).toEqual({
       uploadUrlLifetimeMinutes: 15,
       downloadUrlLifetimeMinutes: 5,
+      storageQuotaBytes: 5 * 2 ** 30,
+      trashRetentionDays: 14,
     });
     expect(ProjectResponseSchema.parse(parsed(createA2)).data.fileManagement).toEqual({
       uploadUrlLifetimeMinutes: 1,
       downloadUrlLifetimeMinutes: 60,
+      storageQuotaBytes: 5 * 2 ** 30,
+      trashRetentionDays: 14,
     });
 
     const firstPage = await handlers.list(event(ownerA, { queryStringParameters: { limit: "1" } }));

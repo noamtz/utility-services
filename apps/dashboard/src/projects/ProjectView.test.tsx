@@ -14,7 +14,19 @@ const summary = {
 };
 const project = {
   ...summary,
-  fileManagement: { uploadUrlLifetimeMinutes: 15, downloadUrlLifetimeMinutes: 5 },
+  fileManagement: {
+    uploadUrlLifetimeMinutes: 15,
+    downloadUrlLifetimeMinutes: 5,
+    storageQuotaBytes: 5 * 2 ** 30,
+    trashRetentionDays: 14,
+  },
+};
+
+const policyLimits = {
+  minStorageQuotaBytes: 1,
+  maxStorageQuotaBytes: 10 * 2 ** 30,
+  minTrashRetentionDays: 1,
+  maxTrashRetentionDays: 90,
 };
 
 function deferred<T>() {
@@ -34,6 +46,8 @@ describe("ProjectView", () => {
         .mockResolvedValueOnce({ items: [summary] }),
       inspect: vi.fn().mockResolvedValue(project),
       create: vi.fn().mockResolvedValue(project),
+      getFileManagementPolicyLimits: vi.fn().mockResolvedValue(policyLimits),
+      updateFileManagementPolicy: vi.fn(),
     };
     render(<ProjectView api={api} onUnauthorized={vi.fn()} />);
 
@@ -52,6 +66,8 @@ describe("ProjectView", () => {
       list: vi.fn().mockRejectedValue(new ProjectApiError("Session expired", 401, "UNAUTHORIZED")),
       inspect: vi.fn(),
       create: vi.fn(),
+      getFileManagementPolicyLimits: vi.fn().mockResolvedValue(policyLimits),
+      updateFileManagementPolicy: vi.fn(),
     };
     render(<ProjectView api={api} onUnauthorized={onUnauthorized} />);
     await vi.waitFor(() => expect(onUnauthorized).toHaveBeenCalledOnce());
@@ -70,6 +86,8 @@ describe("ProjectView", () => {
       list: vi.fn().mockReturnValueOnce(initial.promise).mockReturnValueOnce(refreshed.promise),
       inspect: vi.fn(),
       create: vi.fn().mockResolvedValue(project),
+      getFileManagementPolicyLimits: vi.fn().mockResolvedValue(policyLimits),
+      updateFileManagementPolicy: vi.fn(),
     };
     render(<ProjectView api={api} onUnauthorized={vi.fn()} />);
 
@@ -107,6 +125,8 @@ describe("ProjectView", () => {
         .mockReturnValueOnce(firstInspect.promise)
         .mockReturnValueOnce(secondInspect.promise),
       create: vi.fn(),
+      getFileManagementPolicyLimits: vi.fn().mockResolvedValue(policyLimits),
+      updateFileManagementPolicy: vi.fn(),
     };
     render(<ProjectView api={api} onUnauthorized={vi.fn()} />);
 
@@ -136,6 +156,8 @@ describe("ProjectView", () => {
         .mockReturnValueOnce(nextPage.promise),
       inspect: vi.fn(),
       create: vi.fn(),
+      getFileManagementPolicyLimits: vi.fn().mockResolvedValue(policyLimits),
+      updateFileManagementPolicy: vi.fn(),
     };
     render(<ProjectView api={api} onUnauthorized={vi.fn()} />);
     const loadMore = await screen.findByRole("button", { name: "Load more" });

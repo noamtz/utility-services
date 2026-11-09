@@ -4,10 +4,14 @@ import {
   CreateProjectRequestSchema,
   DEFAULT_DOWNLOAD_URL_LIFETIME_MINUTES,
   DEFAULT_PROJECT_LIST_LIMIT,
+  DEFAULT_STORAGE_QUOTA_BYTES,
+  DEFAULT_TRASH_RETENTION_DAYS,
   DEFAULT_UPLOAD_URL_LIFETIME_MINUTES,
+  FileManagementPolicyLimitsSchema,
   ProjectListPayloadSchema,
   ProjectListQuerySchema,
   ProjectSchema,
+  UpdateFileManagementPolicyRequestSchema,
 } from "./contract.js";
 
 const projectId = "prj_0123456789abcdefghijkl";
@@ -26,6 +30,8 @@ describe("project contracts", () => {
       fileManagement: {
         uploadUrlLifetimeMinutes: DEFAULT_UPLOAD_URL_LIFETIME_MINUTES,
         downloadUrlLifetimeMinutes: DEFAULT_DOWNLOAD_URL_LIFETIME_MINUTES,
+        storageQuotaBytes: DEFAULT_STORAGE_QUOTA_BYTES,
+        trashRetentionDays: DEFAULT_TRASH_RETENTION_DAYS,
       },
     });
   });
@@ -40,7 +46,12 @@ describe("project contracts", () => {
           downloadUrlLifetimeMinutes: value,
         },
       }).fileManagement,
-    ).toEqual({ uploadUrlLifetimeMinutes: value, downloadUrlLifetimeMinutes: value });
+    ).toEqual({
+      uploadUrlLifetimeMinutes: value,
+      downloadUrlLifetimeMinutes: value,
+      storageQuotaBytes: DEFAULT_STORAGE_QUOTA_BYTES,
+      trashRetentionDays: DEFAULT_TRASH_RETENTION_DAYS,
+    });
   });
 
   it.each([0, 61, 1.5, "15", null])("rejects invalid lifetime %j", (value) => {
@@ -52,6 +63,51 @@ describe("project contracts", () => {
           uploadUrlLifetimeMinutes: value,
           downloadUrlLifetimeMinutes: 5,
         },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "1073741824"])(
+    "rejects an invalid storage quota %j",
+    (storageQuotaBytes) => {
+      expect(
+        UpdateFileManagementPolicyRequestSchema.safeParse({
+          storageQuotaBytes,
+          trashRetentionDays: 14,
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each([0, -1, 1.5, "14"])("rejects an invalid trash duration %j", (trashRetentionDays) => {
+    expect(
+      UpdateFileManagementPolicyRequestSchema.safeParse({
+        storageQuotaBytes: 5 * 2 ** 30,
+        trashRetentionDays,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts only mutable policy fields and validates configured policy limits", () => {
+    expect(
+      UpdateFileManagementPolicyRequestSchema.parse({
+        storageQuotaBytes: 10 * 2 ** 30,
+        trashRetentionDays: 30,
+      }),
+    ).toEqual({ storageQuotaBytes: 10 * 2 ** 30, trashRetentionDays: 30 });
+    expect(
+      UpdateFileManagementPolicyRequestSchema.safeParse({
+        storageQuotaBytes: 10 * 2 ** 30,
+        trashRetentionDays: 30,
+        uploadUrlLifetimeMinutes: 15,
+      }).success,
+    ).toBe(false);
+    expect(
+      FileManagementPolicyLimitsSchema.safeParse({
+        minStorageQuotaBytes: 10,
+        maxStorageQuotaBytes: 9,
+        minTrashRetentionDays: 1,
+        maxTrashRetentionDays: 30,
       }).success,
     ).toBe(false);
   });
@@ -94,6 +150,8 @@ describe("project contracts", () => {
       fileManagement: {
         uploadUrlLifetimeMinutes: 15,
         downloadUrlLifetimeMinutes: 5,
+        storageQuotaBytes: DEFAULT_STORAGE_QUOTA_BYTES,
+        trashRetentionDays: DEFAULT_TRASH_RETENTION_DAYS,
       },
       createdAt: timestamp,
       updatedAt: timestamp,
