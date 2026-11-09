@@ -1,3 +1,6 @@
+import { resolveInstallationTarget } from "../../infra/config/installation-target.js";
+import { resolveTrustedAwsCliPath } from "../aws-access.mjs";
+const target = resolveInstallationTarget("israel", "dev-rus02");
 import { writeFile } from "node:fs/promises";
 
 import { describe, expect, it, vi } from "vitest";
@@ -14,6 +17,8 @@ import {
 const args = [
   "--stage",
   "dev-rus02",
+  "--installation-target",
+  "israel",
   "--api-url",
   "https://api.example.com",
   "--file-id",
@@ -56,9 +61,9 @@ describe("download metering acceptance harness policy", () => {
     });
     expect(execFile).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
-    expect(() => parseHarnessConfig(args.slice(2), {})).toThrow("Missing required --stage");
-    expect(() => parseHarnessConfig(args.with(1, "production"), {})).toThrow("forbidden");
-    expect(() => parseHarnessConfig(args.with(1, "default"), {})).toThrow("forbidden");
+    expect(() => parseHarnessConfig(args.slice(2), {})).toThrow("explicit --stage");
+    expect(() => parseHarnessConfig(args.with(1, "production"), {})).toThrow();
+    expect(() => parseHarnessConfig(args.with(1, "default"), {})).toThrow();
   });
 
   it("requires the exact AWS identity and fixed profile/region/CA environment", async () => {
@@ -72,9 +77,18 @@ describe("download metering acceptance harness policy", () => {
         });
       },
     );
-    await expect(verifyAwsIdentity(wrong, {})).rejects.toThrow("identity mismatch");
-    expect(wrong.mock.calls[0]?.[0]).toBe("aws");
-    expect(wrong.mock.calls[0]?.[1]).toEqual(["sts", "get-caller-identity", "--output", "json"]);
+    await expect(verifyAwsIdentity(target, wrong, {})).rejects.toThrow("identity mismatch");
+    expect(wrong.mock.calls[0]?.[0]).toBe(resolveTrustedAwsCliPath());
+    expect(wrong.mock.calls[0]?.[1]).toEqual([
+      "sts",
+      "get-caller-identity",
+      "--profile",
+      "ntz-cli",
+      "--region",
+      "il-central-1",
+      "--output",
+      "json",
+    ]);
     expect(wrong.mock.calls[0]?.[2]?.env).toMatchObject({
       AWS_PROFILE: "ntz-cli",
       AWS_REGION: "il-central-1",
@@ -285,5 +299,41 @@ describe("download metering acceptance execution", () => {
     );
     expect(JSON.stringify(result)).not.toMatch(/project-secret|download\.example|AWSLogs/u);
     expect(JSON.stringify(execFile.mock.calls)).not.toContain("project-secret");
+  });
+});
+
+describe("download acceptance installation boundary", () => {
+  it("rejects missing, repeated, foreign or overridden targets without processes or fetches", async () => {
+    const execFile = vi.fn();
+    const fetch = vi.fn();
+    for (const argv of [
+      args.filter((value) => !["--installation-target", "israel"].includes(value)),
+      [...args, "--installation-target=israel"],
+      [...args, "--stage=dev-plan"],
+      args.map((value) => (value === "israel" ? "unknown" : value)),
+      [...args, "--region=eu-central-1"],
+    ]) {
+      await expect(
+        runDownloadMeteringAcceptance(argv, { execFile, fetch, env: {} }),
+      ).rejects.toThrow();
+    }
+    expect(execFile).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("stops all transfers, reads and redrive after a wrong principal", async () => {
+    const execFile = vi
+      .fn()
+      .mockResolvedValue({ stdout: JSON.stringify({ Account: "162067902192", Arn: "arn:wrong" }) });
+    const fetch = vi.fn();
+    await expect(
+      runDownloadMeteringAcceptance([...args, "--execute"], {
+        execFile,
+        fetch,
+        env: { DOWNLOAD_METERING_PROJECT_KEY: "fixture-secret" },
+      }),
+    ).rejects.toThrow("identity mismatch");
+    expect(execFile).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

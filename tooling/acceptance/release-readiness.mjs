@@ -1,3 +1,8 @@
+import {
+  INSTALLATION_TARGET_ENV,
+  resolveInstallationTarget,
+} from "../../infra/config/installation-target.ts";
+import { parseInstallationArguments } from "../installation-arguments.mjs";
 import { execFile as execFileCallback, spawnSync as spawnSyncDefault } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -43,8 +48,8 @@ const VALUE_OPTIONS = new Set([
 const FLAG_OPTIONS = new Set(["--execute"]);
 
 /** @typedef {Record<string, string | undefined>} Environment */
-/** @typedef {{ stage: string, dashboardUrl: string, apiUrl: string, runLabel: string, completionTimeoutSeconds: number, expiryTimeoutSeconds: number, execute: boolean }} ReleaseArgumentConfig */
-/** @typedef {{ stage: string, dashboardUrl: string, apiUrl: string }} ReleaseTargetConfig */
+/** @typedef {{ installation: import("../../infra/config/installation-target.ts").ResolvedInstallationTarget, stage: string, dashboardUrl: string, apiUrl: string, runLabel: string, completionTimeoutSeconds: number, expiryTimeoutSeconds: number, execute: boolean }} ReleaseArgumentConfig */
+/** @typedef {{ installation: import("../../infra/config/installation-target.ts").ResolvedInstallationTarget, stage: string, dashboardUrl: string, apiUrl: string }} ReleaseTargetConfig */
 /** @typedef {{ stdout?: string | Buffer, stderr?: string | Buffer }} ReleaseProcessResult */
 /** @typedef {(file: string, args: string[], options: import("node:child_process").ExecFileOptions) => Promise<ReleaseProcessResult>} ReleaseExecFile */
 /** @typedef {{ cwd?: string, env?: Environment, platform?: NodeJS.Platform, spawnSync?: typeof spawnSyncDefault, execFile?: ReleaseExecFile, readFile?: (file: string, encoding: BufferEncoding) => string }} ReleaseDependencies */
@@ -84,7 +89,8 @@ function required(values, name) {
 
 /** @param {string[]} argv @returns {Readonly<ReleaseArgumentConfig>} */
 export function parseReleaseArguments(argv) {
-  const { values, flags } = optionMap(argv);
+  const { installation, args } = parseInstallationArguments(argv);
+  const { values, flags } = optionMap([...args, "--stage", installation.stage.name]);
   const stage = validateReleaseStage(required(values, "--stage"));
   const execute = flags.has("--execute");
   const confirmStage = values.get("--confirm-stage");
@@ -95,6 +101,7 @@ export function parseReleaseArguments(argv) {
     throw new Error("--confirm-stage is accepted only with --execute");
   }
   return Object.freeze({
+    installation,
     stage,
     dashboardUrl: validateReleaseOrigin(required(values, "--dashboard-url"), "--dashboard-url"),
     apiUrl: validateReleaseOrigin(required(values, "--api-url"), "--api-url"),
@@ -120,6 +127,7 @@ export function sanitizeReleaseEnvironment(environment = process.env) {
       const normalized = key.toLowerCase().replaceAll(/[^a-z0-9]/gu, "");
       return (
         !canonical.startsWith("AWS_") &&
+        !canonical.startsWith("RUS_INSTALLATION_") &&
         !canonical.startsWith("RUS_RELEASE_") &&
         !canonical.startsWith("PLAYWRIGHT_") &&
         canonical !== "NODE_OPTIONS" &&
@@ -139,6 +147,7 @@ function releaseChildEnvironment(config, sourceEnvironment) {
   /** @type {Environment} */
   const environment = {
     ...sanitizeReleaseEnvironment(sourceEnvironment),
+    [INSTALLATION_TARGET_ENV]: config.installation.name,
     [RELEASE_ENVIRONMENT_KEYS.execute]: RELEASE_EXECUTION_MARKER,
     [RELEASE_ENVIRONMENT_KEYS.stage]: config.stage,
     [RELEASE_ENVIRONMENT_KEYS.dashboardUrl]: config.dashboardUrl,
@@ -180,6 +189,12 @@ function requireStageBoundOrigins(config, cwd, readFile) {
     typeof outputs !== "object" ||
     Array.isArray(outputs) ||
     outputs.stage !== config.stage ||
+    (outputs.installationTarget !== config.installation.name &&
+      !(
+        outputs.installationTarget === undefined &&
+        config.installation.name === "israel" &&
+        ["dev-rus02", "dev-plan"].includes(config.stage)
+      )) ||
     typeof outputs.dashboardUrl !== "string" ||
     typeof outputs.apiUrl !== "string"
   ) {
@@ -200,15 +215,25 @@ function requireStageBoundOrigins(config, cwd, readFile) {
  * @param {ReleaseBoundaryDependencies} [dependencies]
  */
 export function verifyReleaseExecutionBoundary(environment = process.env, dependencies = {}) {
-  const config = requireAuthorizedReleaseEnvironment(environment);
+  const authorized = requireAuthorizedReleaseEnvironment(environment);
+  const installation = resolveInstallationTarget(
+    environment[INSTALLATION_TARGET_ENV],
+    authorized.stage,
+  );
+  const config = { ...authorized, installation };
   const cwd = dependencies.cwd ?? REPOSITORY_ROOT;
   const platform = dependencies.platform ?? process.platform;
   requireStageBoundOrigins(config, cwd, dependencies.readFile ?? readFileSync);
   const preflightEnvironment = createAwsEnvironment(
-    sanitizeReleaseEnvironment(environment),
+    installation,
+    {
+      ...sanitizeReleaseEnvironment(environment),
+      ...(environment["AWS_CA_BUNDLE"] ? { AWS_CA_BUNDLE: environment["AWS_CA_BUNDLE"] } : {}),
+    },
     platform,
   );
   verifyAwsIdentity(
+    installation,
     dependencies.spawnSync ?? spawnSyncDefault,
     preflightEnvironment,
     cwd,
@@ -326,6 +351,8 @@ export async function runReleaseReadiness(argv, dependencies = {}) {
   const cwd = dependencies.cwd ?? REPOSITORY_ROOT;
   const sourceEnvironment = dependencies.env ?? process.env;
   const childEnvironment = releaseChildEnvironment(config, sourceEnvironment);
+  if (sourceEnvironment["AWS_CA_BUNDLE"])
+    childEnvironment["AWS_CA_BUNDLE"] = sourceEnvironment["AWS_CA_BUNDLE"];
   const platform = dependencies.platform ?? process.platform;
   verifyReleaseExecutionBoundary(childEnvironment, {
     cwd,
@@ -333,7 +360,7 @@ export async function runReleaseReadiness(argv, dependencies = {}) {
     ...(dependencies.spawnSync ? { spawnSync: dependencies.spawnSync } : {}),
     ...(dependencies.readFile ? { readFile: dependencies.readFile } : {}),
   });
-  const childAwsEnvironment = createAwsEnvironment(childEnvironment, platform);
+  const childAwsEnvironment = createAwsEnvironment(config.installation, childEnvironment, platform);
 
   let result;
   try {

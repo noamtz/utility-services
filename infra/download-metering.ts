@@ -29,7 +29,7 @@ import {
   downloadMeteringTrailArn,
   downloadMeteringTrailName,
 } from "./config/download-metering.js";
-import { AWS_REGION } from "./config/app.js";
+import { DOWNLOAD_METERING_REGION } from "./config/download-metering.js";
 import { configureLeastPrivilegeDynamoLink } from "./dynamo-link.js";
 
 interface DownloadMeteringResourceDependencies {
@@ -45,7 +45,7 @@ export function createDownloadMeteringResources(options: DownloadMeteringResourc
   const trailName = downloadMeteringTrailName($app.stage);
   const trailArn = downloadMeteringTrailArn({
     partition: DOWNLOAD_METERING_AWS_PARTITION,
-    region: AWS_REGION,
+    region: DOWNLOAD_METERING_REGION,
     accountId: DOWNLOAD_METERING_AWS_ACCOUNT_ID,
     trailName,
   });
@@ -153,7 +153,7 @@ export function createDownloadMeteringResources(options: DownloadMeteringResourc
       DOWNLOAD_PRICING_MODE,
       DOWNLOAD_METERING_SOURCE_KIND,
       CLOUDTRAIL_ACCOUNT_ID: DOWNLOAD_METERING_AWS_ACCOUNT_ID,
-      CLOUDTRAIL_REGION: AWS_REGION,
+      CLOUDTRAIL_REGION: DOWNLOAD_METERING_REGION,
       CLOUDTRAIL_LOG_PREFIX: regionalLogPrefix,
       FILE_BUCKET_NAME: options.fileBucket.name,
       MAX_CLOUDTRAIL_COMPRESSED_BYTES: String(MAX_CLOUDTRAIL_COMPRESSED_BYTES),

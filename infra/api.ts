@@ -1,4 +1,3 @@
-import { AWS_REGION } from "./config/app.js";
 import { CONTROL_AUTHORIZER_NAME, CONTROL_ROUTES } from "./config/control.js";
 import { FILE_OBJECT_PREFIX, FILE_ROUTES } from "./config/file-management.js";
 import { CURRENT_MONTH_USAGE_CONTROL_ROUTE } from "./config/usage-pricing.js";
@@ -30,6 +29,7 @@ interface FileResources {
 
 export function createApi(
   control: ControlResources,
+  region: string,
   usagePricing?: UsageResources,
   files?: FileResources,
 ) {
@@ -54,7 +54,7 @@ export function createApi(
     name: CONTROL_AUTHORIZER_NAME,
     jwt: {
       issuer: control.userPool.id.apply(
-        (poolId) => `https://cognito-idp.${AWS_REGION}.amazonaws.com/${poolId}`,
+        (poolId) => `https://cognito-idp.${region}.amazonaws.com/${poolId}`,
       ),
       audiences: [control.userPoolClient.id],
     },

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { classifyStage } from "../infra/config/stage.ts";
+import { parseInstallationArguments } from "./installation-arguments.mjs";
 import { createAwsEnvironment, verifyAwsIdentity } from "./aws-access.mjs";
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,25 +30,12 @@ export function parseOperatorInvocation(argv) {
     throw new Error("Physical resource names cannot be supplied by the caller.");
   }
 
-  const stages = [];
-  const toolArgs = [];
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
-    if (argument === "--stage") {
-      stages.push(args[index + 1]);
-      index += 1;
-    } else if (argument?.startsWith("--stage=")) {
-      stages.push(argument.slice("--stage=".length));
-    } else if (argument !== undefined) {
-      toolArgs.push(argument);
-    }
-  }
-  if (stages.length !== 1) throw new Error("Exactly one explicit --stage must be provided.");
-  const stage = classifyStage(stages[0]);
+  const { installation, stage, args: toolArgs } = parseInstallationArguments(args);
   return Object.freeze({
     operation,
     script: OPERATOR_SCRIPTS[operation],
     stage,
+    installation,
     toolArgs: Object.freeze(toolArgs),
   });
 }
@@ -60,8 +47,8 @@ function spawnProcess(command, args, options) {
 /** @param {string[]} argv @param {typeof spawnProcess} spawn */
 export function runOperator(argv, spawn = spawnProcess) {
   const invocation = parseOperatorInvocation(argv);
-  const environment = createAwsEnvironment();
-  verifyAwsIdentity(spawn, environment, REPOSITORY_ROOT);
+  const environment = createAwsEnvironment(invocation.installation);
+  verifyAwsIdentity(invocation.installation, spawn, environment, REPOSITORY_ROOT);
   const result = spawn(
     process.execPath,
     [

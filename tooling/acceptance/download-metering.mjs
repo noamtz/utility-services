@@ -1,3 +1,10 @@
+import {
+  createAwsEnvironment,
+  identityArguments,
+  validateAwsIdentity,
+  resolveTrustedAwsCliPath,
+} from "../aws-access.mjs";
+import { parseInstallationArguments } from "../installation-arguments.mjs";
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,17 +18,12 @@ import { pathToFileURL } from "node:url";
 /** @typedef {{ ok: boolean, status: number, json: () => Promise<unknown>, arrayBuffer: () => Promise<ArrayBuffer> }} HarnessResponse */
 /** @typedef {(url: string, init?: RequestInit) => Promise<HarnessResponse>} FetchLike */
 /** @typedef {{ case: string, bytes?: number, requests?: number, successful?: boolean, cancelled?: boolean }} MatrixResult */
-/** @typedef {{ stage: string, apiUrl: string, fileId: string, logBucket: string, processorFunction: string, mainQueueUrl: string, dlqUrl: string, timeoutSeconds: number, expiryWaitSeconds: number, execute: boolean, redrive: boolean, redriveAuthorized: boolean, dlqArn: string | undefined, projectKey: string | undefined }} HarnessConfig */
+/** @typedef {{ installation: import("../../infra/config/installation-target.ts").ResolvedInstallationTarget, stage: string, apiUrl: string, fileId: string, logBucket: string, processorFunction: string, mainQueueUrl: string, dlqUrl: string, timeoutSeconds: number, expiryWaitSeconds: number, execute: boolean, redrive: boolean, redriveAuthorized: boolean, dlqArn: string | undefined, projectKey: string | undefined }} HarnessConfig */
 /** @typedef {{ execFile?: ExecFile, fetch?: FetchLike, sleep?: (milliseconds: number) => Promise<void>, now?: () => number, env?: Environment }} HarnessDependencies */
 
 const execFileDefault = /** @type {ExecFile} */ (
   /** @type {unknown} */ (promisify(execFileCallback))
 );
-const EXPECTED_ACCOUNT = "162067902192";
-const EXPECTED_ARN = "arn:aws:iam::162067902192:user/ntz-cli";
-const AWS_PROFILE = "ntz-cli";
-const AWS_REGION = "il-central-1";
-const AWS_CA_BUNDLE = "C:\\Program Files\\Amazon\\AWSCLIV2\\awscli\\botocore\\cacert.pem";
 const MATRIX_CASES = Object.freeze([
   "full",
   "range",
@@ -83,10 +85,12 @@ function httpsUrl(value, name) {
 
 /** @param {string[]} argv @param {Environment} [env] @returns {Readonly<HarnessConfig>} */
 export function parseHarnessConfig(argv, env = process.env) {
-  const { values, flags } = optionMap(argv);
+  const { installation, args } = parseInstallationArguments(argv);
+  const { values, flags } = optionMap([...args, "--stage", installation.stage.name]);
   const execute = flags.has("--execute");
   const redrive = flags.has("--redrive");
   const config = {
+    installation,
     stage: safeStage(required(values, "--stage")),
     apiUrl: httpsUrl(required(values, "--api-url"), "--api-url"),
     fileId: required(values, "--file-id"),
@@ -111,33 +115,29 @@ export function parseHarnessConfig(argv, env = process.env) {
   return Object.freeze(config);
 }
 
-/** @param {Environment} [base] @returns {Environment} */
-export function awsEnvironment(base = process.env) {
+/** @param {import("../../infra/config/installation-target.ts").ResolvedInstallationTarget} target @param {Environment} [base] @returns {Environment} */
+export function awsEnvironment(target, base = process.env) {
   const safeBase = Object.fromEntries(
     Object.entries(base).filter(([key]) => {
       const normalized = key.toLowerCase().replaceAll(/[^a-z0-9]/gu, "");
       return !/(?:projectkey|authorization|token|secret|password)/u.test(normalized);
     }),
   );
-  return {
-    ...safeBase,
-    AWS_PROFILE,
-    AWS_REGION,
-    AWS_CA_BUNDLE,
-  };
+  return createAwsEnvironment(target, safeBase);
 }
 
-/** @param {ExecFile} [execFile] @param {Environment} [env] */
-export async function verifyAwsIdentity(execFile = execFileDefault, env = process.env) {
-  const result = await execFile("aws", ["sts", "get-caller-identity", "--output", "json"], {
-    env: awsEnvironment(env),
-    windowsHide: true,
-  });
-  const identity = JSON.parse(result.stdout);
-  if (identity.Account !== EXPECTED_ACCOUNT || identity.Arn !== EXPECTED_ARN) {
-    throw new Error("AWS identity mismatch; refusing all reads and mutations");
+/** @param {import("../../infra/config/installation-target.ts").ResolvedInstallationTarget} target @param {ExecFile} [execFile] @param {Environment} [env] */
+export async function verifyAwsIdentity(target, execFile = execFileDefault, env = process.env) {
+  let result;
+  try {
+    result = await execFile(resolveTrustedAwsCliPath(), identityArguments(target), {
+      env: awsEnvironment(target, env),
+      windowsHide: true,
+    });
+  } catch {
+    throw new Error("AWS authentication failed; verify the approved profile and CA bundle.");
   }
-  return Object.freeze({ account: EXPECTED_ACCOUNT, arn: EXPECTED_ARN });
+  return validateAwsIdentity(target, result.stdout);
 }
 
 /** @param {unknown} value */
@@ -250,7 +250,7 @@ async function runTransferMatrix(config, dependencies) {
 /** @param {ExecFile} execFile @param {string} queueUrl @param {Environment} env */
 async function queueDepth(execFile, queueUrl, env) {
   const output = await execFile(
-    "aws",
+    resolveTrustedAwsCliPath(),
     [
       "sqs",
       "get-queue-attributes",
@@ -280,14 +280,14 @@ export function acceptanceInfrastructurePassed(mainQueueDepth, deadLetterDepth, 
 async function listExactLogKeys(execFile, config, env, now = Date.now) {
   const date = new Date(now()).toISOString().slice(0, 10).replaceAll("-", "/");
   const output = await execFile(
-    "aws",
+    resolveTrustedAwsCliPath(),
     [
       "s3api",
       "list-objects-v2",
       "--bucket",
       config.logBucket,
       "--prefix",
-      `AWSLogs/${EXPECTED_ACCOUNT}/CloudTrail/${AWS_REGION}/${date}/`,
+      `AWSLogs/${config.installation.accountId}/CloudTrail/${config.installation.region}/${date}/`,
       "--max-items",
       "100",
       "--output",
@@ -321,7 +321,7 @@ async function invokeExactReplay(execFile, config, logKeys, env) {
   const outputPath = join(directory, "invoke-output.json");
   try {
     const result = await execFile(
-      "aws",
+      resolveTrustedAwsCliPath(),
       [
         "lambda",
         "invoke",
@@ -364,13 +364,18 @@ export async function runDownloadMeteringAcceptance(argv, dependencies = {}) {
     externalMutation: config.execute,
   });
   if (!config.execute) return Object.freeze({ plan, decision: "not-run" });
+  if (config.installation.name !== "israel") {
+    throw new Error(
+      "WCU-02 regional metering is required before executing on another installation.",
+    );
+  }
   const execFile = dependencies.execFile ?? execFileDefault;
-  const env = awsEnvironment(dependencies.env ?? process.env);
-  await verifyAwsIdentity(execFile, env);
+  const env = awsEnvironment(config.installation, dependencies.env ?? process.env);
+  await verifyAwsIdentity(config.installation, execFile, env);
   if (config.redrive) {
     if (!config.dlqArn) throw new Error("Authorized redrive requires an exact DLQ ARN");
     const output = await execFile(
-      "aws",
+      resolveTrustedAwsCliPath(),
       [
         "sqs",
         "start-message-move-task",
