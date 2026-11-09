@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createSuccessEnvelopeSchema } from "../http/envelope.js";
 
 export const FILE_MANAGEMENT_UTILITY = "file-management" as const;
+export const COMMUNICATION_UTILITY = "communication" as const;
 export const DEFAULT_UPLOAD_URL_LIFETIME_MINUTES = 15;
 export const DEFAULT_DOWNLOAD_URL_LIFETIME_MINUTES = 5;
 export const DEFAULT_STORAGE_QUOTA_BYTES = 5 * 2 ** 30;
@@ -16,7 +17,14 @@ export const PublicProjectIdSchema = z
 
 export const ProjectNameSchema = z.string().trim().min(1).max(100);
 
-export const EnabledUtilitiesSchema = z.tuple([z.literal(FILE_MANAGEMENT_UTILITY)]);
+export const EnabledUtilitiesSchema = z
+  .array(z.enum([FILE_MANAGEMENT_UTILITY, COMMUNICATION_UTILITY]))
+  .min(1)
+  .max(2)
+  .superRefine((utilities, context) => {
+    if (new Set(utilities).size !== utilities.length) context.addIssue({ code: "custom", message: "Enabled utilities must be unique" });
+    if (utilities.length === 2 && utilities[0] !== FILE_MANAGEMENT_UTILITY) context.addIssue({ code: "custom", message: "Utilities must use canonical order" });
+  });
 
 const UrlLifetimeMinutesSchema = z.number().int().min(1).max(60);
 const StorageQuotaBytesSchema = z.number().int().safe().positive();

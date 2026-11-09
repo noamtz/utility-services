@@ -22,6 +22,7 @@ export {
   DEFAULT_UPLOAD_URL_LIFETIME_MINUTES,
   EnabledUtilitiesSchema,
   FILE_MANAGEMENT_UTILITY,
+  COMMUNICATION_UTILITY as PROJECT_COMMUNICATION_UTILITY,
   FileManagementSettingsSchema,
   FileManagementPolicyLimitsResponseSchema,
   FileManagementPolicyLimitsSchema,
