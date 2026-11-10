@@ -4,7 +4,6 @@ import {
   DOWNLOAD_LOG_BUCKET_COMPONENT_NAME,
   DOWNLOAD_LOG_BUCKET_PUBLIC_ACCESS_BLOCK,
   DOWNLOAD_LOG_RETENTION_DAYS,
-  DOWNLOAD_METERING_AWS_ACCOUNT_ID,
   DOWNLOAD_METERING_AWS_PARTITION,
   DOWNLOAD_METERING_DLQ_COMPONENT_NAME,
   DOWNLOAD_METERING_DLQ_RETENTION_DAYS,
@@ -29,11 +28,12 @@ import {
   downloadMeteringTrailArn,
   downloadMeteringTrailName,
 } from "./config/download-metering.js";
-import { DOWNLOAD_METERING_REGION } from "./config/download-metering.js";
 import { configureLeastPrivilegeDynamoLink } from "./dynamo-link.js";
+import type { ResolvedInstallationTarget } from "./config/installation-target.js";
 
 interface DownloadMeteringResourceDependencies {
   readonly production: boolean;
+  readonly installation: ResolvedInstallationTarget;
   readonly fileBucket: sst.aws.Bucket;
   readonly usageTable: sst.aws.Dynamo;
 }
@@ -45,12 +45,12 @@ export function createDownloadMeteringResources(options: DownloadMeteringResourc
   const trailName = downloadMeteringTrailName($app.stage);
   const trailArn = downloadMeteringTrailArn({
     partition: DOWNLOAD_METERING_AWS_PARTITION,
-    region: DOWNLOAD_METERING_REGION,
-    accountId: DOWNLOAD_METERING_AWS_ACCOUNT_ID,
+    region: options.installation.region,
+    accountId: options.installation.accountId,
     trailName,
   });
-  const regionalLogPrefix = cloudTrailRegionalLogPrefix(DOWNLOAD_METERING_AWS_ACCOUNT_ID);
-  const accountLogPrefix = cloudTrailAccountLogPrefix(DOWNLOAD_METERING_AWS_ACCOUNT_ID);
+  const regionalLogPrefix = cloudTrailRegionalLogPrefix(options.installation);
+  const accountLogPrefix = cloudTrailAccountLogPrefix(options.installation.accountId);
 
   const logBucket = new sst.aws.Bucket(DOWNLOAD_LOG_BUCKET_COMPONENT_NAME, {
     cors: false,
@@ -133,7 +133,7 @@ export function createDownloadMeteringResources(options: DownloadMeteringResourc
           {
             test: "StringEquals",
             variable: "aws:SourceAccount",
-            values: [DOWNLOAD_METERING_AWS_ACCOUNT_ID],
+            values: [options.installation.accountId],
           },
         ],
       },
@@ -152,8 +152,8 @@ export function createDownloadMeteringResources(options: DownloadMeteringResourc
     environment: {
       DOWNLOAD_PRICING_MODE,
       DOWNLOAD_METERING_SOURCE_KIND,
-      CLOUDTRAIL_ACCOUNT_ID: DOWNLOAD_METERING_AWS_ACCOUNT_ID,
-      CLOUDTRAIL_REGION: DOWNLOAD_METERING_REGION,
+      CLOUDTRAIL_ACCOUNT_ID: options.installation.accountId,
+      CLOUDTRAIL_REGION: options.installation.region,
       CLOUDTRAIL_LOG_PREFIX: regionalLogPrefix,
       FILE_BUCKET_NAME: options.fileBucket.name,
       MAX_CLOUDTRAIL_COMPRESSED_BYTES: String(MAX_CLOUDTRAIL_COMPRESSED_BYTES),

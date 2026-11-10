@@ -5,6 +5,7 @@ import {
   type PriceSource,
   type PriceVersion,
 } from "@utility-services/contracts";
+import { z } from "zod";
 
 export const USAGE_PRICING_TABLE_COMPONENT_NAME = "UsagePricingTable";
 export const USAGE_PRICING_TTL_ATTRIBUTE = "expiresAt";
@@ -136,7 +137,44 @@ const CURRENT_RATES: PriceRate[] = [
   },
 ];
 
-export const PRICE_VERSIONS: readonly PriceVersion[] = Object.freeze([
+const FRANKFURT_RATES: PriceRate[] = [
+  {
+    ...CURRENT_RATES[0]!,
+    sku: "4AQJCH6YWQY5Y8WW",
+    rateCode: "4AQJCH6YWQY5Y8WW.JRTCKXETXF.PGHJ3S3EYE",
+    usdPerUnit: "0.023",
+    sourcePricePerUnitUsd: "0.0230000000",
+    description: "$0.023 per GB - first 50 TB / month of S3 Standard storage used",
+  },
+  {
+    ...CURRENT_RATES[1]!,
+    sku: "GJ6CKS8W4PV4M82E",
+    rateCode: "GJ6CKS8W4PV4M82E.JRTCKXETXF.6YS6EN2CT7",
+    usdPerUnit: "0.005",
+    sourcePricePerUnitUsd: "0.0000050000",
+    description: "$0.005 per 1,000 S3 PUT, COPY, POST, or LIST requests",
+  },
+  {
+    ...CURRENT_RATES[2]!,
+    sku: "S92RNU3YW7QGEJ7N",
+    rateCode: "S92RNU3YW7QGEJ7N.JRTCKXETXF.6YS6EN2CT7",
+    usdPerUnit: "0.004",
+    sourcePricePerUnitUsd: "0.0000004000",
+    description: "$0.004 per 10,000 S3 GET and all other requests",
+  },
+  {
+    ...CURRENT_RATES[3]!,
+    sku: "MNXWQY2ZKSPVHJ8V",
+    rateCode: "MNXWQY2ZKSPVHJ8V.JRTCKXETXF.Q3Z75P77EN",
+    usdPerUnit: "0.09",
+    sourcePricePerUnitUsd: "0.0900000000",
+    description:
+      "$0.090 per GB for the first 10 TB per month outbound beyond the excluded global free tier",
+  },
+  { ...CURRENT_RATES[4]! },
+];
+
+const ISRAEL_PRICE_VERSIONS: readonly PriceVersion[] = Object.freeze([
   PriceVersionSchema.parse({
     versionId: "aws-il-central-1-2026-08-01",
     effectiveAt: "2026-08-01T00:00:00.000Z",
@@ -147,6 +185,28 @@ export const PRICE_VERSIONS: readonly PriceVersion[] = Object.freeze([
     sources: [AMAZON_S3_SOURCE, AWS_DATA_TRANSFER_SOURCE, AWS_CLOUDTRAIL_SOURCE],
   }),
 ]);
+
+const FRANKFURT_PRICE_VERSIONS: readonly PriceVersion[] = Object.freeze([
+  PriceVersionSchema.parse({
+    versionId: "aws-eu-central-1-2026-08-01",
+    effectiveAt: "2026-08-01T00:00:00.000Z",
+    publishedAt: AMAZON_S3_SOURCE.publicationDate,
+    currency: "USD",
+    productRegion: "eu-central-1",
+    rates: FRANKFURT_RATES,
+    sources: [AMAZON_S3_SOURCE, AWS_DATA_TRANSFER_SOURCE, AWS_CLOUDTRAIL_SOURCE],
+  }),
+]);
+
+/** Immutable published histories keyed by the AWS region to which they apply. */
+export const PRICE_VERSIONS_BY_REGION: Readonly<Record<string, readonly PriceVersion[]>> =
+  Object.freeze({
+    "il-central-1": ISRAEL_PRICE_VERSIONS,
+    "eu-central-1": FRANKFURT_PRICE_VERSIONS,
+  });
+
+/** Israel continuity alias; infrastructure must select through priceVersionsForRegion. */
+export const PRICE_VERSIONS = ISRAEL_PRICE_VERSIONS;
 
 export function usagePricingTableDeletionProtection(production: boolean): boolean {
   return production;
@@ -162,6 +222,25 @@ export function validateAppendOnlyPriceVersions(input: readonly unknown[]): Pric
     }
     ids.add(version.versionId);
     previous = version.effectiveAt;
+  }
+  return versions;
+}
+
+export function priceVersionsForRegion(regionInput: unknown): readonly PriceVersion[] {
+  const region = z
+    .string()
+    .regex(/^[a-z]{2}(?:-gov)?-[a-z]+-\d+$/u)
+    .parse(regionInput);
+  const versions = PRICE_VERSIONS_BY_REGION[region];
+  if (!versions) throw new Error(`No published usage-pricing rates exist for ${region}`);
+  validateAppendOnlyPriceVersions(versions);
+  for (const version of versions) {
+    if (
+      version.productRegion !== region ||
+      new Set(version.rates.map((rate) => rate.metric)).size !== USAGE_METRICS.length
+    ) {
+      throw new Error(`Published usage-pricing rates are incomplete for ${region}`);
+    }
   }
   return versions;
 }
@@ -194,7 +273,4 @@ export function toPriceSeedItem(input: unknown): string {
   return JSON.stringify(item);
 }
 
-validateAppendOnlyPriceVersions(PRICE_VERSIONS);
-if (new Set(PRICE_VERSIONS[0]?.rates.map((rate) => rate.metric)).size !== USAGE_METRICS.length) {
-  throw new Error("Published price version is incomplete");
-}
+for (const region of Object.keys(PRICE_VERSIONS_BY_REGION)) priceVersionsForRegion(region);

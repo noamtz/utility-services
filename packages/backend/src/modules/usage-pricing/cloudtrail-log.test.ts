@@ -137,6 +137,26 @@ describe("CloudTrail metering invocation parser", () => {
 });
 
 describe("CloudTrail gzip archive parser", () => {
+  it("keeps a Frankfurt installation scoped to its account and regional log prefix", async () => {
+    const frankfurtPrefix = "AWSLogs/000000000000/CloudTrail/eu-central-1/";
+    const frankfurtKey = `${frankfurtPrefix}2026/08/24/log.json.gz`;
+    const { value } = reader(
+      archive([
+        record({ awsRegion: "eu-central-1", recipientAccountId: "000000000000" }),
+        record(),
+      ]),
+      {
+        accountId: "000000000000",
+        region: "eu-central-1",
+        logPrefix: frankfurtPrefix,
+      },
+    );
+    const result = await value.readLog(frankfurtKey);
+    expect(result.records.map((item) => item.kind)).toEqual(["accepted", "quarantine"]);
+    expect(result.records[0]).toMatchObject({ accountId: "000000000000", region: "eu-central-1" });
+    expect(result.records[1]).toMatchObject({ reasonCode: "outside-download-boundary" });
+  });
+
   it("accepts full, range-like, zero-byte, string, and numeric byte evidence", async () => {
     const records = [
       record(),

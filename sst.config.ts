@@ -41,7 +41,10 @@ export default $config({
       import("./infra/usage-pricing.js"),
     ]);
     const control = createControlResources({ production: $app.stage === "production" });
-    const usagePricing = createUsagePricingResources({ production: $app.stage === "production" });
+    const usagePricing = createUsagePricingResources({
+      production: $app.stage === "production",
+      installation,
+    });
     const files = createFileManagementResources({
       production: $app.stage === "production",
       controlTable: control.table,
@@ -49,6 +52,7 @@ export default $config({
     });
     const downloadMetering = createDownloadMeteringResources({
       production: $app.stage === "production",
+      installation,
       fileBucket: files.bucket,
       usageTable: usagePricing.table,
     });

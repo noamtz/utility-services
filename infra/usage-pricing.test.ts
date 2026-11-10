@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveInstallationTarget } from "./config/installation-target.js";
 
 import { PRICE_VERSIONS, USAGE_PRICING_TABLE_COMPONENT_NAME } from "./config/usage-pricing.js";
 import { createUsagePricingResources, priceSeedResourceName } from "./usage-pricing.js";
@@ -51,7 +52,10 @@ describe("usage pricing resources", () => {
     });
     vi.stubGlobal("aws", { dynamodb: { TableItem } });
 
-    const resources = createUsagePricingResources({ production: true });
+    const resources = createUsagePricingResources({
+      production: true,
+      installation: resolveInstallationTarget("israel", "production"),
+    });
 
     expect(dynamoCalls).toEqual([
       {
@@ -113,7 +117,28 @@ describe("usage pricing resources", () => {
     });
     vi.stubGlobal("$interpolate", () => output("index-arn"));
     vi.stubGlobal("aws", { dynamodb: { TableItem: class {} } });
-    createUsagePricingResources({ production: false });
+    createUsagePricingResources({
+      production: false,
+      installation: resolveInstallationTarget("israel", "dev-rus02"),
+    });
     expect(args?.["deletionProtection"]).toBe(false);
+  });
+
+  it("fails closed before creating a pricing table when an installation region has no rate set", () => {
+    const Dynamo = vi.fn();
+    vi.stubGlobal("sst", {
+      Linkable: { wrap: vi.fn() },
+      aws: { Dynamo, Cron: class {}, permission: vi.fn() },
+    });
+    vi.stubGlobal("$interpolate", () => output("index-arn"));
+    vi.stubGlobal("aws", { dynamodb: { TableItem: class {} } });
+    const israel = resolveInstallationTarget("israel", "dev-rus02");
+    expect(() =>
+      createUsagePricingResources({
+        production: false,
+        installation: { ...israel, region: "us-east-1" },
+      }),
+    ).toThrow("No published usage-pricing rates");
+    expect(Dynamo).not.toHaveBeenCalled();
   });
 });

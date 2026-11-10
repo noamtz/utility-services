@@ -1,5 +1,5 @@
 import {
-  PRICE_VERSIONS,
+  priceVersionsForRegion,
   USAGE_PRICING_TABLE_COMPONENT_NAME,
   USAGE_PRICING_TABLE_POLICY,
   USAGE_FRESHNESS_MONITOR_COMPONENT_NAME,
@@ -11,6 +11,7 @@ import {
   usagePricingTableDeletionProtection,
 } from "./config/usage-pricing.js";
 import type { PriceVersion } from "@utility-services/contracts";
+import type { ResolvedInstallationTarget } from "./config/installation-target.js";
 import { configureLeastPrivilegeDynamoLink } from "./dynamo-link.js";
 
 export function priceSeedResourceName(version: PriceVersion): string {
@@ -22,8 +23,12 @@ export function priceSeedResourceName(version: PriceVersion): string {
   return `UsagePrice${identity}`;
 }
 
-export function createUsagePricingResources(options: { production: boolean }) {
+export function createUsagePricingResources(options: {
+  production: boolean;
+  installation: ResolvedInstallationTarget;
+}) {
   configureLeastPrivilegeDynamoLink();
+  const priceVersions = priceVersionsForRegion(options.installation.region);
   const table = new sst.aws.Dynamo(USAGE_PRICING_TABLE_COMPONENT_NAME, {
     fields: USAGE_PRICING_TABLE_POLICY.fields,
     primaryIndex: USAGE_PRICING_TABLE_POLICY.primaryIndex,
@@ -31,7 +36,7 @@ export function createUsagePricingResources(options: { production: boolean }) {
     ttl: USAGE_PRICING_TABLE_POLICY.ttl,
     deletionProtection: usagePricingTableDeletionProtection(options.production),
   });
-  const priceItems = PRICE_VERSIONS.map(
+  const priceItems = priceVersions.map(
     (version) =>
       new aws.dynamodb.TableItem(
         priceSeedResourceName(version),

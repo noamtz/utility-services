@@ -8,6 +8,7 @@ import {
   DOWNLOAD_METERING_QUEUE_COMPONENT_NAME,
   DOWNLOAD_METERING_TRAIL_COMPONENT_NAME,
 } from "./config/download-metering.js";
+import { resolveInstallationTarget } from "./config/installation-target.js";
 
 interface TestOutput<T> extends SstOutput<T> {
   readonly value: T;
@@ -141,6 +142,7 @@ describe("download metering resources", () => {
 
     const resources = createDownloadMeteringResources({
       production: true,
+      installation: resolveInstallationTarget("israel", "dev-rus02"),
       fileBucket,
       usageTable,
     });
@@ -322,7 +324,12 @@ describe("download metering resources", () => {
     vi.resetModules();
     const { createDownloadMeteringResources } = await import("./download-metering.js");
     const fileBucket = new Bucket("FileBucket");
-    createDownloadMeteringResources({ production: false, fileBucket, usageTable: new Dynamo() });
+    createDownloadMeteringResources({
+      production: false,
+      installation: resolveInstallationTarget("israel", "dev-rus02"),
+      fileBucket,
+      usageTable: new Dynamo(),
+    });
     const transform = logBucketArgs?.["transform"] as {
       bucket(args: Record<string, unknown>): void;
     };
