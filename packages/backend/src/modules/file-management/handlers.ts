@@ -8,6 +8,7 @@ import {
   FilePathSchema,
   FileSchema,
   PublicFilePathSchema,
+  UpdateFileDeletionProtectionRequestSchema,
   UploadAuthorizationSchema,
 } from "@utility-services/contracts";
 import { z } from "zod";
@@ -114,6 +115,24 @@ export function createRestoreFileHandler(
     schemas: { path: FilePathSchema, response: FileSchema },
     deriveAuthorization: createProjectAuthorization(authentication),
     callback: ({ authorization, path }) => service.restore(authorization, path.fileId),
+    ...(logger ? { logger } : {}),
+  });
+}
+
+export function createUpdateFileDeletionProtectionHandler(
+  service: FileService,
+  authentication: ProjectAuthenticationService,
+  logger?: SafeLogger,
+) {
+  return createHttpHandler({
+    schemas: {
+      path: FilePathSchema,
+      body: UpdateFileDeletionProtectionRequestSchema,
+      response: FileSchema,
+    },
+    deriveAuthorization: createProjectAuthorization(authentication),
+    callback: ({ authorization, path, body }) =>
+      service.updateDeletionProtection(authorization, path.fileId, body),
     ...(logger ? { logger } : {}),
   });
 }

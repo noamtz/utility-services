@@ -126,6 +126,9 @@ class MemoryRepository implements FileRepository {
   public async listDuePending(): Promise<DuePendingResult> {
     return { items: this.item.status === "pending" ? [this.item] : [] };
   }
+  public async updateDeletionProtection(): Promise<FileItem> {
+    throw new Error("not used by completion tests");
+  }
   public async trash(): Promise<FileItem> {
     throw new Error("not used by completion tests");
   }

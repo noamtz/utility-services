@@ -103,6 +103,7 @@ function repository(overrides: Partial<FileRepository> = {}): FileRepository {
     claimPermanentRemoval: vi.fn(),
     recordObjectRemoved: vi.fn(),
     finalizePermanentRemoval: vi.fn(),
+    updateDeletionProtection: vi.fn(),
     listDuePurge: vi.fn().mockResolvedValue({ items: [] }),
     ...overrides,
   };

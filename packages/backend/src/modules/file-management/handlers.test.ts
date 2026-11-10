@@ -19,6 +19,7 @@ import {
   createListFilesHandler,
   createPublicDownloadHandler,
   createRestoreFileHandler,
+  createUpdateFileDeletionProtectionHandler,
 } from "./handlers.js";
 import type { FileLifecycleService } from "./lifecycle.js";
 import type { DownloadService } from "./downloads.js";
@@ -45,6 +46,7 @@ const file: File = {
   sizeBytes: 12,
   visibility: "private",
   status: "pending",
+  deletionProtected: false,
   createdAt: timestamp,
   updatedAt: timestamp,
 };
@@ -85,6 +87,7 @@ function service(): FileService {
     authorizeUpload: vi.fn().mockResolvedValue(authorization),
     list: vi.fn().mockResolvedValue({ items: [file] }),
     inspect: vi.fn().mockResolvedValue(file),
+    updateDeletionProtection: vi.fn().mockResolvedValue(file),
   };
 }
 
@@ -387,5 +390,36 @@ describe("file HTTP handlers", () => {
     );
     expect(restored.statusCode).toBe(200);
     expect(service.restore).toHaveBeenCalledWith(context, file.fileId);
+  });
+
+  it("sets deletion protection through the same project credential and validates its body", async () => {
+    const files = service();
+    const response = await createUpdateFileDeletionProtectionHandler(
+      files,
+      authentication(),
+    )(
+      event({
+        method: "PUT",
+        path: `/v1/files/${file.fileId}/deletion-protection`,
+        pathParameters: { fileId: file.fileId },
+        body: { deletionProtected: true },
+      }),
+    );
+    expect(response.statusCode).toBe(200);
+    expect(files.updateDeletionProtection).toHaveBeenCalledWith(context, file.fileId, {
+      deletionProtected: true,
+    });
+    const malformed = await createUpdateFileDeletionProtectionHandler(
+      files,
+      authentication(),
+    )(
+      event({
+        method: "PUT",
+        path: `/v1/files/${file.fileId}/deletion-protection`,
+        pathParameters: { fileId: file.fileId },
+        body: { deletionProtected: "true" },
+      }),
+    );
+    expect(malformed.statusCode).toBe(400);
   });
 });

@@ -75,6 +75,12 @@ export interface FileRepository {
     limit: number,
     startKey?: Record<string, unknown>,
   ): Promise<DuePendingResult>;
+  updateDeletionProtection(
+    file: FileItem,
+    deletionProtected: boolean,
+    changedAt: string,
+    changedByKeyId: string,
+  ): Promise<FileItem>;
   trash(
     file: FileItem,
     trashedAt: string,
@@ -711,7 +717,7 @@ export function createDynamoFileRepository(options: {
             Key: { pk: file.pk, sk: file.sk },
             UpdateExpression: `SET #status = :trashed, trashedAt = :trashedAt, purgeAt = :purgeAt${trashRetentionDays === undefined ? "" : ", trashRetentionDaysAtDeletion = :trashRetentionDays"}${policyVersion === undefined ? "" : ", fileManagementPolicyVersionAtDeletion = :policyVersion"}, gsi2pk = :lifecyclePk, gsi2sk = :lifecycleSk, updatedAt = :updatedAt, revision = revision + :one`,
             ConditionExpression:
-              "attribute_exists(pk) AND #status = :ready AND revision = :revision AND internalProjectId = :internal AND fileId = :file",
+              "attribute_exists(pk) AND #status = :ready AND revision = :revision AND internalProjectId = :internal AND fileId = :file AND attribute_not_exists(deletionProtectedAt)",
             ExpressionAttributeNames: { "#status": "status" },
             ExpressionAttributeValues: {
               ":trashed": "trashed",
@@ -739,6 +745,43 @@ export function createDynamoFileRepository(options: {
         const existing = await get(file.internalProjectId, file.fileId);
         if (existing?.status === "trashed" && existing.purgeStartedAt === undefined)
           return existing;
+        throw new FileStateConflictError();
+      }
+    },
+
+    async updateDeletionProtection(fileInput, deletionProtected, changedAtInput, changedByKeyId) {
+      const file = parseFileItem(fileInput);
+      const changedAt = z.iso.datetime({ offset: true }).parse(changedAtInput);
+      const keyId = z
+        .string()
+        .regex(/^key_[A-Za-z0-9_-]{22}$/u)
+        .parse(changedByKeyId);
+      if (file.purgeStartedAt !== undefined) throw new FileStateConflictError();
+      if ((file.deletionProtectedAt !== undefined) === deletionProtected) return file;
+      try {
+        const output = await options.client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { pk: file.pk, sk: file.sk },
+            UpdateExpression: deletionProtected
+              ? "SET deletionProtectedAt = :changedAt, deletionProtectionChangedAt = :changedAt, deletionProtectionChangedByKeyId = :keyId, updatedAt = :changedAt, revision = revision + :one"
+              : "SET deletionProtectionChangedAt = :changedAt, deletionProtectionChangedByKeyId = :keyId, updatedAt = :changedAt, revision = revision + :one REMOVE deletionProtectedAt",
+            ConditionExpression:
+              "attribute_exists(pk) AND revision = :revision AND internalProjectId = :internal AND fileId = :file AND attribute_not_exists(purgeStartedAt)",
+            ExpressionAttributeValues: {
+              ":changedAt": changedAt,
+              ":keyId": keyId,
+              ":revision": file.revision,
+              ":internal": file.internalProjectId,
+              ":file": file.fileId,
+              ":one": 1n,
+            },
+            ReturnValues: "ALL_NEW",
+          }),
+        );
+        return parseStoredFile(output.Attributes, file.internalProjectId);
+      } catch (error) {
+        if (!isConditionalFailure(error)) throw error;
         throw new FileStateConflictError();
       }
     },
@@ -818,7 +861,7 @@ export function createDynamoFileRepository(options: {
             Key: { pk: file.pk, sk: file.sk },
             UpdateExpression:
               "SET #status = :trashed, trashedAt = :trashedAt, purgeAt = :purgeAt, purgeStartedAt = :now, gsi2pk = :lifecyclePk, gsi2sk = :lifecycleSk, updatedAt = :now, revision = revision + :one",
-            ConditionExpression: `attribute_exists(pk) AND ${statusCondition} AND revision = :revision AND internalProjectId = :internal AND fileId = :file AND attribute_not_exists(purgeStartedAt)`,
+            ConditionExpression: `attribute_exists(pk) AND ${statusCondition} AND revision = :revision AND internalProjectId = :internal AND fileId = :file AND attribute_not_exists(purgeStartedAt) AND attribute_not_exists(deletionProtectedAt)`,
             ExpressionAttributeNames: { "#status": "status" },
             ExpressionAttributeValues: {
               ...(force ? { ":ready": "ready" } : {}),

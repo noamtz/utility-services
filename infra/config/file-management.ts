@@ -86,6 +86,15 @@ export const FILE_ROUTES = [
     usageTableActions: [],
   },
   {
+    name: "UpdateFileDeletionProtectionRoute",
+    route: "PUT /v1/files/{fileId}/deletion-protection",
+    handler: "packages/backend/src/functions/files/update-file-deletion-protection.handler",
+    controlTableActions: ["dynamodb:GetItem", "dynamodb:TransactGetItems", "dynamodb:UpdateItem"],
+    fileTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+    bucketActions: [],
+    usageTableActions: [],
+  },
+  {
     name: "AuthorizeFileDownloadRoute",
     route: "POST /v1/files/{fileId}/downloads",
     handler: "packages/backend/src/functions/files/authorize-download.handler",

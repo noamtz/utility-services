@@ -7,6 +7,7 @@ import { createPendingFile, type FileItem } from "./model.js";
 import type { UploadPresigner } from "./presigning.js";
 import {
   FileCollisionError,
+  FileStateConflictError,
   ProjectPolicyChangedError,
   StorageQuotaExceededError,
   type FileRepository,
@@ -68,6 +69,7 @@ function repository(overrides: Partial<FileRepository> = {}): FileRepository {
     claimPermanentRemoval: vi.fn(),
     recordObjectRemoved: vi.fn(),
     finalizePermanentRemoval: vi.fn(),
+    updateDeletionProtection: vi.fn(),
     listDuePurge: vi.fn().mockResolvedValue({ items: [] }),
     ...overrides,
   };
@@ -252,5 +254,37 @@ describe("file service", () => {
         cursor: encodeFileCursor("22222222-2222-4222-8222-222222222222", { fileId }),
       }),
     ).rejects.toMatchObject({ statusCode: 400, code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects cross-project protection updates and maps stale writes to a conflict", async () => {
+    const otherProjectFile = createPendingFile({
+      internalProjectId: "22222222-2222-4222-8222-222222222222",
+      publicProjectId: project.publicProjectId,
+      fileId,
+      name: "file.txt",
+      mediaType: "text/plain",
+      sizeBytes: 12n,
+      visibility: "private",
+      uploadExpiresAt: "2026-08-23T08:15:00.000Z",
+      failureEligibleAt: "2026-08-23T09:15:00.000Z",
+      createdAt: timestamp,
+    });
+    const crossProjectRepository = repository({ get: vi.fn().mockResolvedValue(otherProjectFile) });
+    const crossProject = createFileService({
+      repository: crossProjectRepository,
+      presigner: presigner(),
+    });
+    await expect(
+      crossProject.updateDeletionProtection(project, fileId, { deletionProtected: true }),
+    ).rejects.toMatchObject({ statusCode: 404, code: "FILE_NOT_FOUND" });
+    expect(crossProjectRepository.updateDeletionProtection).not.toHaveBeenCalled();
+
+    const staleRepository = repository({
+      updateDeletionProtection: vi.fn().mockRejectedValue(new FileStateConflictError()),
+    });
+    const stale = createFileService({ repository: staleRepository, presigner: presigner() });
+    await expect(
+      stale.updateDeletionProtection(project, fileId, { deletionProtected: true }),
+    ).rejects.toMatchObject({ statusCode: 409, code: "FILE_STATE_CONFLICT" });
   });
 });
