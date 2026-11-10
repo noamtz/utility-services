@@ -138,6 +138,50 @@ describe("project service", () => {
     expect(result).not.toHaveProperty("internalProjectId");
   });
 
+  it("creates and exposes a communication-only project without File Management settings", async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const service = createProjectService({
+      repository: repository({ create }),
+      generateIds: () => ids(),
+      now: () => new Date(timestamp),
+    });
+
+    const result = await service.create(
+      ownerA,
+      CreateProjectRequestSchema.parse({
+        name: "Communication",
+        enabledUtilities: ["communication"],
+      }),
+    );
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ enabledUtilities: ["communication"] }),
+    );
+    expect(result).not.toHaveProperty("fileManagement");
+  });
+
+  it("does not expose File Management policy controls for a communication-only project", async () => {
+    const communicationOnly: InternalProject = {
+      ...project("owner-a"),
+      enabledUtilities: ["communication"],
+    };
+    const updateFileManagementPolicy = vi.fn();
+    const service = createProjectService({
+      repository: repository({
+        inspect: vi.fn().mockResolvedValue(communicationOnly),
+        updateFileManagementPolicy,
+      }),
+    });
+
+    await expect(
+      service.updateFileManagementPolicy(ownerA, communicationOnly.publicProjectId, {
+        storageQuotaBytes: 6 * 2 ** 30,
+        trashRetentionDays: 20,
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(updateFileManagementPolicy).not.toHaveBeenCalled();
+  });
+
   it("preserves independent lifetime boundary values", async () => {
     const service = createProjectService({
       repository: repository(),

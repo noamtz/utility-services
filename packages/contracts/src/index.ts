@@ -22,6 +22,7 @@ export {
   DEFAULT_UPLOAD_URL_LIFETIME_MINUTES,
   EnabledUtilitiesSchema,
   FILE_MANAGEMENT_UTILITY,
+  COMMUNICATION_UTILITY as PROJECT_COMMUNICATION_UTILITY,
   FileManagementSettingsSchema,
   FileManagementPolicyLimitsResponseSchema,
   FileManagementPolicyLimitsSchema,
@@ -50,6 +51,24 @@ export {
   type ProjectSummary,
   type UpdateFileManagementPolicyRequest,
 } from "./projects/contract.js";
+export {
+  COMMUNICATION_UTILITY,
+  CommunicationConnectionPathSchema,
+  CommunicationConnectionListResponseSchema,
+  CommunicationConnectionListSchema,
+  CommunicationConnectionResponseSchema,
+  CommunicationConnectionSchema,
+  ConnectionIdSchema,
+  ConnectionStatusSchema,
+  CreateCommunicationConnectionRequestSchema,
+  ProviderCredentialSchema,
+  ProviderInstanceIdSchema,
+  RotateCommunicationCredentialRequestSchema,
+  type CommunicationConnection,
+  type CommunicationConnectionPath,
+  type CreateCommunicationConnectionRequest,
+  type RotateCommunicationCredentialRequest,
+} from "./communication/contract.js";
 export {
   ApiKeyCursorSchema,
   ApiKeyIdSchema,

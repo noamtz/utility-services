@@ -72,6 +72,29 @@ describe("project model", () => {
     expect(assembleProject(metadata, utility)).toEqual(project);
   });
 
+  it("assembles a communication-only project without a File Management record", () => {
+    const communicationOnly: InternalProject = {
+      ...project,
+      enabledUtilities: ["communication"],
+    };
+    const metadata = toProjectMetadataItem(communicationOnly);
+
+    const assembled = assembleProject(metadata, undefined);
+
+    expect(assembled.enabledUtilities).toEqual(["communication"]);
+    expect(() =>
+      assembleProject(
+        metadata,
+        toEnabledUtilityItem(
+          project.publicProjectId,
+          project.fileManagement,
+          project.createdAt,
+          project.updatedAt,
+        ),
+      ),
+    ).toThrow("unexpected File Management utility");
+  });
+
   it("normalizes legacy metadata without an operational status to active", () => {
     const metadata = toProjectMetadataItem(project);
     const legacy: Partial<typeof metadata> = structuredClone(metadata);

@@ -128,13 +128,15 @@ export function createDynamoProjectRepository(options: {
   return {
     async create(project) {
       const metadata = toProjectMetadataItem(project);
-      const utility = toEnabledUtilityItem(
-        project.publicProjectId,
-        project.fileManagement,
-        project.createdAt,
-        project.updatedAt,
-        project.fileManagementPolicyVersion,
-      );
+      const utility = project.enabledUtilities.includes("file-management")
+        ? toEnabledUtilityItem(
+            project.publicProjectId,
+            project.fileManagement,
+            project.createdAt,
+            project.updatedAt,
+            project.fileManagementPolicyVersion,
+          )
+        : undefined;
 
       try {
         await options.client.send(
@@ -147,13 +149,17 @@ export function createDynamoProjectRepository(options: {
                   ConditionExpression: "attribute_not_exists(pk)",
                 },
               },
-              {
-                Put: {
-                  TableName: tableName,
-                  Item: utility,
-                  ConditionExpression: "attribute_not_exists(pk)",
-                },
-              },
+              ...(utility
+                ? [
+                    {
+                      Put: {
+                        TableName: tableName,
+                        Item: utility,
+                        ConditionExpression: "attribute_not_exists(pk)",
+                      },
+                    },
+                  ]
+                : []),
             ],
           }),
         );
@@ -223,7 +229,7 @@ export function createDynamoProjectRepository(options: {
           "sk" in item &&
           item.sk === FILE_MANAGEMENT_SORT_KEY,
       );
-      if (!metadata || !utility) {
+      if (!metadata) {
         throw new CorruptProjectRecordError();
       }
 

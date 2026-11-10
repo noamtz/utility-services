@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+import {
+  COMMUNICATION_CONNECTION_TABLE_POLICY,
+  COMMUNICATION_CONTROL_ROUTES,
+} from "./communication.js";
+
+describe("communication infrastructure policy", () => {
+  it("uses an independent on-demand table and narrow owner-control actions", () => {
+    expect(COMMUNICATION_CONNECTION_TABLE_POLICY.primaryIndex).toEqual({
+      hashKey: "pk",
+      rangeKey: "sk",
+    });
+    expect(COMMUNICATION_CONNECTION_TABLE_POLICY.globalIndexes).toHaveProperty("projectId-index");
+    expect(COMMUNICATION_CONTROL_ROUTES).toHaveLength(5);
+    expect(COMMUNICATION_CONTROL_ROUTES[1]?.connectionTableActions).toEqual([
+      "dynamodb:TransactWriteItems",
+    ]);
+    expect(COMMUNICATION_CONTROL_ROUTES[1]?.parameterActions).toEqual([
+      "ssm:PutParameter",
+      "ssm:DeleteParameter",
+    ]);
+    expect(COMMUNICATION_CONTROL_ROUTES[3]?.parameterActions).toEqual([
+      "ssm:PutParameter",
+      "ssm:DeleteParameter",
+    ]);
+    expect(JSON.stringify(COMMUNICATION_CONTROL_ROUTES)).not.toContain("*");
+  });
+});

@@ -9,6 +9,7 @@ export function IntegrationGuide({
   project: Project;
   apiBaseUrl: string;
 }) {
+  if (!project.fileManagement) return null;
   const snippets = [
     {
       title: "1. Authorize upload",

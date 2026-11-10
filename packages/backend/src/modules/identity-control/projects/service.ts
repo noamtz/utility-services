@@ -45,7 +45,9 @@ function toPublicProject(project: InternalProject): Project {
     projectId: project.publicProjectId,
     name: project.name,
     enabledUtilities: project.enabledUtilities,
-    fileManagement: project.fileManagement,
+    ...(project.enabledUtilities.includes("file-management")
+      ? { fileManagement: project.fileManagement }
+      : {}),
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   });
@@ -77,10 +79,11 @@ export function createProjectService(dependencies: ProjectServiceDependencies): 
   return {
     async create(owner, request) {
       if (
-        request.fileManagement.storageQuotaBytes < policyLimits.minStorageQuotaBytes ||
-        request.fileManagement.storageQuotaBytes > policyLimits.maxStorageQuotaBytes ||
-        request.fileManagement.trashRetentionDays < policyLimits.minTrashRetentionDays ||
-        request.fileManagement.trashRetentionDays > policyLimits.maxTrashRetentionDays
+        request.enabledUtilities.includes("file-management") &&
+        (request.fileManagement.storageQuotaBytes < policyLimits.minStorageQuotaBytes ||
+          request.fileManagement.storageQuotaBytes > policyLimits.maxStorageQuotaBytes ||
+          request.fileManagement.trashRetentionDays < policyLimits.minTrashRetentionDays ||
+          request.fileManagement.trashRetentionDays > policyLimits.maxTrashRetentionDays)
       ) {
         throw new HttpError(400, "VALIDATION_ERROR", "Project policy is outside allowed limits");
       }
@@ -157,6 +160,9 @@ export function createProjectService(dependencies: ProjectServiceDependencies): 
     async updateFileManagementPolicy(owner, publicProjectId, request) {
       const project = await dependencies.repository.inspect(publicProjectId);
       if (!project || project.ownerId !== owner.ownerId) {
+        throw notFound();
+      }
+      if (!project.enabledUtilities.includes("file-management")) {
         throw notFound();
       }
       if (

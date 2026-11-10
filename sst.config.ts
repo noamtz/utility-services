@@ -56,7 +56,7 @@ export default $config({
       fileBucket: files.bucket,
       usageTable: usagePricing.table,
     });
-    const api = createApi(control, installation.region, usagePricing, files);
+    const api = createApi(control, installation.region, usagePricing, files, $app.stage);
     const dashboard = createDashboard({
       apiUrl: api.url,
       userPoolId: control.userPool.id,

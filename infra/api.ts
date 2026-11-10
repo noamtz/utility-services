@@ -1,6 +1,7 @@
 import { CONTROL_AUTHORIZER_NAME, CONTROL_ROUTES } from "./config/control.js";
 import { FILE_OBJECT_PREFIX, FILE_ROUTES } from "./config/file-management.js";
 import { CURRENT_MONTH_USAGE_CONTROL_ROUTE } from "./config/usage-pricing.js";
+import { COMMUNICATION_CONTROL_ROUTES } from "./config/communication.js";
 
 export const API_COMPONENT_NAME = "ServiceApi";
 export const API_CORS = false;
@@ -16,6 +17,7 @@ interface ControlResources {
   userPool: sst.aws.CognitoUserPool;
   userPoolClient: sst.aws.CognitoUserPoolClient;
   table: sst.aws.Dynamo;
+  communicationTable: sst.aws.Dynamo;
 }
 
 interface UsageResources {
@@ -32,6 +34,7 @@ export function createApi(
   region: string,
   usagePricing?: UsageResources,
   files?: FileResources,
+  stage = "local",
 ) {
   const api = new sst.aws.ApiGatewayV2(API_COMPONENT_NAME, { cors: API_CORS });
   const routes: unknown[] = [];
@@ -96,6 +99,40 @@ export function createApi(
                 ],
               }
             : {}),
+          transform: { function: { tracingConfig: { mode: "Active" } } },
+        },
+        { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },
+      ),
+    );
+  }
+  const communicationParameterArn = `arn:aws:ssm:${region}:*:parameter/utility-services/${stage}/communication/*`;
+  for (const route of COMMUNICATION_CONTROL_ROUTES) {
+    const permissions = [
+      {
+        actions: ["dynamodb:Query"],
+        resources: [control.table.arn],
+      },
+      ...(route.connectionTableActions.length > 0
+        ? [
+            {
+              actions: [...route.connectionTableActions],
+              resources: [control.communicationTable.arn],
+            },
+          ]
+        : []),
+      ...(route.parameterActions.length > 0
+        ? [{ actions: [...route.parameterActions], resources: [communicationParameterArn] }]
+        : []),
+    ];
+    routes.push(
+      api.route(
+        route.route,
+        {
+          handler: route.handler,
+          runtime: "nodejs24.x",
+          link: [control.table, control.communicationTable],
+          ...(permissions.length > 0 ? { permissions } : {}),
+          environment: { SST_STAGE: stage },
           transform: { function: { tracingConfig: { mode: "Active" } } },
         },
         { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },

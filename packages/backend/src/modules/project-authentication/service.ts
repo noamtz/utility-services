@@ -1,5 +1,4 @@
 import {
-  FILE_MANAGEMENT_UTILITY,
   TrustedProjectContextSchema,
   type TrustedProjectContext,
 } from "@utility-services/contracts";
@@ -81,8 +80,7 @@ export function createProjectAuthenticationService(
         snapshot.metadata.keyId !== credential.keyId ||
         snapshot.lookup.publicProjectId !== snapshot.project.publicProjectId ||
         snapshot.lookup.internalProjectId !== snapshot.project.internalProjectId ||
-        snapshot.project.status !== "active" ||
-        !snapshot.project.enabledUtilities.includes(FILE_MANAGEMENT_UTILITY)
+        snapshot.project.status !== "active"
       ) {
         throw unauthorized();
       }
