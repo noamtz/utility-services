@@ -45,6 +45,12 @@ export const CommunicationConnectionPathSchema = z
   .object({ projectId: PublicProjectIdSchema, connectionId: ConnectionIdSchema })
   .strict();
 
+/** Returned once by the owner-only setup endpoint. Never persist or log the token. */
+export const WebhookSetupSchema = z
+  .object({ callbackUrl: z.string().url(), webhookUrlToken: z.string().min(43).max(256) })
+  .strict();
+export const WebhookSetupResponseSchema = createSuccessEnvelopeSchema(WebhookSetupSchema);
+
 export type CreateCommunicationConnectionRequest = z.infer<
   typeof CreateCommunicationConnectionRequestSchema
 >;
@@ -53,3 +59,4 @@ export type CommunicationConnectionPath = z.infer<typeof CommunicationConnection
 export type RotateCommunicationCredentialRequest = z.infer<
   typeof RotateCommunicationCredentialRequestSchema
 >;
+export type WebhookSetup = z.infer<typeof WebhookSetupSchema>;

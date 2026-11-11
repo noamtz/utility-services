@@ -2,6 +2,7 @@ import { CONTROL_AUTHORIZER_NAME, CONTROL_ROUTES } from "./config/control.js";
 import { FILE_OBJECT_PREFIX, FILE_ROUTES } from "./config/file-management.js";
 import { CURRENT_MONTH_USAGE_CONTROL_ROUTE } from "./config/usage-pricing.js";
 import { COMMUNICATION_CONTROL_ROUTES } from "./config/communication.js";
+import { COMMUNICATION_MESSAGE_ROUTES } from "./config/communication-messages.js";
 
 export const API_COMPONENT_NAME = "ServiceApi";
 export const API_CORS = false;
@@ -28,12 +29,17 @@ interface FileResources {
   table: sst.aws.Dynamo;
   bucket: sst.aws.Bucket;
 }
+interface MessageResources {
+  table: sst.aws.Dynamo;
+  queue: sst.aws.Queue;
+}
 
 export function createApi(
   control: ControlResources,
   region: string,
   usagePricing?: UsageResources,
   files?: FileResources,
+  messages?: MessageResources,
   stage = "local",
 ) {
   const api = new sst.aws.ApiGatewayV2(API_COMPONENT_NAME, { cors: API_CORS });
@@ -105,6 +111,35 @@ export function createApi(
       ),
     );
   }
+  if (messages) {
+    for (const route of COMMUNICATION_MESSAGE_ROUTES) {
+      const isWebhook = route.name === "ReceiveGreenWebhookRoute";
+      routes.push(
+        api.route(
+          route.route,
+          {
+            handler: route.handler,
+            runtime: "nodejs24.x",
+            link: [messages.table, messages.queue, control.communicationTable, control.table],
+            permissions: isWebhook
+              ? [
+                  { actions: ["sqs:SendMessage"], resources: [messages.queue.arn] },
+                  { actions: ["dynamodb:GetItem"], resources: [control.communicationTable.arn] },
+                ]
+              : [
+                  { actions: ["dynamodb:Query"], resources: [messages.table.arn] },
+                  {
+                    actions: ["dynamodb:GetItem"],
+                    resources: [control.communicationTable.arn, control.table.arn],
+                  },
+                ],
+            transform: { function: { tracingConfig: { mode: "Active" } } },
+          },
+          { name: route.name },
+        ),
+      );
+    }
+  }
   const communicationParameterArn = `arn:aws:ssm:${region}:*:parameter/utility-services/${stage}/communication/*`;
   for (const route of COMMUNICATION_CONTROL_ROUTES) {
     const permissions = [
@@ -132,7 +167,10 @@ export function createApi(
           runtime: "nodejs24.x",
           link: [control.table, control.communicationTable],
           ...(permissions.length > 0 ? { permissions } : {}),
-          environment: { SST_STAGE: stage },
+          environment: {
+            SST_STAGE: stage,
+            ...(route.name === "SetupCommunicationWebhookRoute" ? { API_URL: api.url } : {}),
+          },
           transform: { function: { tracingConfig: { mode: "Active" } } },
         },
         { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },

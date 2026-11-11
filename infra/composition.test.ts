@@ -56,7 +56,7 @@ describe("SST composition contracts", () => {
     expect(source).toContain("resolveInstallationEnvironment($app.stage, process.env)");
     expect(source).toContain("region: policy.provider.region");
     expect(source).toContain(
-      "createApi(control, installation.region, usagePricing, files, $app.stage)",
+      "createApi(control, installation.region, usagePricing, files, messages, $app.stage)",
     );
     expect(source).toContain("installationTarget: installation.name");
   });
@@ -96,6 +96,7 @@ describe("SST composition contracts", () => {
 
   it("keeps communication owner-control routes scoped to their own table and parameter prefix", () => {
     expect(COMMUNICATION_CONTROL_ROUTES.map((route) => route.route)).toEqual([
+      "POST /v1/control/projects/{projectId}/communication-connections/{connectionId}/webhook-setup",
       "GET /v1/control/projects/{projectId}/communication-connections",
       "POST /v1/control/projects/{projectId}/communication-connections",
       "GET /v1/control/projects/{projectId}/communication-connections/{connectionId}",

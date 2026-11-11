@@ -17,6 +17,89 @@ const input = {
 };
 
 describe("communication connection service", () => {
+  it("returns a callback token once and persists only its digest", async () => {
+    const record: ConnectionRecord = {
+      connectionId: "con_1234567890123456789012",
+      projectId: "prj_1234567890123456789012",
+      provider: "green-api",
+      instanceId: "instance-a",
+      status: "active",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      ownerId: owner.ownerId,
+      secretReference: "ref",
+      secretVersion: 1,
+    };
+    const updateWebhookSecret = vi.fn().mockResolvedValue(undefined);
+    const service = createCommunicationConnectionService({
+      repository: {
+        reserveAndCreate: async () => undefined,
+        inspect: async () => record,
+        updateWebhookSecret,
+      },
+      secretStore: {
+        store: async () => ({ reference: "ref", version: 1 }),
+        remove: async () => undefined,
+      },
+    });
+    const result = await service.setupWebhook(
+      owner,
+      record.projectId,
+      record.connectionId,
+      "https://api.example.com",
+    );
+    expect(result.webhookUrlToken).toHaveLength(43);
+    expect(updateWebhookSecret).toHaveBeenCalledWith(
+      record.connectionId,
+      expect.not.stringContaining(result.webhookUrlToken),
+      expect.any(String),
+    );
+  });
+  it("hides callback setup for another owner or project", async () => {
+    const service = createCommunicationConnectionService({
+      repository: {
+        reserveAndCreate: async () => undefined,
+        inspect: async () => undefined,
+        updateWebhookSecret: async () => undefined,
+      },
+      secretStore: {
+        store: async () => ({ reference: "ref", version: 1 }),
+        remove: async () => undefined,
+      },
+    });
+    await expect(
+      service.setupWebhook(
+        owner,
+        "prj_1234567890123456789012",
+        "con_1234567890123456789012",
+        "https://api.example.com",
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+  it("does not expose setup when the repository cannot atomically store a callback digest", async () => {
+    const record: ConnectionRecord = {
+      connectionId: "con_1234567890123456789012",
+      projectId: "prj_1234567890123456789012",
+      provider: "green-api",
+      instanceId: "instance-a",
+      status: "active",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      ownerId: owner.ownerId,
+      secretReference: "ref",
+      secretVersion: 1,
+    };
+    const service = createCommunicationConnectionService({
+      repository: { reserveAndCreate: async () => undefined, inspect: async () => record },
+      secretStore: {
+        store: async () => ({ reference: "ref", version: 1 }),
+        remove: async () => undefined,
+      },
+    });
+    await expect(
+      service.setupWebhook(owner, record.projectId, record.connectionId, "https://api.example.com"),
+    ).rejects.toThrow("webhook repository");
+  });
   it("stores the credential through the secret port and never returns it", async () => {
     const records: ConnectionRecord[] = [];
     let stored: string | undefined;

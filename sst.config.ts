@@ -29,6 +29,7 @@ export default $config({
       { createDashboard },
       { createDownloadMeteringResources },
       { createFileManagementResources },
+      { createCommunicationMessageResources },
       { createObservabilityResources },
       { createUsagePricingResources },
     ] = await Promise.all([
@@ -37,6 +38,7 @@ export default $config({
       import("./infra/dashboard.js"),
       import("./infra/download-metering.js"),
       import("./infra/file-management.js"),
+      import("./infra/communication-messages.js"),
       import("./infra/observability.js"),
       import("./infra/usage-pricing.js"),
     ]);
@@ -56,7 +58,10 @@ export default $config({
       fileBucket: files.bucket,
       usageTable: usagePricing.table,
     });
-    const api = createApi(control, installation.region, usagePricing, files, $app.stage);
+    const messages = createCommunicationMessageResources({
+      production: $app.stage === "production",
+    });
+    const api = createApi(control, installation.region, usagePricing, files, messages, $app.stage);
     const dashboard = createDashboard({
       apiUrl: api.url,
       userPoolId: control.userPool.id,
@@ -111,6 +116,7 @@ export default $config({
       controlTableName: control.table.name,
       usagePricingTableName: usagePricing.table.name,
       fileTableName: files.table.name,
+      communicationMessagesTableName: messages.table.name,
       downloadMeteringProcessorName: downloadMetering.processor.name,
       downloadMeteringLogBucketName: downloadMetering.logBucket.name,
       downloadMeteringQueueUrl: downloadMetering.queue.url,

@@ -10,6 +10,7 @@ import {
   createListCommunicationConnectionsHandler,
   createRegisterCommunicationConnectionHandler,
   createRotateCommunicationConnectionHandler,
+  createSetupCommunicationWebhookHandler,
 } from "./handlers.js";
 import { createDynamoProjectRepository } from "../identity-control/projects/repository.js";
 import { createDynamoConnectionRepository } from "./repository.js";
@@ -57,5 +58,14 @@ export const rotateCommunicationConnectionHandler = createRotateCommunicationCon
 export const disableCommunicationConnectionHandler = createDisableCommunicationConnectionHandler(
   service,
   projects,
+  safeLogger,
+);
+export const setupCommunicationWebhookHandler = createSetupCommunicationWebhookHandler(
+  service,
+  projects,
+  z
+    .string()
+    .url()
+    .parse(process.env["API_URL"] ?? "https://example.invalid"),
   safeLogger,
 );
