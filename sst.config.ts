@@ -60,6 +60,7 @@ export default $config({
     });
     const messages = createCommunicationMessageResources({
       production: $app.stage === "production",
+      connectionTable: control.communicationTable,
     });
     const api = createApi(control, installation.region, usagePricing, files, messages, $app.stage);
     const dashboard = createDashboard({
@@ -90,6 +91,7 @@ export default $config({
           id: "UsageFreshnessMonitor",
           functionName: usagePricing.freshnessMonitor.nodes.function.apply((fn) => fn.name),
         },
+        { id: "CommunicationIncomingTextProcessor", functionName: messages.worker.name },
       ],
       meteringQueue: {
         id: "DownloadMeteringQueue",
@@ -103,6 +105,10 @@ export default $config({
         {
           id: "FileOperationsDeadLetterQueue",
           queueName: files.operationsDlq.nodes.queue.name,
+        },
+        {
+          id: "CommunicationIngressDeadLetterQueue",
+          queueName: messages.deadLetterQueue.nodes.queue.name,
         },
       ],
     });

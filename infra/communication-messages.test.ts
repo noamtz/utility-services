@@ -35,7 +35,8 @@ describe("communication message resources", () => {
     vi.stubGlobal("sst", { Linkable: { wrap: vi.fn() }, aws: { Dynamo, Queue, Function } });
     vi.resetModules();
     const { createCommunicationMessageResources } = await import("./communication-messages.js");
-    createCommunicationMessageResources({ production: true });
+    const connectionTable = new Dynamo("connections", {});
+    createCommunicationMessageResources({ production: true, connectionTable });
     expect(calls.map((call) => call.name)).toEqual(
       expect.arrayContaining([
         COMMUNICATION_MESSAGE_TABLE_COMPONENT_NAME,
@@ -49,8 +50,12 @@ describe("communication message resources", () => {
     (queue?.args["transform"] as { queue(args: Record<string, unknown>): void }).queue(raw);
     expect(raw["sqsManagedSseEnabled"]).toBe(true);
     const worker = calls.find((call) => call.name === "CommunicationIncomingTextProcessor");
-    expect(worker?.args["permissions"]).toEqual([
-      { actions: ["dynamodb:TransactWriteItems"], resources: [expect.anything()] },
-    ]);
+    expect(worker?.args["link"]).toEqual(expect.arrayContaining([connectionTable]));
+    expect(worker?.args["permissions"]).toEqual(
+      expect.arrayContaining([
+        { actions: ["dynamodb:TransactWriteItems"], resources: [expect.anything()] },
+        { actions: ["dynamodb:GetItem"], resources: [connectionTable.arn] },
+      ]),
+    );
   });
 });

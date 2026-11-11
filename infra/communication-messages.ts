@@ -5,7 +5,10 @@ import {
   COMMUNICATION_MESSAGE_TABLE_COMPONENT_NAME,
   COMMUNICATION_MESSAGE_TABLE_POLICY,
 } from "./config/communication-messages.js";
-export function createCommunicationMessageResources(options: { production: boolean }) {
+export function createCommunicationMessageResources(options: {
+  production: boolean;
+  connectionTable: sst.aws.Dynamo;
+}) {
   configureLeastPrivilegeDynamoLink();
   const table = new sst.aws.Dynamo(COMMUNICATION_MESSAGE_TABLE_COMPONENT_NAME, {
     ...COMMUNICATION_MESSAGE_TABLE_POLICY,
@@ -31,8 +34,11 @@ export function createCommunicationMessageResources(options: { production: boole
   const worker = new sst.aws.Function("CommunicationIncomingTextProcessor", {
     handler: "packages/backend/src/functions/communication/process-incoming-text.handler",
     runtime: "nodejs24.x",
-    link: [table],
-    permissions: [{ actions: ["dynamodb:TransactWriteItems"], resources: [table.arn] }],
+    link: [table, options.connectionTable],
+    permissions: [
+      { actions: ["dynamodb:TransactWriteItems"], resources: [table.arn] },
+      { actions: ["dynamodb:GetItem"], resources: [options.connectionTable.arn] },
+    ],
     transform: { function: { tracingConfig: { mode: "Active" } } },
   });
   const subscription = queue.subscribe(worker.arn, { batch: { size: 1, partialResponses: true } });
