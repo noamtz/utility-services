@@ -1,7 +1,10 @@
 import { CONTROL_AUTHORIZER_NAME, CONTROL_ROUTES } from "./config/control.js";
 import { FILE_OBJECT_PREFIX, FILE_ROUTES } from "./config/file-management.js";
 import { CURRENT_MONTH_USAGE_CONTROL_ROUTE } from "./config/usage-pricing.js";
-import { COMMUNICATION_CONTROL_ROUTES } from "./config/communication.js";
+import {
+  COMMUNICATION_CONTROL_ROUTES,
+  COMMUNICATION_GROUP_ROUTES,
+} from "./config/communication.js";
 
 export const API_COMPONENT_NAME = "ServiceApi";
 export const API_CORS = false;
@@ -136,6 +139,26 @@ export function createApi(
           transform: { function: { tracingConfig: { mode: "Active" } } },
         },
         { name: route.name, auth: { jwt: { authorizer: authorizer.id } } },
+      ),
+    );
+  }
+  for (const route of COMMUNICATION_GROUP_ROUTES) {
+    routes.push(
+      api.route(
+        route.route,
+        {
+          handler: route.handler,
+          runtime: "nodejs24.x",
+          link: [control.table, control.communicationTable],
+          permissions: [
+            {
+              actions: ["dynamodb:Query"],
+              resources: [control.table.arn, control.communicationTable.arn],
+            },
+          ],
+          transform: { function: { tracingConfig: { mode: "Active" } } },
+        },
+        { name: route.name },
       ),
     );
   }
