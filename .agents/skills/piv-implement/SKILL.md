@@ -134,3 +134,9 @@ Do not run `piv-review-pr`. Review belongs to a separate workstream so it can be
 - If you need to deviate from the plan, explain why
 - If tests fail, fix implementation until they pass
 - Don't skip validation steps
+
+## Running under an orchestrator
+
+Do not narrate routine progress. No one is watching this run live. Put useful detail in the artifact, the report, and the final handoff.
+
+If the launch instructions name an artifact directory, write your plan, report, or review there instead of the default path, and return its absolute path.

@@ -487,3 +487,9 @@ After creating the Plan, provide:
 - Complexity assessment
 - Key implementation risks or considerations
 - Estimated confidence score for one-pass success
+
+## Running under an orchestrator
+
+Do not narrate routine progress. No one is watching this run live. Put useful detail in the artifact, the report, and the final handoff.
+
+If the launch instructions name an artifact directory, write your plan, report, or review there instead of the default path, and return its absolute path.

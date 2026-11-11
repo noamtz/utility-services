@@ -90,3 +90,9 @@ next step is **`piv-fix-review-findings`** on the report, then re-run validation
 - This is the *agentic* gate; it does not replace the human — it gives the human a validated, triaged PR to
   approve. Going deeper (multiple review agents, tuning the reviewer to your stack, the validation pyramid) is
   the code-review-as-a-component material later in the course.
+
+## Running under an orchestrator
+
+Do not narrate routine progress. No one is watching this run live. Put useful detail in the artifact, the report, and the final handoff.
+
+If the launch instructions name an artifact directory, write your plan, report, or review there instead of the default path, and return its absolute path.
