@@ -68,7 +68,19 @@ export {
   type CommunicationConnectionPath,
   type CreateCommunicationConnectionRequest,
   type RotateCommunicationCredentialRequest,
+  WebhookSetupSchema,
+  WebhookSetupResponseSchema,
+  type WebhookSetup,
 } from "./communication/contract.js";
+export {
+  ConversationHistoryResponseSchema,
+  ConversationHistorySchema,
+  ConversationIdSchema,
+  ConversationPathSchema,
+  ConversationQuerySchema,
+  IncomingTextMessageSchema,
+  type IncomingTextMessage,
+} from "./communication/messages.js";
 export {
   ApiKeyCursorSchema,
   ApiKeyIdSchema,

@@ -34,6 +34,7 @@ const StoredConnectionSchema = CommunicationConnectionSchema.extend({
   ownerId: z.string().min(1),
   secretReference: z.string().min(1),
   secretVersion: z.number().int().positive(),
+  webhookSecretHash: z.string().min(1).optional(),
 }).strict();
 
 function isConditionalFailure(error: unknown): boolean {
@@ -152,6 +153,20 @@ export function createDynamoConnectionRepository(options: {
         if (isConditionalFailure(error)) throw new DuplicateProviderInstanceError();
         throw error;
       }
+    },
+    async updateWebhookSecret(connectionId, webhookSecretHash, updatedAt) {
+      await options.client.send(
+        new UpdateCommand({
+          TableName: tableName,
+          Key: { pk: metadataKey(connectionId), sk: "METADATA" },
+          UpdateExpression: "SET webhookSecretHash = :webhookSecretHash, updatedAt = :updatedAt",
+          ConditionExpression: "attribute_exists(pk)",
+          ExpressionAttributeValues: {
+            ":webhookSecretHash": webhookSecretHash,
+            ":updatedAt": updatedAt,
+          },
+        }),
+      );
     },
     async listForProject(projectId) {
       const output = await options.client.send(

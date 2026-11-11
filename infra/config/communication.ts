@@ -9,6 +9,14 @@ export const COMMUNICATION_CONNECTION_TABLE_POLICY = {
 
 export const COMMUNICATION_CONTROL_ROUTES = [
   {
+    name: "SetupCommunicationWebhookRoute",
+    route:
+      "POST /v1/control/projects/{projectId}/communication-connections/{connectionId}/webhook-setup",
+    handler: "packages/backend/src/functions/control/setup-communication-webhook.handler",
+    connectionTableActions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+    parameterActions: [],
+  },
+  {
     name: "ListCommunicationConnectionsRoute",
     route: "GET /v1/control/projects/{projectId}/communication-connections",
     handler: "packages/backend/src/functions/control/list-communication-connections.handler",

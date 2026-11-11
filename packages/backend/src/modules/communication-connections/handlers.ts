@@ -4,6 +4,7 @@ import {
   CommunicationConnectionSchema,
   CreateCommunicationConnectionRequestSchema,
   RotateCommunicationCredentialRequestSchema,
+  WebhookSetupSchema,
 } from "@utility-services/contracts";
 
 import { createHttpHandler, HttpError, type SafeLogger } from "../../core/http/handler.js";
@@ -134,6 +135,28 @@ export function createDisableCommunicationConnectionHandler(
       await authorizeCommunicationProject(projects, authorization, path.projectId);
       await authorizeConnectionPath(service, authorization, path.projectId, path.connectionId);
       return service.disable(authorization, path.connectionId);
+    },
+    ...(logger ? { logger } : {}),
+  });
+}
+
+export function createSetupCommunicationWebhookHandler(
+  service: CommunicationConnectionService,
+  projects: ProjectInspector,
+  callbackBaseUrl: string,
+  logger?: SafeLogger,
+) {
+  return createHttpHandler({
+    schemas: { path: CommunicationConnectionPathSchema, response: WebhookSetupSchema },
+    deriveAuthorization: extractOwnerContext,
+    callback: async ({ authorization, path }) => {
+      await authorizeCommunicationProject(projects, authorization, path.projectId);
+      return service.setupWebhook(
+        authorization,
+        path.projectId,
+        path.connectionId,
+        `${callbackBaseUrl}/v1/communication/webhooks/${path.connectionId}`,
+      );
     },
     ...(logger ? { logger } : {}),
   });

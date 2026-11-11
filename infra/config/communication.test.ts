@@ -11,15 +11,15 @@ describe("communication infrastructure policy", () => {
       rangeKey: "sk",
     });
     expect(COMMUNICATION_CONNECTION_TABLE_POLICY.globalIndexes).toHaveProperty("projectId-index");
-    expect(COMMUNICATION_CONTROL_ROUTES).toHaveLength(5);
-    expect(COMMUNICATION_CONTROL_ROUTES[1]?.connectionTableActions).toEqual([
+    expect(COMMUNICATION_CONTROL_ROUTES).toHaveLength(6);
+    expect(COMMUNICATION_CONTROL_ROUTES[2]?.connectionTableActions).toEqual([
       "dynamodb:TransactWriteItems",
     ]);
-    expect(COMMUNICATION_CONTROL_ROUTES[1]?.parameterActions).toEqual([
+    expect(COMMUNICATION_CONTROL_ROUTES[2]?.parameterActions).toEqual([
       "ssm:PutParameter",
       "ssm:DeleteParameter",
     ]);
-    expect(COMMUNICATION_CONTROL_ROUTES[3]?.parameterActions).toEqual([
+    expect(COMMUNICATION_CONTROL_ROUTES[4]?.parameterActions).toEqual([
       "ssm:PutParameter",
       "ssm:DeleteParameter",
     ]);

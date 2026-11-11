@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import {
   CommunicationConnectionSchema,
   type CommunicationConnection,
@@ -11,6 +12,7 @@ export interface ConnectionRecord extends CommunicationConnection {
   readonly ownerId: string;
   readonly secretReference: string;
   readonly secretVersion: number;
+  readonly webhookSecretHash?: string | undefined;
 }
 
 export interface ConnectionRepository {
@@ -20,6 +22,11 @@ export interface ConnectionRepository {
     connectionId: string,
     expectedVersion: number,
     patch: Pick<ConnectionRecord, "secretReference" | "secretVersion" | "status" | "updatedAt">,
+  ): Promise<void>;
+  updateWebhookSecret?(
+    connectionId: string,
+    webhookSecretHash: string,
+    updatedAt: string,
   ): Promise<void>;
   listForProject?(projectId: string): Promise<readonly ConnectionRecord[]>;
 }
@@ -50,6 +57,9 @@ function toPublicConnection(record: ConnectionRecord): CommunicationConnection {
 
 function generateConnectionId(): string {
   return `con_${crypto.randomUUID().replaceAll("-", "").slice(0, 22)}`;
+}
+function hashWebhookSecret(value: string): string {
+  return createHash("sha256").update(value).digest("base64url");
 }
 
 export function createCommunicationConnectionService(dependencies: {
@@ -161,6 +171,25 @@ export function createCommunicationConnectionService(dependencies: {
         throw new Error("Connection list repository is unavailable");
       const records = await dependencies.repository.listForProject(projectId);
       return records.filter((record) => record.ownerId === owner.ownerId).map(toPublicConnection);
+    },
+    async setupWebhook(
+      owner: OwnerContext,
+      projectId: string,
+      connectionId: string,
+      callbackUrl: string,
+    ) {
+      const current = await dependencies.repository.inspect(connectionId);
+      if (!current || current.ownerId !== owner.ownerId || current.projectId !== projectId)
+        throw new HttpError(404, "NOT_FOUND", "Communication connection not found");
+      if (!dependencies.repository.updateWebhookSecret)
+        throw new Error("Connection webhook repository is unavailable");
+      const webhookUrlToken = randomBytes(32).toString("base64url");
+      await dependencies.repository.updateWebhookSecret(
+        connectionId,
+        hashWebhookSecret(webhookUrlToken),
+        now().toISOString(),
+      );
+      return { callbackUrl, webhookUrlToken };
     },
     async disable(owner: OwnerContext, connectionId: string): Promise<CommunicationConnection> {
       const current = await dependencies.repository.inspect(connectionId);
