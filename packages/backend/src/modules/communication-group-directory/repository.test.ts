@@ -116,6 +116,7 @@ describe("group directory repository", () => {
     });
     expect(sent).toHaveLength(5);
     expect(JSON.stringify(sent)).toContain("if_not_exists(knownRecordStartAt");
+    expect(JSON.stringify(sent)).toContain("attribute_not_exists(sk)");
   });
 
   it("returns opaque continuation cursors for independently scoped directory and event pages", async () => {
@@ -147,5 +148,56 @@ describe("group directory repository", () => {
     });
     const events = await repository.listEvents(projectId, "group-1", { limit: 1 });
     expect(events.cursor).toBeTypeOf("string");
+  });
+
+  it("loads all known groups across internal pages before an outage is applied", async () => {
+    const sent: unknown[] = [];
+    const repository = createDynamoGroupDirectoryRepository({
+      tableName: "communication",
+      client: {
+        send: (command) => {
+          sent.push(command);
+          const input = (command as { input?: { ExclusiveStartKey?: unknown } }).input;
+          return Promise.resolve(
+            input?.ExclusiveStartKey
+              ? { Items: [{ ...entry, groupId: "group-2", sk: "METADATA#group-2" }] }
+              : {
+                  Items: [entry],
+                  LastEvaluatedKey: { pk: entry.pk, sk: entry.sk },
+                },
+          );
+        },
+      },
+    });
+    await expect(
+      repository.listKnownForConnection?.("con_1234567890123456789012"),
+    ).resolves.toMatchObject([{ groupId: "group-1" }, { groupId: "group-2" }]);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("does not append stale events after a newer scan has won the projection", async () => {
+    const sent: unknown[] = [];
+    const repository = createDynamoGroupDirectoryRepository({
+      tableName: "communication",
+      client: {
+        send: (command) => {
+          sent.push(command);
+          if (sent.length === 1) return Promise.reject({ name: "ConditionalCheckFailedException" });
+          return Promise.resolve({});
+        },
+      },
+    });
+    await expect(
+      repository.applySnapshot({
+        connectionId: "con_1234567890123456789012",
+        projectId: "11111111-1111-4111-8111-111111111111",
+        scanId: "old-scan",
+        sequence: 1,
+        observedAt: "2026-11-11T12:00:00.000Z",
+        complete: true,
+        groups: [{ groupId: "group-1", confirmed: true, reason: "confirmed-by-group-data" }],
+      }),
+    ).resolves.toBeUndefined();
+    expect(sent).toHaveLength(1);
   });
 });

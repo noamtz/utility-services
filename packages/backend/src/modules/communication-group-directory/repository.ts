@@ -7,6 +7,14 @@ const groupPk = (connectionId: string) => `GROUP#${connectionId}`;
 const groupProjectKey = (projectId: string) => `PROJECT#${projectId}`;
 const eventPk = (projectId: string, groupId: string) => `GROUPPROJECT#${projectId}#${groupId}`;
 const directoryPk = (connectionId: string) => `CONNECTION#${connectionId}`;
+function isConditionalFailure(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "ConditionalCheckFailedException"
+  );
+}
 const entryFromItem = (item: unknown) => {
   const record = z.record(z.string(), z.unknown()).parse(item);
   return GroupDirectoryEntrySchema.parse({
@@ -94,42 +102,71 @@ export function createDynamoGroupDirectoryRepository(options: {
           eventId: `${snapshot.scanId}:${observation.groupId}`,
           reason: observation.reason,
         });
-        await options.client.send(
-          new UpdateCommand({
-            TableName: tableName,
-            Key: { pk: groupPk(snapshot.connectionId), sk: `METADATA#${observation.groupId}` },
-            UpdateExpression:
-              "SET itemType = :type, projectId = :projectId, groupProjectId = :groupProjectId, sourceSequence = :sequence, groupId = :groupId, presence = :presence, observedAt = :observedAt, sourceObservedAt = :sourceObservedAt, scanComplete = :scanComplete, knownRecordStartAt = if_not_exists(knownRecordStartAt, :knownRecordStartAt)",
-            ConditionExpression:
-              "attribute_not_exists(sourceSequence) OR sourceSequence <= :sequence",
-            ExpressionAttributeValues: {
-              ":type": "communication-group",
-              ":projectId": snapshot.projectId,
-              ":groupProjectId": groupProjectKey(snapshot.projectId),
-              ":sequence": snapshot.sequence,
-              ":groupId": entry.groupId,
-              ":presence": entry.presence,
-              ":observedAt": entry.observedAt,
-              ":sourceObservedAt": entry.sourceObservedAt,
-              ":scanComplete": entry.scanComplete,
-              ":knownRecordStartAt": entry.knownRecordStartAt,
-            },
-          }),
-        );
-        await options.client.send(
-          new PutCommand({
-            TableName: tableName,
-            Item: {
-              pk: eventPk(snapshot.projectId, observation.groupId),
-              sk: `EVENT#${snapshot.sequence.toString().padStart(16, "0")}#${observation.groupId}`,
-              itemType: "communication-group-event",
-              projectId: snapshot.projectId,
-              ...event,
-            },
-            ConditionExpression: "attribute_not_exists(pk)",
-          }),
-        );
+        try {
+          await options.client.send(
+            new UpdateCommand({
+              TableName: tableName,
+              Key: { pk: groupPk(snapshot.connectionId), sk: `METADATA#${observation.groupId}` },
+              UpdateExpression:
+                "SET itemType = :type, projectId = :projectId, groupProjectId = :groupProjectId, sourceSequence = :sequence, scanId = :scanId, groupId = :groupId, presence = :presence, observedAt = :observedAt, sourceObservedAt = :sourceObservedAt, scanComplete = :scanComplete, knownRecordStartAt = if_not_exists(knownRecordStartAt, :knownRecordStartAt)",
+              ConditionExpression:
+                "attribute_not_exists(sourceSequence) OR sourceSequence < :sequence OR (sourceSequence = :sequence AND scanId = :scanId)",
+              ExpressionAttributeValues: {
+                ":type": "communication-group",
+                ":projectId": snapshot.projectId,
+                ":groupProjectId": groupProjectKey(snapshot.projectId),
+                ":sequence": snapshot.sequence,
+                ":scanId": snapshot.scanId,
+                ":groupId": entry.groupId,
+                ":presence": entry.presence,
+                ":observedAt": entry.observedAt,
+                ":sourceObservedAt": entry.sourceObservedAt,
+                ":scanComplete": entry.scanComplete,
+                ":knownRecordStartAt": entry.knownRecordStartAt,
+              },
+            }),
+          );
+        } catch (error) {
+          // A newer allocated scan has already won. Do not append stale evidence.
+          if (isConditionalFailure(error)) continue;
+          throw error;
+        }
+        try {
+          await options.client.send(
+            new PutCommand({
+              TableName: tableName,
+              Item: {
+                pk: eventPk(snapshot.projectId, observation.groupId),
+                sk: `EVENT#${snapshot.sequence.toString().padStart(16, "0")}#${observation.groupId}`,
+                itemType: "communication-group-event",
+                projectId: snapshot.projectId,
+                ...event,
+              },
+              ConditionExpression: "attribute_not_exists(sk)",
+            }),
+          );
+        } catch (error) {
+          // The scan/group event key is stable across retries.
+          if (!isConditionalFailure(error)) throw error;
+        }
       }
+    },
+    async listKnownForConnection(connectionId) {
+      const items = [];
+      let startKey: Record<string, unknown> | undefined;
+      do {
+        const output = (await options.client.send(
+          new QueryCommand({
+            TableName: tableName,
+            KeyConditionExpression: "pk = :pk AND begins_with(sk, :metadata)",
+            ExpressionAttributeValues: { ":pk": groupPk(connectionId), ":metadata": "METADATA#" },
+            ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+          }),
+        )) as { Items?: unknown[]; LastEvaluatedKey?: Record<string, unknown> };
+        items.push(...(output.Items ?? []).map(entryFromItem));
+        startKey = output.LastEvaluatedKey;
+      } while (startKey);
+      return items;
     },
     async list(projectId, query) {
       const parsedCursor = decodeCursor(query.cursor, projectId);

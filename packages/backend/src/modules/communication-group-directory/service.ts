@@ -19,11 +19,19 @@ export type GroupSnapshot = Readonly<{
   groups: readonly Readonly<{
     groupId: string;
     confirmed: boolean;
-    reason: "confirmed-by-group-data" | "unconfirmed-group-data" | "provider-error";
+    reason:
+      | "confirmed-by-group-data"
+      | "unconfirmed-group-data"
+      | "provider-error"
+      | "incomplete-scan"
+      | "missing-from-scan";
   }>[];
 }>;
 export type GroupDirectoryRepository = {
   allocateScan?(connectionId: string): Promise<number>;
+  listKnownForConnection?(
+    connectionId: string,
+  ): Promise<readonly Pick<GroupDirectoryEntry, "groupId">[]>;
   applySnapshot(snapshot: GroupSnapshot): Promise<void>;
   list(
     projectId: string,
@@ -39,8 +47,20 @@ export type GroupDirectoryRepository = {
 export function createGroupDirectoryService(repository: GroupDirectoryRepository) {
   return {
     async applySnapshot(snapshot: GroupSnapshot): Promise<void> {
-      // A non-complete scan must never turn a missing group into a departure. Its observations are retained as unknown.
-      await repository.applySnapshot(snapshot);
+      const known = repository.listKnownForConnection
+        ? await repository.listKnownForConnection(snapshot.connectionId)
+        : [];
+      const observed = new Set(snapshot.groups.map((group) => group.groupId));
+      const missing = known
+        .filter((group) => !observed.has(group.groupId))
+        .map((group) => ({
+          groupId: group.groupId,
+          confirmed: false as const,
+          // An absence remains unknown. Incomplete scans make every prior group uncertain;
+          // complete scans still cannot establish a departure in the approved scope.
+          reason: snapshot.complete ? ("missing-from-scan" as const) : ("incomplete-scan" as const),
+        }));
+      await repository.applySnapshot({ ...snapshot, groups: [...snapshot.groups, ...missing] });
     },
     async list(context: TrustedProjectContext, query: GroupDirectoryQuery) {
       try {

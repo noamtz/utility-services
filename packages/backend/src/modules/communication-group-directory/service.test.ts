@@ -88,4 +88,62 @@ describe("group directory service", () => {
     await service.applySnapshot(snapshot);
     expect(repository.applySnapshot).toHaveBeenCalledTimes(2);
   });
+
+  it("records absent known groups as unknown after an incomplete provider scan", async () => {
+    const repository = {
+      listKnownForConnection: vi
+        .fn()
+        .mockResolvedValue([{ groupId: "group-1" }, { groupId: "group-2" }]),
+      applySnapshot: vi.fn(),
+      list: vi.fn(),
+      listEvents: vi.fn(),
+    };
+    const service = createGroupDirectoryService(repository);
+    await service.applySnapshot({
+      connectionId: "con_1234567890123456789012",
+      projectId: context.internalProjectId,
+      scanId: "outage-scan",
+      sequence: 2,
+      observedAt: "2026-11-11T12:01:00.000Z",
+      complete: false,
+      groups: [],
+    });
+    expect(repository.applySnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groups: [
+          { groupId: "group-1", confirmed: false, reason: "incomplete-scan" },
+          { groupId: "group-2", confirmed: false, reason: "incomplete-scan" },
+        ],
+      }),
+    );
+  });
+
+  it("records a complete scan omission as unknown without inferring left", async () => {
+    const repository = {
+      listKnownForConnection: vi
+        .fn()
+        .mockResolvedValue([{ groupId: "group-1" }, { groupId: "group-2" }]),
+      applySnapshot: vi.fn(),
+      list: vi.fn(),
+      listEvents: vi.fn(),
+    };
+    const service = createGroupDirectoryService(repository);
+    await service.applySnapshot({
+      connectionId: "con_1234567890123456789012",
+      projectId: context.internalProjectId,
+      scanId: "omission-scan",
+      sequence: 3,
+      observedAt: "2026-11-11T12:02:00.000Z",
+      complete: true,
+      groups: [{ groupId: "group-1", confirmed: true, reason: "confirmed-by-group-data" }],
+    });
+    expect(repository.applySnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groups: [
+          { groupId: "group-1", confirmed: true, reason: "confirmed-by-group-data" },
+          { groupId: "group-2", confirmed: false, reason: "missing-from-scan" },
+        ],
+      }),
+    );
+  });
 });
