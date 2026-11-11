@@ -67,10 +67,17 @@ describe("GREEN group discovery", () => {
     ).resolves.toEqual({ complete: false, groups: [] });
     await expect(
       discoverGroups({
-        getChats: () => Promise.resolve([{ id: "group-1", type: "direct" }]),
-        getGroupData: () => Promise.resolve({}),
+        getChats: () =>
+          Promise.resolve([
+            { id: "direct-1", type: "direct" },
+            { id: "group-1", type: "group" },
+          ]),
+        getGroupData: () => Promise.resolve({ groupId: "group-1" }),
       }),
-    ).resolves.toEqual({ complete: false, groups: [] });
+    ).resolves.toEqual({
+      complete: true,
+      groups: [{ groupId: "group-1", confirmed: true, reason: "confirmed-by-group-data" }],
+    });
     await expect(
       discoverGroups({
         getChats: () => Promise.resolve([{ id: "group-1", type: "group" }]),

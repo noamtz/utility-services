@@ -27,8 +27,9 @@ export async function discoverGroups(
   if (!Array.isArray(chats)) return { complete: false, groups: [] };
   const ids: string[] = [];
   for (const chat of chats) {
-    if (!isRecord(chat) || chat["type"] !== "group" || typeof chat["id"] !== "string")
+    if (!isRecord(chat) || typeof chat["type"] !== "string" || typeof chat["id"] !== "string")
       return { complete: false, groups: [] };
+    if (chat["type"] !== "group") continue;
     try {
       ids.push(GroupIdSchema.parse(chat["id"]));
     } catch {

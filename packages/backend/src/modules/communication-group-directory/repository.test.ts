@@ -16,6 +16,20 @@ const entry = {
 };
 
 describe("group directory repository", () => {
+  it("allocates the durable connection sequence before a provider scan", async () => {
+    const sent: unknown[] = [];
+    const repository = createDynamoGroupDirectoryRepository({
+      tableName: "communication",
+      client: {
+        send: (command) => {
+          sent.push(command);
+          return Promise.resolve({ Attributes: { scanSequence: 7 } });
+        },
+      },
+    });
+    await expect(repository.allocateScan?.("con_1234567890123456789012")).resolves.toBe(7);
+    expect(sent).toHaveLength(1);
+  });
   it("projects Dynamo records into secret-free public directory entries", async () => {
     const repository = createDynamoGroupDirectoryRepository({
       tableName: "communication",
@@ -101,6 +115,7 @@ describe("group directory repository", () => {
       groups: [{ groupId: "group-1", confirmed: true, reason: "confirmed-by-group-data" }],
     });
     expect(sent).toHaveLength(5);
+    expect(JSON.stringify(sent)).toContain("if_not_exists(knownRecordStartAt");
   });
 
   it("returns opaque continuation cursors for independently scoped directory and event pages", async () => {

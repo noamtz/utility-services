@@ -13,7 +13,7 @@ export function createCommunicationGroupResources(options: {
       link: [options.communicationTable],
       permissions: [
         {
-          actions: ["dynamodb:Query", "dynamodb:PutItem"],
+          actions: ["dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"],
           resources: [options.communicationTable.arn],
         },
         {

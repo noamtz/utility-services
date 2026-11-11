@@ -58,6 +58,18 @@ describe("group directory service", () => {
     });
   });
 
+  it("turns a tampered repository cursor into a controlled client error", async () => {
+    const service = createGroupDirectoryService({
+      applySnapshot: vi.fn(),
+      list: vi.fn().mockRejectedValue(new Error("GROUP_CURSOR_INVALID")),
+      listEvents: vi.fn(),
+    });
+    await expect(service.list(context, { limit: 5, cursor: "tampered" })).rejects.toMatchObject({
+      statusCode: 400,
+      code: "INVALID_CURSOR",
+    });
+  });
+
   it("forwards duplicate and partial snapshots for idempotent durable application", async () => {
     const repository = { applySnapshot: vi.fn(), list: vi.fn(), listEvents: vi.fn() };
     const snapshot = {

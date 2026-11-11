@@ -23,6 +23,7 @@ export type GroupSnapshot = Readonly<{
   }>[];
 }>;
 export type GroupDirectoryRepository = {
+  allocateScan?(connectionId: string): Promise<number>;
   applySnapshot(snapshot: GroupSnapshot): Promise<void>;
   list(
     projectId: string,
@@ -42,10 +43,23 @@ export function createGroupDirectoryService(repository: GroupDirectoryRepository
       await repository.applySnapshot(snapshot);
     },
     async list(context: TrustedProjectContext, query: GroupDirectoryQuery) {
-      return repository.list(context.internalProjectId, query);
+      try {
+        return await repository.list(context.internalProjectId, query);
+      } catch (error) {
+        if (error instanceof Error && error.message === "GROUP_CURSOR_INVALID")
+          throw new HttpError(400, "INVALID_CURSOR", "Cursor is invalid for this project");
+        throw error;
+      }
     },
     async events(context: TrustedProjectContext, groupId: string, query: GroupDirectoryQuery) {
-      const result = await repository.listEvents(context.internalProjectId, groupId, query);
+      let result;
+      try {
+        result = await repository.listEvents(context.internalProjectId, groupId, query);
+      } catch (error) {
+        if (error instanceof Error && error.message === "GROUP_CURSOR_INVALID")
+          throw new HttpError(400, "INVALID_CURSOR", "Cursor is invalid for this project");
+        throw error;
+      }
       if (result.items.length === 0) throw new HttpError(404, "NOT_FOUND", "Group not found");
       return result;
     },

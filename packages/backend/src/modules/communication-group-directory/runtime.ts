@@ -74,15 +74,14 @@ export async function refreshGroupDirectory(): Promise<void> {
     )
     .parse((active as { Items?: unknown }).Items ?? []);
   const ssm = new SSMClient({});
-  // Wall-clock sequence is monotonic across normal invocations and is used only to reject an older worker write.
-  let sequence = Date.now();
   for (const connection of connections) {
+    if (!repository.allocateScan) throw new Error("Directory scan allocator is unavailable");
+    const sequence = await repository.allocateScan(connection.connectionId);
     const secret = await ssm.send(
       new GetParameterCommand({ Name: connection.secretReference, WithDecryption: true }),
     );
     const credential = z.string().min(16).parse(secret.Parameter?.Value);
     const scan = await discoverGroups(greenProvider(connection.instanceId, credential));
-    sequence += 1;
     await service.applySnapshot({
       connectionId: connection.connectionId,
       projectId: connection.projectId,
