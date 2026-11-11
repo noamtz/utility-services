@@ -34,6 +34,7 @@ const StoredConnectionSchema = CommunicationConnectionSchema.extend({
   ownerId: z.string().min(1),
   secretReference: z.string().min(1),
   secretVersion: z.number().int().positive(),
+  activeConnection: z.enum(["ACTIVE", "DISABLED"]).optional(),
 }).strict();
 
 function isConditionalFailure(error: unknown): boolean {
@@ -74,6 +75,7 @@ export function createDynamoConnectionRepository(options: {
         pk: metadataKey(record.connectionId),
         sk: "METADATA",
         itemType: "communication-connection",
+        activeConnection: "ACTIVE",
       });
       try {
         await options.client.send(
@@ -136,13 +138,14 @@ export function createDynamoConnectionRepository(options: {
             TableName: tableName,
             Key: { pk: metadataKey(connectionId), sk: "METADATA" },
             UpdateExpression:
-              "SET secretReference = :secretReference, secretVersion = :secretVersion, #status = :status, updatedAt = :updatedAt",
+              "SET secretReference = :secretReference, secretVersion = :secretVersion, #status = :status, activeConnection = :activeConnection, updatedAt = :updatedAt",
             ConditionExpression: "attribute_exists(pk) AND secretVersion = :expectedVersion",
             ExpressionAttributeNames: { "#status": "status" },
             ExpressionAttributeValues: {
               ":secretReference": patch.secretReference,
               ":secretVersion": patch.secretVersion,
               ":status": patch.status,
+              ":activeConnection": patch.status === "active" ? "ACTIVE" : "DISABLED",
               ":updatedAt": patch.updatedAt,
               ":expectedVersion": expectedVersion,
             },

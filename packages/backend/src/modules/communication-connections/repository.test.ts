@@ -135,4 +135,81 @@ describe("Dynamo communication connection repository", () => {
     );
     expect(command.input.ExpressionAttributeValues?.[":secretReference"]).toBe("ref-v2");
   });
+
+  it("removes a disabled connection from the scheduler's active directory atomically", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const repository = createDynamoConnectionRepository({
+      client: { send },
+      tableName: "connections",
+    });
+    if (!repository.updateLifecycle) throw new Error("Expected lifecycle repository");
+    await repository.updateLifecycle(record.connectionId, 1, {
+      secretReference: record.secretReference,
+      secretVersion: 1,
+      status: "disabled",
+      updatedAt: record.updatedAt,
+    });
+    const command = send.mock.calls[0]?.[0] as UpdateCommand;
+    expect(command.input.ExpressionAttributeValues?.[":activeConnection"]).toBe("DISABLED");
+  });
+
+  it("returns absent metadata and preserves non-conditional infrastructure errors", async () => {
+    const absent = createDynamoConnectionRepository({
+      client: { send: vi.fn().mockResolvedValue({}) },
+      tableName: "connections",
+    });
+    await expect(absent.inspect(record.connectionId)).resolves.toBeUndefined();
+    const unavailable = new Error("dynamo unavailable");
+    const failing = createDynamoConnectionRepository({
+      client: { send: vi.fn().mockRejectedValue(unavailable) },
+      tableName: "connections",
+    });
+    await expect(failing.reserveAndCreate(record)).rejects.toBe(unavailable);
+  });
+
+  it("surfaces lifecycle races without accidentally retaining an active scheduler entry", async () => {
+    const repository = createDynamoConnectionRepository({
+      client: { send: vi.fn().mockRejectedValue({ name: "ConditionalCheckFailedException" }) },
+      tableName: "connections",
+    });
+    if (!repository.updateLifecycle) throw new Error("Expected lifecycle repository");
+    await expect(
+      repository.updateLifecycle(record.connectionId, 1, {
+        secretReference: record.secretReference,
+        secretVersion: 1,
+        status: "disabled",
+        updatedAt: record.updatedAt,
+      }),
+    ).rejects.toBeInstanceOf(DuplicateProviderInstanceError);
+  });
+
+  it("treats malformed transaction cancellation details as a safe provider conflict", async () => {
+    const repository = createDynamoConnectionRepository({
+      client: {
+        send: vi.fn().mockRejectedValue({
+          name: "TransactionCanceledException",
+          CancellationReasons: [],
+        }),
+      },
+      tableName: "connections",
+    });
+    await expect(repository.reserveAndCreate(record)).rejects.toBeInstanceOf(
+      DuplicateProviderInstanceError,
+    );
+  });
+
+  it("does not mistake an incomplete cancellation reason for a project reservation conflict", async () => {
+    const repository = createDynamoConnectionRepository({
+      client: {
+        send: vi.fn().mockRejectedValue({
+          name: "TransactionCanceledException",
+          CancellationReasons: [{ Code: "None" }, null],
+        }),
+      },
+      tableName: "connections",
+    });
+    await expect(repository.reserveAndCreate(record)).rejects.toBeInstanceOf(
+      DuplicateProviderInstanceError,
+    );
+  });
 });

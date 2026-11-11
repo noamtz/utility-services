@@ -26,6 +26,7 @@ export default $config({
     const [
       { createApi },
       { createControlResources },
+      { createCommunicationGroupResources },
       { createDashboard },
       { createDownloadMeteringResources },
       { createFileManagementResources },
@@ -34,6 +35,7 @@ export default $config({
     ] = await Promise.all([
       import("./infra/api.js"),
       import("./infra/control.js"),
+      import("./infra/communication-groups.js"),
       import("./infra/dashboard.js"),
       import("./infra/download-metering.js"),
       import("./infra/file-management.js"),
@@ -41,6 +43,11 @@ export default $config({
       import("./infra/usage-pricing.js"),
     ]);
     const control = createControlResources({ production: $app.stage === "production" });
+    const communicationGroups = createCommunicationGroupResources({
+      communicationTable: control.communicationTable,
+      production: $app.stage === "production",
+      region: installation.region,
+    });
     const usagePricing = createUsagePricingResources({
       production: $app.stage === "production",
       installation,
@@ -81,6 +88,10 @@ export default $config({
           functionName: files.purge.nodes.function.apply((fn) => fn.name),
         },
         { id: "DownloadMetering", functionName: downloadMetering.processor.name },
+        {
+          id: "CommunicationGroupDirectoryRefresh",
+          functionName: communicationGroups.refresher.nodes.function.apply((fn) => fn.name),
+        },
         {
           id: "UsageFreshnessMonitor",
           functionName: usagePricing.freshnessMonitor.nodes.function.apply((fn) => fn.name),

@@ -45,6 +45,46 @@ export const CommunicationConnectionPathSchema = z
   .object({ projectId: PublicProjectIdSchema, connectionId: ConnectionIdSchema })
   .strict();
 
+export const GroupIdSchema = z.string().trim().min(1).max(256);
+export const GroupPresenceSchema = z.enum(["present", "unknown"]);
+export const GroupObservationReasonSchema = z.enum([
+  "confirmed-by-group-data",
+  "provider-error",
+  "incomplete-scan",
+  "missing-from-scan",
+  "unconfirmed-group-data",
+]);
+export const GroupDirectoryEntrySchema = z
+  .object({
+    groupId: GroupIdSchema,
+    presence: GroupPresenceSchema,
+    observedAt: z.iso.datetime({ offset: true }),
+    sourceObservedAt: z.iso.datetime({ offset: true }).nullable(),
+    scanComplete: z.boolean(),
+    knownRecordStartAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+export const GroupDirectoryQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    cursor: z.string().min(1).max(2048).optional(),
+  })
+  .strict();
+export const GroupDirectoryListSchema = z
+  .object({ items: z.array(GroupDirectoryEntrySchema), cursor: z.string().optional() })
+  .strict();
+export const GroupDirectoryListResponseSchema =
+  createSuccessEnvelopeSchema(GroupDirectoryListSchema);
+export const GroupEventSchema = GroupDirectoryEntrySchema.extend({
+  eventId: z.string().min(1).max(128),
+  reason: GroupObservationReasonSchema,
+}).strict();
+export const GroupEventListSchema = z
+  .object({ items: z.array(GroupEventSchema), cursor: z.string().optional() })
+  .strict();
+export const GroupEventListResponseSchema = createSuccessEnvelopeSchema(GroupEventListSchema);
+export const GroupEventPathSchema = z.object({ groupId: GroupIdSchema }).strict();
+
 export type CreateCommunicationConnectionRequest = z.infer<
   typeof CreateCommunicationConnectionRequestSchema
 >;
@@ -53,3 +93,5 @@ export type CommunicationConnectionPath = z.infer<typeof CommunicationConnection
 export type RotateCommunicationCredentialRequest = z.infer<
   typeof RotateCommunicationCredentialRequestSchema
 >;
+export type GroupDirectoryEntry = z.infer<typeof GroupDirectoryEntrySchema>;
+export type GroupDirectoryQuery = z.infer<typeof GroupDirectoryQuerySchema>;
