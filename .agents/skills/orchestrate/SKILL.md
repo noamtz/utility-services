@@ -59,7 +59,7 @@ Track the workstream as one unit. Do not recreate the internal `piv-deliver` sta
 
 ### Plan
 
-Plan always launches using astra unless the operator specifies otherwise.
+Plan always launches using sol unless the operator specifies otherwise.
 
 Use `piv-plan-implementation` when new work needs an implementation plan.
 
@@ -67,7 +67,7 @@ Expected result: a plan ready for operator approval. Do not begin implementation
 
 ### Investigate
 
-Investigate always launches using sol unless the operator specifies otherwise.
+Investigate always launches using luna unless the operator specifies otherwise.
 
 Use `piv-investigate-issue` when an issue or bug needs to be understood before changing the code.
 
@@ -75,7 +75,7 @@ Expected result: a root-cause report with supporting evidence and a recommended 
 
 ### Implement
 
-Implement always launches using astra unless the operator specifies otherwise.
+Implement always launches using sol unless the operator specifies otherwise.
 
 Use `piv-implement` when an approved plan is ready to build.
 
@@ -83,7 +83,7 @@ Expected result: a validated implementation, commit, and open pull request.
 
 ### Review
 
-Review always launches using Sol unless the operator specifies otherwise.
+Review always launches using luna unless the operator specifies otherwise.
 
 Use `piv-review-pr` when an open pull request is ready for independent review.
 
